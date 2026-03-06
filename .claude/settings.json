@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install ts-morph simple-git)",
+      "Bash(npm create vite@latest frontend -- --template vue-ts)",
+      "Bash(npm install)",
+      "Bash(npm install element-plus @element-plus/icons-vue pinia vue-router axios @antv/g6)",
+      "Bash(nc -zv 10.6.68.242 5432)",
+      "Bash(nc -zv 10.6.68.242 6379)",
+      "Bash(nc -zv 10.6.68.242 7687)",
+      "Bash(curl -s http://localhost:3000/api)",
+      "Bash(pgrep -fl \"node\")",
+      "Bash(npm run start:dev)",
+      "Bash(pkill -f \"nest start\")",
+      "Bash(PGPASSWORD='Bestfls!adms4' psql -h 10.6.68.242 -U root -d postgres -c \"SELECT version\\(\\);\")",
+      "Bash(PGPASSWORD='Bestfls!adms4' psql -h 10.6.68.242 -U postgres -d postgres -c \"SELECT version\\(\\);\")",
+      "Bash(lsof -ti:3000)",
+      "Bash(xargs kill -9)",
+      "Bash(redis-server --daemonize yes)",
+      "Bash(brew services list)",
+      "Bash(brew install redis)",
+      "Bash(brew services start redis)",
+      "Bash(redis-cli ping)",
+      "Bash(curl 'http://localhost:3000/api/projects/f0f7ddbe-0cea-40a7-a032-171c8c61a0af/analyze' -X 'POST' -H 'Accept: application/json, text/plain, */*' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxNGM5ZTNjMy04YTY5LTRmMDEtOTkxNy1iZTVkMzM4N2QwZmIiLCJlbWFpbCI6InBlbmdAMTIzLmNvbSIsImlhdCI6MTc3MjY5Mjg2NiwiZXhwIjoxNzczMjk3NjY2fQ.jfXyRI8yE6aqNrlNagQdBH8X3s0ekYHQK-fa7zH8ako' -H 'Content-Type: application/json')",
+      "Bash(curl -s 'http://localhost:3000/api/projects/f0f7ddbe-0cea-40a7-a032-171c8c61a0af/analyze' -X 'POST' -H 'Accept: application/json, text/plain, */*' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxNGM5ZTNjMy04YTY5LTRmMDEtOTkxNy1iZTVkMzM4N2QwZmIiLCJlbWFpbCI6InBlbmdAMTIzLmNvbSIsImlhdCI6MTc3MjY5Mjg2NiwiZXhwIjoxNzczMjk3NjY2fQ.jfXyRI8yE6aqNrlNagQdBH8X3s0ekYHQK-fa7zH8ako' -H 'Content-Type: application/json')",
+      "Bash(curl -s --max-time 10 'http://localhost:3000/api/projects/f0f7ddbe-0cea-40a7-a032-171c8c61a0af/analyze' -X 'POST' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxNGM5ZTNjMy04YTY5LTRmMDEtOTkxNy1iZTVkMzM4N2QwZmIiLCJlbWFpbCI6InBlbmdAMTIzLmNvbSIsImlhdCI6MTc3MjY5Mjg2NiwiZXhwIjoxNzczMjk3NjY2fQ.jfXyRI8yE6aqNrlNagQdBH8X3s0ekYHQK-fa7zH8ako' -H 'Content-Type: application/json')",
+      "Bash(lsof -i :3000)",
+      "Bash(curl -v --max-time 15 'http://localhost:3000/api/projects/f0f7ddbe-0cea-40a7-a032-171c8c61a0af/analyze' -X 'POST' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxNGM5ZTNjMy04YTY5LTRmMDEtOTkxNy1iZTVkMzM4N2QwZmIiLCJlbWFpbCI6InBlbmdAMTIzLmNvbSIsImlhdCI6MTc3MjY5Mjg2NiwiZXhwIjoxNzczMjk3NjY2fQ.jfXyRI8yE6aqNrlNagQdBH8X3s0ekYHQK-fa7zH8ako' -H 'Content-Type: application/json')",
+      "Bash(pg_isready)",
+      "Bash(psql -U postgres -c \"SELECT 1\")",
+      "Bash(nc -zv -w 3 10.6.68.242 5432)",
+      "Bash(nc -zv -w 3 10.6.68.242 6379)",
+      "Bash(PGPASSWORD=P@ssw0rd psql -h 10.6.68.242 -U analysis_user -d codegraph -c \"SELECT id, name, status, user_id FROM projects WHERE id = ''f0f7ddbe-0cea-40a7-a032-171c8c61a0af'';\")",
+      "Bash(PGPASSWORD=P@ssw0rd psql -h 10.6.68.242 -U analysis_user -d codegraph -c \"SELECT id, name, provider, repo_url, branch FROM repositories WHERE project_id = ''f0f7ddbe-0cea-40a7-a032-171c8c61a0af'';\")",
+      "Bash(PGPASSWORD=P@ssw0rd psql -h 10.6.68.242 -U analysis_user -d codegraph -c \"\\\\d repositories\")",
+      "Bash(PGPASSWORD=P@ssw0rd psql -h 10.6.68.242 -U analysis_user -d codegraph -c \"SELECT * FROM repositories WHERE project_id = ''f0f7ddbe-0cea-40a7-a032-171c8c61a0af'';\")",
+      "Bash(redis-cli -h 10.6.68.242 -p 6379 ping)",
+      "Bash(redis-cli -h 10.6.68.242 -p 6379 -a \"\" INFO server)"
+    ]
+  }
+}
