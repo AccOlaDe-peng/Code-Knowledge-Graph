@@ -11,18 +11,28 @@
     <div v-loading="loading" class="graph-container-wrapper">
       <div class="graph-header">
         <h1 class="graph-title">代码依赖图谱</h1>
-        <div class="graph-legend">
-          <div class="legend-item">
-            <span class="legend-dot" style="background: var(--color-primary);"></span>
-            <span class="legend-label">文件 (File)</span>
+        <div class="graph-header-right">
+          <div v-if="nodeStats.total > 0" class="node-stats">
+            <span v-if="nodeStats.showing < nodeStats.total" class="stats-warning">
+              显示 {{ nodeStats.showing }} / {{ nodeStats.total }} 个节点（按连接数取前 {{ MAX_NODES }} 个）
+            </span>
+            <span v-else class="stats-info">
+              共 {{ nodeStats.total }} 个节点，{{ nodeStats.edges }} 条依赖关系
+            </span>
           </div>
-          <div class="legend-item">
-            <span class="legend-dot" style="background: var(--color-success);"></span>
-            <span class="legend-label">函数 (Function)</span>
-          </div>
-          <div class="legend-item">
-            <span class="legend-dot" style="background: var(--color-warning);"></span>
-            <span class="legend-label">类 (Class)</span>
+          <div class="graph-legend">
+            <div class="legend-item">
+              <span class="legend-dot" style="background: var(--color-primary);"></span>
+              <span class="legend-label">文件</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-dot" style="background: var(--color-success);"></span>
+              <span class="legend-label">函数</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-dot" style="background: var(--color-warning);"></span>
+              <span class="legend-label">类</span>
+            </div>
           </div>
         </div>
       </div>
@@ -64,14 +74,17 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import G6, { Graph } from '@antv/g6'
+import { Graph } from '@antv/g6'
 import { graphApi } from '../api/graph'
 
 const route = useRoute()
 const router = useRouter()
 
+const MAX_NODES = 150
+
 const loading = ref(false)
 const containerRef = ref<HTMLDivElement>()
+const nodeStats = ref({ total: 0, showing: 0, edges: 0 })
 let graph: Graph | null = null
 
 const goBack = () => {
@@ -79,14 +92,53 @@ const goBack = () => {
   router.push(`/projects/${projectId}`)
 }
 
+const transformGraphData = (rawData: Array<{ file: string; imports: string[] }>) => {
+  // 计算每个节点的度（连接数），按度排序后取 Top N
+  const degreeMap = new Map<string, number>()
+  const allEdges: Array<{ source: string; target: string; type: string }> = []
+
+  for (const item of rawData) {
+    degreeMap.set(item.file, (degreeMap.get(item.file) || 0))
+    for (const imp of item.imports) {
+      degreeMap.set(item.file, (degreeMap.get(item.file) || 0) + 1)
+      degreeMap.set(imp, (degreeMap.get(imp) || 0) + 1)
+      allEdges.push({ source: item.file, target: imp, type: 'imports' })
+    }
+  }
+
+  const totalNodes = degreeMap.size
+
+  // 按连接数降序取 Top MAX_NODES
+  const topNodes = Array.from(degreeMap.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, MAX_NODES)
+    .map(([filePath]) => filePath)
+
+  const nodeSet = new Set(topNodes)
+
+  // 只保留两端节点都在 nodeSet 中的边
+  const edges = allEdges.filter(e => nodeSet.has(e.source) && nodeSet.has(e.target))
+
+  const nodes = topNodes.map(filePath => ({
+    id: filePath,
+    label: filePath.split('/').pop() || filePath,
+    type: 'file'
+  }))
+
+  nodeStats.value = { total: totalNodes, showing: nodes.length, edges: edges.length }
+
+  return { nodes, edges }
+}
+
 const loadGraphData = async () => {
   loading.value = true
   try {
     const projectId = route.params.id as string
     const response = await graphApi.getProjectDependencies(projectId)
-    const data = response.data
+    const rawData = response.data
 
-    initGraph(data)
+    const data = Array.isArray(rawData) ? transformGraphData(rawData) : rawData
+    await initGraph(data)
   } catch (error: any) {
     ElMessage.error(error.response?.data?.message || '加载图谱数据失败')
   } finally {
@@ -94,115 +146,72 @@ const loadGraphData = async () => {
   }
 }
 
-const initGraph = (data: any) => {
+const initGraph = async (data: any) => {
   if (!containerRef.value) return
 
-  const width = containerRef.value.offsetWidth
+  const width = containerRef.value.offsetWidth || 800
   const height = 650
 
-  // 根据节点类型设置颜色
   const nodeColorMap: Record<string, string> = {
     file: '#58a6ff',
     function: '#3fb950',
     class: '#d29922'
   }
 
-  // 处理节点数据，添加颜色
-  const processedData = {
-    nodes: data.nodes.map((node: any) => ({
-      ...node,
-      style: {
-        fill: nodeColorMap[node.type] || '#58a6ff',
-        stroke: nodeColorMap[node.type] || '#58a6ff'
-      }
-    })),
-    edges: data.edges
-  }
+  const nodeCount = data.nodes.length
 
-  graph = new G6.Graph({
+  graph = new Graph({
     container: containerRef.value,
     width,
     height,
-    modes: {
-      default: ['drag-canvas', 'zoom-canvas', 'drag-node']
+    autoFit: 'view',
+    animation: false,
+    data: {
+      nodes: data.nodes.map((node: any) => ({
+        id: node.id,
+        data: { label: node.label, nodeType: node.type }
+      })),
+      edges: data.edges.map((edge: any, i: number) => ({
+        id: `e${i}-${edge.source}-${edge.target}`.slice(0, 64),
+        source: edge.source,
+        target: edge.target,
+        data: { edgeType: edge.type }
+      }))
     },
-    layout: {
-      type: 'force',
-      preventOverlap: true,
-      linkDistance: 150,
-      nodeStrength: -300,
-      edgeStrength: 0.6,
-      collideStrength: 0.8
+    node: {
+      style: (d: any) => ({
+        size: 32,
+        fill: nodeColorMap[d.data?.nodeType] || '#58a6ff',
+        stroke: nodeColorMap[d.data?.nodeType] || '#58a6ff',
+        lineWidth: 2,
+        labelText: d.data?.label || d.id,
+        labelFill: '#e6edf3',
+        labelFontSize: 11,
+        labelPlacement: 'bottom',
+        labelOffsetY: 4
+      })
     },
-    defaultNode: {
-      size: 40,
+    edge: {
       style: {
-        lineWidth: 2
-      },
-      labelCfg: {
-        style: {
-          fill: '#e6edf3',
-          fontSize: 12,
-          fontFamily: 'var(--font-sans)'
-        },
-        position: 'bottom',
-        offset: 10
+        stroke: '#484f58',
+        lineWidth: 1,
+        endArrow: true,
+        endArrowFill: '#484f58'
       }
     },
-    defaultEdge: {
-      style: {
-        stroke: '#30363d',
-        lineWidth: 1.5,
-        endArrow: {
-          path: G6.Arrow.triangle(8, 10, 0),
-          fill: '#30363d'
-        }
-      },
-      labelCfg: {
-        autoRotate: true,
-        style: {
-          fill: '#8b949e',
-          fontSize: 10
-        }
-      }
-    },
-    nodeStateStyles: {
-      hover: {
-        lineWidth: 3,
-        shadowColor: 'rgba(88, 166, 255, 0.5)',
-        shadowBlur: 10
-      },
-      selected: {
-        lineWidth: 3,
-        shadowColor: 'rgba(88, 166, 255, 0.8)',
-        shadowBlur: 15
-      }
-    }
+    // 节点少用 force，多用 dagre（拓扑排序，渲染更快）
+    layout: nodeCount <= 50
+      ? { type: 'force', preventOverlap: true, linkDistance: 120, nodeStrength: -200 }
+      : { type: 'dagre', rankdir: 'LR', nodesep: 16, ranksep: 60, controlPoints: false },
+    behaviors: ['drag-canvas', 'zoom-canvas', 'drag-element'],
   })
 
-  graph.data(processedData)
-  graph.render()
+  await graph.render()
 
-  graph.on('node:mouseenter', (evt) => {
-    const { item } = evt
-    if (item) {
-      graph?.setItemState(item, 'hover', true)
-    }
-  })
-
-  graph.on('node:mouseleave', (evt) => {
-    const { item } = evt
-    if (item) {
-      graph?.setItemState(item, 'hover', false)
-    }
-  })
-
-  graph.on('node:click', (evt) => {
-    const { item } = evt
-    if (item) {
-      const model = item.getModel()
-      ElMessage.info(`节点: ${model.label} (${model.type})`)
-    }
+  graph.on('node:click', (evt: any) => {
+    const nodeData = evt.target?.data || {}
+    const nodeId = evt.target?.id || ''
+    ElMessage.info(`节点: ${nodeData.label || nodeId} (${nodeData.nodeType || 'file'})`)
   })
 }
 
@@ -211,18 +220,18 @@ const fitView = () => {
 }
 
 const zoomIn = () => {
-  const currentZoom = graph?.getZoom() || 1
-  graph?.zoomTo(currentZoom * 1.2)
+  const currentZoom = graph?.getZoom() ?? 1
+  graph?.zoomTo(currentZoom * 1.2, undefined, { duration: 200 })
 }
 
 const zoomOut = () => {
-  const currentZoom = graph?.getZoom() || 1
-  graph?.zoomTo(currentZoom * 0.8)
+  const currentZoom = graph?.getZoom() ?? 1
+  graph?.zoomTo(currentZoom * 0.8, undefined, { duration: 200 })
 }
 
 const resetZoom = () => {
-  graph?.zoomTo(1)
-  graph?.fitCenter()
+  graph?.zoomTo(1, undefined, { duration: 200 })
+  graph?.fitView()
 }
 
 onMounted(() => {
@@ -290,6 +299,25 @@ onBeforeUnmount(() => {
   color: var(--text-primary);
   margin: 0;
   font-family: var(--font-mono);
+}
+
+.graph-header-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.node-stats {
+  font-size: 12px;
+}
+
+.stats-warning {
+  color: var(--color-warning, #d29922);
+}
+
+.stats-info {
+  color: var(--text-tertiary);
 }
 
 .graph-legend {
