@@ -11,6 +11,8 @@ import { AnalysisTask, AnalysisTaskStatus } from '../analysis/analysis-task.enti
 import { AnalysisService } from '../analysis/analysis.service';
 import { CodeAnalyzerService, FileNode } from './code-analyzer.service';
 import { GraphService } from '../graph/graph.service';
+import { AiService } from '../ai/ai.service';
+import { AiAnalysisType } from '../ai/entities/ai-analysis.entity';
 
 @Injectable()
 export class WorkerService {
@@ -25,8 +27,11 @@ export class WorkerService {
     private analysisService: AnalysisService,
     private codeAnalyzerService: CodeAnalyzerService,
     private graphService: GraphService,
+    private aiService: AiService,
     @InjectQueue('analysis')
     private analysisQueue: Queue,
+    @InjectQueue('ai-analysis')
+    private aiAnalysisQueue: Queue,
   ) {
     this.git = simpleGit();
   }
@@ -78,6 +83,38 @@ export class WorkerService {
       await this.graphService.writeProjectGraph(projectId, fileNodes);
 
       this.logger.log(`Graph data written to Neo4j`);
+
+      // 【新增】触发 AI 分析（如果用户配置了 API Key）
+      try {
+        const task = await this.analysisTaskRepository.findOne({
+          where: { id: taskId },
+          relations: ['project', 'project.user'],
+        });
+
+        if (task && task.project && task.project.userId) {
+          const userId = task.project.userId;
+          const hasApiKey = await this.aiService.userHasApiKey(userId);
+
+          if (hasApiKey) {
+            this.logger.log(`Triggering AI analysis for project ${projectId}`);
+            await this.aiAnalysisQueue.add('analyze-project-ai', {
+              projectId,
+              userId,
+              fileNodes: fileNodes.slice(0, 10), // 限制分析文件数量
+              analysisTypes: [
+                AiAnalysisType.CODE_SUMMARY,
+                AiAnalysisType.RISK_ANALYSIS,
+                AiAnalysisType.TECH_DEBT,
+              ],
+            });
+          } else {
+            this.logger.log(`User ${userId} has no active API key, skipping AI analysis`);
+          }
+        }
+      } catch (error) {
+        this.logger.warn(`Failed to trigger AI analysis: ${error.message}`);
+        // AI 分析失败不影响主流程
+      }
 
       await this.analysisService.updateStatus(
         taskId,

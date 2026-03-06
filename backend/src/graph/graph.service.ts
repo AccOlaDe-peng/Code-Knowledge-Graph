@@ -23,7 +23,6 @@ export class GraphService implements OnModuleDestroy {
         trust: 'TRUST_ALL_CERTIFICATES',
       });
 
-      // 验证连接
       this.driver.verifyConnectivity()
         .then(() => {
           this.logger.log('Neo4j connection verified successfully');
@@ -45,7 +44,7 @@ export class GraphService implements OnModuleDestroy {
     }
   }
 
-  private getSession(): Session {
+  getSession(): Session {
     if (!this.driver) {
       throw new Error('Neo4j driver not initialized');
     }
@@ -85,13 +84,19 @@ export class GraphService implements OnModuleDestroy {
       `
       MATCH (p:Project {id: $projectId})
       MERGE (f:File {projectId: $projectId, path: $filePath})
-      SET f.exports = $exports
+      SET f.exports = $exports,
+          f.dataRole = $dataRole,
+          f.layer = $layer,
+          f.codeType = $codeType
       MERGE (p)-[:CONTAINS]->(f)
       `,
       {
         projectId,
         filePath: fileNode.filePath,
         exports: fileNode.exports,
+        dataRole: fileNode.dataRole || 'unknown',
+        layer: fileNode.layer || 'unknown',
+        codeType: fileNode.codeType || 'unknown',
       },
     );
 
@@ -111,11 +116,13 @@ export class GraphService implements OnModuleDestroy {
     }
 
     for (const func of fileNode.functions) {
+      const endpoint = (fileNode.httpEndpoints || []).find(e => e.handler === func.name);
       await session.run(
         `
         MATCH (f:File {projectId: $projectId, path: $filePath})
         MERGE (fn:Function {projectId: $projectId, filePath: $filePath, name: $name})
-        SET fn.line = $line, fn.calls = $calls
+        SET fn.line = $line, fn.calls = $calls,
+            fn.httpMethod = $httpMethod, fn.httpPath = $httpPath
         MERGE (f)-[:CONTAINS]->(fn)
         `,
         {
@@ -124,6 +131,8 @@ export class GraphService implements OnModuleDestroy {
           name: func.name,
           line: func.line,
           calls: func.calls,
+          httpMethod: endpoint?.method || null,
+          httpPath: endpoint?.path || null,
         },
       );
     }
@@ -253,6 +262,117 @@ export class GraphService implements OnModuleDestroy {
         line: record.get('line'),
         calls: record.get('calls'),
       };
+    } finally {
+      await session.close();
+    }
+  }
+
+  async getDataLineageGraph(projectId: string) {
+    const session = this.getSession();
+
+    try {
+      const result = await session.run(
+        `
+        MATCH (p:Project {id: $projectId})-[:CONTAINS]->(f:File)
+        OPTIONAL MATCH (f)-[:IMPORTS]->(imported:File {projectId: $projectId})
+        RETURN f.path AS id,
+               COALESCE(f.dataRole, 'unknown') AS dataRole,
+               collect(imported.path) AS importedPaths
+        `,
+        { projectId },
+      );
+
+      const nodes: Array<{ id: string; label: string; dataRole: string }> = [];
+      const edges: Array<{ id: string; source: string; target: string }> = [];
+      const seenEdges = new Set<string>();
+
+      for (const record of result.records) {
+        const id = record.get('id') as string;
+        if (!id) continue;
+        nodes.push({
+          id,
+          label: id.split('/').pop() || id,
+          dataRole: record.get('dataRole') as string,
+        });
+
+        const importedPaths = record.get('importedPaths') as string[];
+        for (const target of importedPaths) {
+          if (target) {
+            const edgeKey = `${id}->${target}`;
+            if (!seenEdges.has(edgeKey)) {
+              seenEdges.add(edgeKey);
+              edges.push({ id: edgeKey.slice(0, 64), source: id, target });
+            }
+          }
+        }
+      }
+
+      return { nodes, edges };
+    } finally {
+      await session.close();
+    }
+  }
+
+  async getBusinessFlowGraph(projectId: string) {
+    const session = this.getSession();
+
+    try {
+      const result = await session.run(
+        `
+        MATCH (p:Project {id: $projectId})-[:CONTAINS]->(f:File)
+        WHERE f.layer IS NOT NULL AND f.layer <> 'unknown'
+          AND (f.codeType IS NULL OR f.codeType <> 'frontend')
+        OPTIONAL MATCH (f)-[:IMPORTS]->(imported:File {projectId: $projectId})
+          WHERE imported.layer IS NOT NULL AND imported.layer <> 'unknown'
+            AND (imported.codeType IS NULL OR imported.codeType <> 'frontend')
+        OPTIONAL MATCH (f)-[:CONTAINS]->(fn:Function)
+          WHERE fn.httpMethod IS NOT NULL
+        RETURN f.path AS id,
+               f.layer AS layer,
+               collect(DISTINCT imported.path) AS importedPaths,
+               collect(DISTINCT {method: fn.httpMethod, path: fn.httpPath, handler: fn.name}) AS endpoints
+        `,
+        { projectId },
+      );
+
+      const nodes: Array<{
+        id: string;
+        label: string;
+        layer: string;
+        endpoints: Array<{ method: string; path: string; handler: string }>;
+      }> = [];
+      const edges: Array<{ id: string; source: string; target: string }> = [];
+      const seenEdges = new Set<string>();
+
+      for (const record of result.records) {
+        const id = record.get('id') as string;
+        if (!id) continue;
+
+        const rawEndpoints = record.get('endpoints') as Array<Record<string, string>> || [];
+        const endpoints = rawEndpoints
+          .filter(e => e && e.method)
+          .map(e => ({ method: e.method, path: e.path || '/', handler: e.handler || '' }));
+
+        nodes.push({
+          id,
+          label: id.split('/').pop() || id,
+          layer: record.get('layer') as string,
+          endpoints,
+        });
+
+        const importedPaths = record.get('importedPaths') as string[];
+        for (const target of importedPaths) {
+          if (target) {
+            const edgeKey = `${id}->${target}`;
+            if (!seenEdges.has(edgeKey)) {
+              seenEdges.add(edgeKey);
+              edges.push({ id: edgeKey.slice(0, 64), source: id, target });
+            }
+          }
+        }
+      }
+
+      return { nodes, edges };
     } finally {
       await session.close();
     }

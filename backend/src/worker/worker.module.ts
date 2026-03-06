@@ -8,6 +8,7 @@ import { Repository } from '../repository/repository.entity';
 import { AnalysisTask } from '../analysis/analysis-task.entity';
 import { AnalysisModule } from '../analysis/analysis.module';
 import { GraphModule } from '../graph/graph.module';
+import { AiModule } from '../ai/ai.module';
 
 @Module({
   imports: [
@@ -30,8 +31,12 @@ import { GraphModule } from '../graph/graph.module';
         },
       }),
     }),
+    BullModule.registerQueue({
+      name: 'ai-analysis',
+    }),
     forwardRef(() => AnalysisModule),
     GraphModule,
+    AiModule,
   ],
   providers: [WorkerService, CodeAnalyzerService],
   exports: [WorkerService, CodeAnalyzerService],

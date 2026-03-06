@@ -37,6 +37,31 @@ const routes: RouteRecordRaw[] = [
         path: 'projects/:id/graph',
         name: 'GraphView',
         component: () => import('../views/GraphView.vue')
+      },
+      {
+        path: 'ai/settings',
+        name: 'AiSettings',
+        component: () => import('../views/AiSettingsView.vue')
+      },
+      {
+        path: 'projects/:id/ai-analysis',
+        name: 'AiAnalysis',
+        component: () => import('../views/AiAnalysisView.vue')
+      },
+      {
+        path: 'projects/:id/data-lineage',
+        name: 'DataLineage',
+        component: () => import('../views/DataLineageView.vue')
+      },
+      {
+        path: 'projects/:id/semantic-graph',
+        name: 'SemanticGraph',
+        component: () => import('../views/SemanticGraphView.vue')
+      },
+      {
+        path: 'projects/:id/business-flow',
+        name: 'BusinessFlow',
+        component: () => import('../views/BusinessFlowView.vue')
       }
     ]
   }

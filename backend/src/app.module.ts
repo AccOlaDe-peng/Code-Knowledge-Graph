@@ -10,6 +10,7 @@ import { RepositoryModule } from './repository/repository.module';
 import { AnalysisModule } from './analysis/analysis.module';
 import { WorkerModule } from './worker/worker.module';
 import { GraphModule } from './graph/graph.module';
+import { AiModule } from './ai/ai.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { GraphModule } from './graph/graph.module';
     AnalysisModule,
     WorkerModule,
     GraphModule,
+    AiModule,
   ],
   controllers: [AppController],
   providers: [AppService],

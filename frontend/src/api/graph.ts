@@ -32,5 +32,28 @@ export const graphApi = {
 
   getFunctionCallChain: (projectId: string, functionName: string) => {
     return api.get<any>(`/graph/projects/${projectId}/functions/${functionName}/call-chain`)
+  },
+
+  getDataLineage: (projectId: string) => {
+    return api.get<{
+      nodes: Array<{ id: string; label: string; dataRole: string }>
+      edges: Array<{ id: string; source: string; target: string }>
+    }>(`/graph/projects/${projectId}/data-lineage`)
+  },
+
+  getBusinessFlow: (projectId: string) => {
+    return api.get<{
+      nodes: Array<{ id: string; label: string; layer: string; endpoints: Array<{ method: string; path: string; handler: string }> }>
+      edges: Array<{ id: string; source: string; target: string }>
+    }>(`/graph/projects/${projectId}/business-flow`)
+  },
+
+  getSemanticGraph: (projectId: string) => {
+    return api.get<{
+      hasAiData: boolean
+      domains: Array<{ name: string; color: string; fileCount: number }>
+      nodes: Array<{ id: string; label: string; nodeType: 'domain' | 'file'; color: string }>
+      edges: Array<{ id: string; source: string; target: string; edgeType: string }>
+    }>(`/graph/projects/${projectId}/semantic-graph`)
   }
 }

@@ -1,0 +1,9 @@
+{
+  "summary": "PostCSS 配置文件，用于配置 CSS 处理插件，通常包含 Tailwind CSS 和 Autoprefixer 等插件配置。",
+  "businessLogic": "作为构建工具链的一部分，定义 CSS 后处理流程：通过插件链对 CSS 进行转换，如自动添加浏览器前缀、处理 Tailwind 工具类等，无核心业务逻辑，属于纯工程配置。",
+  "keyComponents": [],
+  "designPatterns": [
+    "Plugin Pattern（插件模式）：通过插件列表扩展 PostCSS 功能",
+    "Configuration Object Pattern（配置对象模式）：以 CommonJS module.exports 导出配置对象供构建工具读取"
+  ]
+}
