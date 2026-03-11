@@ -1,331 +1,549 @@
 """
 依赖分析器模块。
 
-分析代码仓库的依赖关系，包括：
-1. 包管理器依赖（requirements.txt / package.json / go.mod / Cargo.toml）
-2. 第三方库使用分析
-3. 内部模块依赖图（基于已有 IMPORTS 边的拓扑分析）
-4. 循环依赖检测
+识别两类依赖关系：
 
-生成 DEPENDS_ON 类型的边连接仓库/模块到外部依赖。
+1. 模块依赖 (Module depends_on Module)
+   来源：各语言 import 语句 → 解析到内部模块路径 → 建立 depends_on 边
+
+2. 服务依赖 (Service depends_on Service)
+   来源：构造函数参数的类型注解（依赖注入模式）
+       class OrderService:
+           def __init__(self, user_svc: UserService)  →  Order depends_on User
+   辅助：import 语句中服务文件互相导入
+
+附加：
+   循环依赖检测（DFS）记录在 DependencyGraph.circular_deps
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import re
+from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
-from backend.graph.schema import EdgeBase, EdgeType, InfrastructureNode, InfraType, ModuleNode
+from backend.analyzer.component_detector import ComponentGraph
+from backend.analyzer.module_detector import ModuleGraph
+from backend.graph.graph_schema import EdgeType, GraphEdge, GraphNode
+from backend.parser.code_parser import ParsedFile, ParseResult
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class ExternalDependency:
-    """外部依赖信息。"""
-
-    name: str
-    """依赖包名"""
-
-    version: Optional[str] = None
-    """版本约束字符串"""
-
-    ecosystem: str = "pypi"
-    """包生态系统: pypi | npm | maven | cargo | go"""
-
-    is_dev: bool = False
-    """是否为开发依赖"""
-
-    extras: list[str] = field(default_factory=list)
-    """额外特性（如 fastapi[all]）"""
+# ---------------------------------------------------------------------------
+# Output container
+# ---------------------------------------------------------------------------
 
 
 @dataclass
-class DependencyReport:
-    """依赖分析报告。"""
+class DependencyGraph:
+    """DependencyAnalyzer.analyze() 的完整输出。
 
-    external_deps: list[ExternalDependency] = field(default_factory=list)
-    """外部依赖列表"""
+    Attributes:
+        module_deps:   Module  --depends_on-->  Module
+        service_deps:  Service --depends_on-->  Service
+        circular_deps: 循环依赖链（各链为 module 名称列表，仅用于报告）
+    """
 
+    module_deps: list[GraphEdge] = field(default_factory=list)
+    service_deps: list[GraphEdge] = field(default_factory=list)
     circular_deps: list[list[str]] = field(default_factory=list)
-    """循环依赖链（模块路径列表）"""
 
-    unused_imports: list[str] = field(default_factory=list)
-    """疑似未使用的导入"""
+    @property
+    def edges(self) -> list[GraphEdge]:
+        return self.module_deps + self.service_deps
 
-    dep_stats: dict[str, int] = field(default_factory=dict)
-    """各生态系统依赖数量"""
+    @property
+    def stats(self) -> dict[str, int]:
+        return {
+            "module_deps":   len(self.module_deps),
+            "service_deps":  len(self.service_deps),
+            "circular_deps": len(self.circular_deps),
+            "total_edges":   len(self.edges),
+        }
+
+
+# ---------------------------------------------------------------------------
+# DependencyAnalyzer
+# ---------------------------------------------------------------------------
 
 
 class DependencyAnalyzer:
     """
     依赖关系分析器。
 
-    读取各种包管理器的配置文件，提取外部依赖信息；
-    同时分析内部模块图，检测循环依赖。
+    接收 ModuleGraph（目录结构）、ComponentGraph（组件/服务节点）
+    和 ParseResult（import + 构造函数信息），输出 DependencyGraph。
 
     示例::
 
-        analyzer = DependencyAnalyzer("/path/to/repo")
-        report, infra_nodes, edges = analyzer.analyze(module_nodes)
+        analyzer = DependencyAnalyzer(repo_root)
+        dep_graph = analyzer.analyze(module_graph, component_graph, parsed_result)
+        print(dep_graph.stats)
     """
 
-    def __init__(self, repo_root: str) -> None:
-        """
-        初始化依赖分析器。
+    def __init__(self, repo_root: str | Path) -> None:
+        self.repo_root = Path(repo_root).resolve()
 
-        Args:
-            repo_root: 仓库根目录路径
-        """
-        self.repo_root = Path(repo_root)
+    # ------------------------------------------------------------------
+    # Public
+    # ------------------------------------------------------------------
 
     def analyze(
         self,
-        module_nodes: dict[str, ModuleNode],
-        import_edges: Optional[list[EdgeBase]] = None,
-    ) -> tuple[DependencyReport, list[InfrastructureNode], list[EdgeBase]]:
-        """
-        执行依赖分析。
+        module_graph: ModuleGraph,
+        component_graph: ComponentGraph,
+        parsed_result: ParseResult,
+    ) -> DependencyGraph:
+        """执行依赖分析。
 
         Args:
-            module_nodes: 文件路径 -> 模块节点的映射
-            import_edges: 已有的 IMPORTS 边（用于循环依赖检测）
+            module_graph:     ModuleDetector 输出，含 Module / File 节点。
+            component_graph:  ComponentDetector 输出，含 Component 节点。
+            parsed_result:    CodeParser 输出，含 ParsedFile（imports + classes）。
 
         Returns:
-            (依赖报告, 基础设施节点列表, 新增边列表) 三元组
+            DependencyGraph，含 module_deps / service_deps / circular_deps。
         """
-        report = DependencyReport()
-        infra_nodes: list[InfrastructureNode] = []
-        new_edges: list[EdgeBase] = []
+        dep_graph = DependencyGraph()
+        seen_mod: set[tuple[str, str]] = set()
+        seen_svc: set[tuple[str, str]] = set()
 
-        # 扫描包管理器文件
-        ext_deps = self._scan_package_files()
-        report.external_deps = ext_deps
+        # 预建索引
+        file_to_module = self._build_file_to_module(module_graph)
 
-        # 为外部依赖创建基础设施节点
-        for dep in ext_deps:
-            node = self._dep_to_infra_node(dep)
-            infra_nodes.append(node)
-            # 将仓库根节点与依赖关联（此处暂以模块为代理）
-            report.dep_stats[dep.ecosystem] = report.dep_stats.get(dep.ecosystem, 0) + 1
+        for pf in parsed_result.files:
+            # ── 1. Module → Module（从 import 语句）──
+            self._detect_module_deps(
+                pf, file_to_module, module_graph, dep_graph, seen_mod
+            )
+            # ── 2. Service → Service（从构造函数注解）──
+            self._detect_service_deps_from_ctor(
+                pf, component_graph, dep_graph, seen_svc
+            )
 
-        # 检测循环依赖
-        if import_edges:
-            cycles = self._detect_cycles(module_nodes, import_edges)
-            report.circular_deps = cycles
-            if cycles:
-                logger.warning(f"检测到 {len(cycles)} 个循环依赖")
+        # ── 3. Service → Service（从 import 路径推断）──
+        self._detect_service_deps_from_imports(
+            parsed_result, module_graph, component_graph,
+            file_to_module, dep_graph, seen_svc,
+        )
+
+        # ── 4. 循环依赖检测 ──
+        dep_graph.circular_deps = self._detect_cycles(
+            module_graph, dep_graph.module_deps
+        )
+        if dep_graph.circular_deps:
+            logger.warning("检测到 %d 个循环依赖", len(dep_graph.circular_deps))
 
         logger.info(
-            f"依赖分析完成: {len(ext_deps)} 个外部依赖, "
-            f"{len(report.circular_deps)} 个循环依赖"
+            "依赖分析完成: module_deps=%d service_deps=%d circular=%d",
+            len(dep_graph.module_deps),
+            len(dep_graph.service_deps),
+            len(dep_graph.circular_deps),
         )
-        return report, infra_nodes, new_edges
+        return dep_graph
 
-    def _scan_package_files(self) -> list[ExternalDependency]:
-        """扫描并解析各类包管理器文件。"""
-        deps: list[ExternalDependency] = []
+    # ------------------------------------------------------------------
+    # Module → Module dependencies (from imports)
+    # ------------------------------------------------------------------
 
-        parsers = [
-            ("requirements.txt", self._parse_requirements),
-            ("requirements-dev.txt", self._parse_requirements_dev),
-            ("pyproject.toml", self._parse_pyproject),
-            ("package.json", self._parse_package_json),
-            ("go.mod", self._parse_go_mod),
-            ("Cargo.toml", self._parse_cargo_toml),
-            ("pom.xml", self._parse_pom_xml),
-        ]
+    def _detect_module_deps(
+        self,
+        pf: ParsedFile,
+        file_to_module: dict[str, GraphNode],
+        module_graph: ModuleGraph,
+        dep_graph: DependencyGraph,
+        seen: set[tuple[str, str]],
+    ) -> None:
+        source_mod = file_to_module.get(pf.file_path)
+        if source_mod is None:
+            return
 
-        for filename, parser in parsers:
-            filepath = self.repo_root / filename
-            if filepath.exists():
-                try:
-                    file_deps = parser(filepath)
-                    deps.extend(file_deps)
-                    logger.debug(f"从 {filename} 解析到 {len(file_deps)} 个依赖")
-                except Exception as e:
-                    logger.warning(f"解析 {filename} 失败: {e}")
-
-        return deps
-
-    def _parse_requirements(self, path: Path) -> list[ExternalDependency]:
-        """解析 requirements.txt 格式文件。"""
-        deps: list[ExternalDependency] = []
-        for line in path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or line.startswith("-r"):
+        for imp in pf.imports:
+            target_mod = self._resolve_import_to_module(
+                imp.module, pf.language, pf.file_path, module_graph
+            )
+            if target_mod is None or target_mod.id == source_mod.id:
                 continue
-            # 去除 URL 型依赖
-            if "://" in line:
+
+            key = (source_mod.id, target_mod.id)
+            if key in seen:
                 continue
-            # 解析包名和版本
-            m = re.match(r"^([A-Za-z0-9_\-\[\].]+)\s*([><=!~^,\s\d.*]+)?", line)
-            if m:
-                name = m.group(1)
-                extras = re.findall(r"\[([^\]]+)\]", name)
-                name = re.sub(r"\[.*\]", "", name)
-                version = m.group(2).strip() if m.group(2) else None
-                deps.append(ExternalDependency(
-                    name=name, version=version,
-                    ecosystem="pypi", extras=extras
-                ))
-        return deps
+            seen.add(key)
 
-    def _parse_requirements_dev(self, path: Path) -> list[ExternalDependency]:
-        """解析开发依赖文件。"""
-        deps = self._parse_requirements(path)
-        for dep in deps:
-            dep.is_dev = True
-        return deps
+            dep_graph.module_deps.append(_edge(
+                source_mod.id, target_mod.id,
+                EdgeType.DEPENDS_ON.value,
+                source="import",
+                import_module=imp.module,
+                language=pf.language,
+                source_file=pf.file_path,
+            ))
 
-    def _parse_pyproject(self, path: Path) -> list[ExternalDependency]:
-        """解析 pyproject.toml 中的依赖。"""
-        deps: list[ExternalDependency] = []
-        try:
-            import tomllib  # Python 3.11+
-        except ImportError:
-            try:
-                import tomli as tomllib  # type: ignore
-            except ImportError:
-                logger.warning("tomllib/tomli 未安装，跳过 pyproject.toml 解析")
-                return deps
+    # ------------------------------------------------------------------
+    # Service → Service: constructor injection
+    # ------------------------------------------------------------------
 
-        try:
-            data = tomllib.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            return deps
+    def _detect_service_deps_from_ctor(
+        self,
+        pf: ParsedFile,
+        component_graph: ComponentGraph,
+        dep_graph: DependencyGraph,
+        seen: set[tuple[str, str]],
+    ) -> None:
+        """从构造函数参数的类型注解推断服务依赖。
 
-        # PEP 621 格式
-        project_deps = data.get("project", {}).get("dependencies", [])
-        for dep_str in project_deps:
-            m = re.match(r"^([A-Za-z0-9_\-]+)", dep_str)
-            if m:
-                deps.append(ExternalDependency(name=m.group(1), ecosystem="pypi"))
+        示例 Python：
+            class OrderService:
+                def __init__(self, user_svc: UserService, payment: PaymentService)
 
-        return deps
+        示例 TypeScript / Java：
+            constructor(private userService: UserService) {}
+        """
+        comp_by_name = component_graph.component_by_name
 
-    def _parse_package_json(self, path: Path) -> list[ExternalDependency]:
-        """解析 package.json 的 dependencies 和 devDependencies。"""
-        deps: list[ExternalDependency] = []
-        data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
-        for name, version in data.get("dependencies", {}).items():
-            deps.append(ExternalDependency(name=name, version=version, ecosystem="npm"))
-        for name, version in data.get("devDependencies", {}).items():
-            deps.append(ExternalDependency(name=name, version=version, ecosystem="npm", is_dev=True))
-        return deps
-
-    def _parse_go_mod(self, path: Path) -> list[ExternalDependency]:
-        """解析 go.mod 文件。"""
-        deps: list[ExternalDependency] = []
-        in_require = False
-        for line in path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line.startswith("require ("):
-                in_require = True
+        for cls in pf.classes:
+            source_comp = comp_by_name.get(cls.name)
+            if source_comp is None:
                 continue
-            if in_require and line == ")":
-                in_require = False
-                continue
-            if in_require or line.startswith("require "):
-                parts = line.replace("require ", "").split()
-                if len(parts) >= 2:
-                    deps.append(ExternalDependency(
-                        name=parts[0], version=parts[1], ecosystem="go"
+
+            for method in cls.methods:
+                if method.name not in ("__init__", "__new__", "constructor",
+                                       "init", "setUp"):
+                    continue
+                for param in method.parameters:
+                    if not param.type_annotation:
+                        continue
+                    target_comp = _find_comp_in_type_ann(
+                        param.type_annotation, comp_by_name
+                    )
+                    if target_comp is None or target_comp.id == source_comp.id:
+                        continue
+
+                    key = (source_comp.id, target_comp.id)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+
+                    dep_graph.service_deps.append(_edge(
+                        source_comp.id, target_comp.id,
+                        EdgeType.DEPENDS_ON.value,
+                        source="constructor_injection",
+                        source_class=cls.name,
+                        target_class=target_comp.name,
+                        param_name=param.name,
+                        type_annotation=param.type_annotation,
+                        language=pf.language,
                     ))
-        return deps
 
-    def _parse_cargo_toml(self, path: Path) -> list[ExternalDependency]:
-        """解析 Cargo.toml 依赖（简化版）。"""
-        deps: list[ExternalDependency] = []
-        try:
-            import tomllib
-        except ImportError:
-            try:
-                import tomli as tomllib  # type: ignore
-            except ImportError:
-                return deps
+    # ------------------------------------------------------------------
+    # Service → Service: import-based inference
+    # ------------------------------------------------------------------
 
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
-        for name, spec in data.get("dependencies", {}).items():
-            version = spec if isinstance(spec, str) else spec.get("version")
-            deps.append(ExternalDependency(name=name, version=version, ecosystem="cargo"))
-        return deps
+    def _detect_service_deps_from_imports(
+        self,
+        parsed_result: ParseResult,
+        module_graph: ModuleGraph,
+        component_graph: ComponentGraph,
+        file_to_module: dict[str, GraphNode],
+        dep_graph: DependencyGraph,
+        seen: set[tuple[str, str]],
+    ) -> None:
+        """若服务文件 A 的 import 解析到了模块 M，且 M 中存在已知服务类，
+        则推断 ServiceA depends_on ServiceB。
 
-    def _parse_pom_xml(self, path: Path) -> list[ExternalDependency]:
-        """解析 Maven pom.xml（简化版，仅提取 artifactId）。"""
-        deps: list[ExternalDependency] = []
-        content = path.read_text(encoding="utf-8")
-        artifacts = re.findall(r"<artifactId>([^<]+)</artifactId>", content)
-        versions = re.findall(r"<version>([^<]+)</version>", content)
-        for i, name in enumerate(artifacts[1:], 0):  # 跳过项目自身 artifactId
-            version = versions[i] if i < len(versions) else None
-            deps.append(ExternalDependency(name=name, version=version, ecosystem="maven"))
-        return deps
+        避免重复：已由构造函数注解识别的依赖不再添加。
+        """
+        # 构建 module_id → set[component.id]（哪些服务在该模块下）
+        mod_to_comps: dict[str, list[GraphNode]] = defaultdict(list)
+        for comp in component_graph.components:
+            # comp.properties["file_path"] → 对应的 module
+            comp_file = comp.properties.get("file_path", "")
+            mod = file_to_module.get(comp_file)
+            if mod:
+                mod_to_comps[mod.id].append(comp)
 
-    def _dep_to_infra_node(self, dep: ExternalDependency) -> InfrastructureNode:
-        """将外部依赖转换为基础设施节点。"""
-        return InfrastructureNode(
-            name=dep.name,
-            infra_type=InfraType.SERVICE,
-            technology=dep.name,
-            metadata={
-                "version": dep.version or "",
-                "ecosystem": dep.ecosystem,
-                "is_dev": dep.is_dev,
-                "extras": dep.extras,
-            },
-        )
+        comp_by_name = component_graph.component_by_name
+
+        for pf in parsed_result.files:
+            # 该文件属于哪些组件
+            file_comps = [
+                comp_by_name[cls.name]
+                for cls in pf.classes
+                if cls.name in comp_by_name
+            ]
+            if not file_comps:
+                continue
+
+            for imp in pf.imports:
+                target_mod = self._resolve_import_to_module(
+                    imp.module, pf.language, pf.file_path, module_graph
+                )
+                if target_mod is None:
+                    continue
+
+                for target_comp in mod_to_comps.get(target_mod.id, []):
+                    for source_comp in file_comps:
+                        if source_comp.id == target_comp.id:
+                            continue
+                        key = (source_comp.id, target_comp.id)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        dep_graph.service_deps.append(_edge(
+                            source_comp.id, target_comp.id,
+                            EdgeType.DEPENDS_ON.value,
+                            source="import_inference",
+                            import_module=imp.module,
+                            source_class=source_comp.name,
+                            target_class=target_comp.name,
+                            language=pf.language,
+                        ))
+
+    # ------------------------------------------------------------------
+    # Cycle detection (DFS)
+    # ------------------------------------------------------------------
 
     def _detect_cycles(
         self,
-        module_nodes: dict[str, ModuleNode],
-        import_edges: list[EdgeBase],
+        module_graph: ModuleGraph,
+        module_deps: list[GraphEdge],
     ) -> list[list[str]]:
-        """
-        使用 DFS 检测模块图中的循环依赖。
-
-        Args:
-            module_nodes: 模块节点映射
-            import_edges: 导入边列表
+        """使用 DFS 在模块依赖图中检测循环依赖链。
 
         Returns:
-            循环依赖链列表，每条链为模块名称列表
+            循环链列表，每条链为模块 name 字符串列表。
         """
         # 构建邻接表
-        adj: dict[str, list[str]] = {n.id: [] for n in module_nodes.values()}
-        id_to_name: dict[str, str] = {n.id: n.name for n in module_nodes.values()}
+        adj: dict[str, list[str]] = defaultdict(list)
+        for edge in module_deps:
+            adj[edge.from_].append(edge.to)
 
-        for edge in import_edges:
-            if edge.source_id in adj:
-                adj[edge.source_id].append(edge.target_id)
+        # id → name 映射
+        id_to_name: dict[str, str] = {
+            m.id: m.name for m in module_graph.modules
+        }
 
         cycles: list[list[str]] = []
         visited: set[str] = set()
-        rec_stack: list[str] = []
+        path: list[str] = []
+        path_set: set[str] = set()
 
-        def dfs(node_id: str) -> bool:
+        def dfs(node_id: str) -> None:
             visited.add(node_id)
-            rec_stack.append(node_id)
+            path.append(node_id)
+            path_set.add(node_id)
+
             for neighbor in adj.get(node_id, []):
                 if neighbor not in visited:
-                    if dfs(neighbor):
-                        return True
-                elif neighbor in rec_stack:
-                    # 找到环，提取环路
-                    idx = rec_stack.index(neighbor)
-                    cycle = [id_to_name.get(n, n) for n in rec_stack[idx:]]
+                    dfs(neighbor)
+                elif neighbor in path_set:
+                    # 找到环：从 neighbor 到当前位置
+                    idx = path.index(neighbor)
+                    cycle = [id_to_name.get(n, n) for n in path[idx:]]
                     cycles.append(cycle)
-                    return True
-            rec_stack.pop()
-            return False
 
-        for node_id in list(adj.keys()):
+            path.pop()
+            path_set.discard(node_id)
+
+        all_nodes = set(adj.keys()) | {t for neighbors in adj.values() for t in neighbors}
+        for node_id in all_nodes:
             if node_id not in visited:
-                rec_stack.clear()
                 dfs(node_id)
 
         return cycles
+
+    # ------------------------------------------------------------------
+    # Import resolution
+    # ------------------------------------------------------------------
+
+    def _resolve_import_to_module(
+        self,
+        import_str: str,
+        language: str,
+        source_file: str,
+        module_graph: ModuleGraph,
+    ) -> Optional[GraphNode]:
+        """将 import 字符串解析为内部 Module GraphNode。
+
+        各语言转换规则：
+          Python:     backend.api.server  →  backend/api, backend/api/server
+          TypeScript: ./services/user     →  相对路径解析
+          Go:         github.com/x/y/pkg  →  最后若干段 path 匹配
+          Java:       com.example.svc.Foo →  com/example/svc, svc
+        """
+        candidates = self._import_to_candidates(import_str, language, source_file)
+        for candidate in candidates:
+            mod = module_graph.module_by_dir.get(candidate)
+            if mod:
+                return mod
+        return None
+
+    def _import_to_candidates(
+        self,
+        import_str: str,
+        language: str,
+        source_file: str,
+    ) -> list[str]:
+        candidates: list[str] = []
+
+        if language == "python":
+            candidates = self._python_import_candidates(import_str, source_file)
+
+        elif language == "typescript":
+            candidates = self._ts_import_candidates(import_str, source_file)
+
+        elif language == "go":
+            candidates = self._go_import_candidates(import_str)
+
+        elif language == "java":
+            candidates = self._java_import_candidates(import_str)
+
+        return candidates
+
+    # ── Python ──
+
+    def _python_import_candidates(self, import_str: str, source_file: str) -> list[str]:
+        cands: list[str] = []
+
+        # 相对导入：. 或 .. 开头
+        if import_str.startswith("."):
+            level = len(import_str) - len(import_str.lstrip("."))
+            rest = import_str.lstrip(".")
+            source_dir = Path(source_file).parent
+            try:
+                # 相对 repo_root 的路径
+                rel_dir = source_dir.relative_to(self.repo_root)
+            except ValueError:
+                rel_dir = source_dir
+            # 向上导航 level-1 层
+            parts = list(rel_dir.parts)
+            parts = parts[:max(0, len(parts) - (level - 1))]
+            base = "/".join(parts) if parts else ""
+            if rest:
+                target = (base + "/" + rest.replace(".", "/")).lstrip("/")
+                cands.append(target)
+                # 取 parent
+                parent = "/".join(target.split("/")[:-1])
+                if parent:
+                    cands.append(parent)
+            elif base:
+                cands.append(base)
+            return cands
+
+        # 绝对导入：逐层截断
+        parts = import_str.split(".")
+        for i in range(len(parts), 0, -1):
+            cands.append("/".join(parts[:i]))
+        return cands
+
+    # ── TypeScript ──
+
+    def _ts_import_candidates(self, import_str: str, source_file: str) -> list[str]:
+        # 非相对导入 → 外部包，跳过
+        if not import_str.startswith("."):
+            return []
+        source_dir = Path(source_file).parent
+        target = (source_dir / import_str).resolve()
+        cands: list[str] = []
+        try:
+            rel = target.relative_to(self.repo_root)
+            cands.append(str(rel).replace("\\", "/"))
+            cands.append(str(rel.parent).replace("\\", "/"))
+        except ValueError:
+            pass
+        return cands
+
+    # ── Go ──
+
+    def _go_import_candidates(self, import_str: str) -> list[str]:
+        # stdlib（无 /）跳过
+        if "/" not in import_str:
+            return []
+        parts = import_str.split("/")
+        cands: list[str] = []
+        # 从最长后缀到最短后缀依次尝试
+        for i in range(len(parts), 0, -1):
+            cands.append("/".join(parts[-i:]))
+        return cands
+
+    # ── Java ──
+
+    def _java_import_candidates(self, import_str: str) -> list[str]:
+        # 移除通配符
+        clean = import_str.rstrip(".*")
+        parts = clean.split(".")
+        cands: list[str] = []
+        # java.*, javax.* → stdlib，跳过
+        if parts[0] in ("java", "javax", "sun", "android"):
+            return []
+        # 逐层截断
+        for i in range(len(parts), 0, -1):
+            cands.append("/".join(parts[:i]))
+        # 最后两段（包名 + 类名 → 目录）
+        if len(parts) >= 2:
+            cands.append("/".join(parts[-2:]).lower())
+        cands.append(parts[-1].lower())
+        return cands
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _build_file_to_module(
+        self, module_graph: ModuleGraph
+    ) -> dict[str, GraphNode]:
+        """构建 abs_file_path → Module GraphNode 索引。
+
+        通过 Module --contains--> File 边反推每个文件属于哪个模块。
+        """
+        mod_ids: set[str] = {m.id for m in module_graph.modules}
+        file_id_to_mod_id: dict[str, str] = {}
+        for edge in module_graph.edges:
+            if edge.from_ in mod_ids:
+                file_id_to_mod_id[edge.to] = edge.from_
+
+        mod_by_id: dict[str, GraphNode] = {m.id: m for m in module_graph.modules}
+        file_id_to_node: dict[str, GraphNode] = {f.id: f for f in module_graph.files}
+
+        result: dict[str, GraphNode] = {}
+        for file_node in module_graph.files:
+            abs_path = file_node.properties.get("abs_path", "")
+            mod_id = file_id_to_mod_id.get(file_node.id)
+            if abs_path and mod_id:
+                result[abs_path] = mod_by_id[mod_id]
+        return result
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _edge(from_id: str, to_id: str, edge_type: str, **properties) -> GraphEdge:
+    return GraphEdge(**{
+        "from": from_id,
+        "to": to_id,
+        "type": edge_type,
+        "properties": properties,
+    })
+
+
+def _find_comp_in_type_ann(
+    type_ann: str, comp_by_name: dict[str, GraphNode]
+) -> Optional[GraphNode]:
+    """在类型注解字符串中查找已知组件名称。
+
+    Examples:
+        "UserService"           → comp_by_name["UserService"]
+        "Optional[UserService]" → comp_by_name["UserService"]
+        "List[OrderService]"    → comp_by_name["OrderService"]
+    """
+    for name, node in comp_by_name.items():
+        # 整词匹配，避免 "UserService" 匹配 "UserServiceImpl"
+        if re.search(r'\b' + re.escape(name) + r'\b', type_ann):
+            return node
+    return None

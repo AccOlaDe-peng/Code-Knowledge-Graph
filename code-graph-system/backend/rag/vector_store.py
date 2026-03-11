@@ -1,8 +1,19 @@
 """
 向量存储模块。
 
-基于 ChromaDB 实现代码节点的向量化存储和相似度检索，
-支持混合检索（向量相似度 + 元数据过滤）。
+基于 ChromaDB 实现代码节点的向量化存储和相似度检索。
+
+设计原则：
+    - 每个 graph_id 对应独立 Collection（命名为 ``kg_{graph_id}``），互不干扰
+    - 使用 ChromaDB 内置 Embedding（sentence-transformers/all-MiniLM-L6-v2），
+      无需外部 Embedding API 密钥
+    - upsert 语义：幂等，可重复调用
+
+主要接口：
+    upsert(graph_id, ids, documents, metadatas)  —— 插入/更新文档
+    search(graph_id, query, limit, where)         —— 向量相似度检索
+    delete_graph(graph_id)                        —— 删除整个图谱索引
+    count(graph_id)                               —— 查询文档数量
 """
 
 from __future__ import annotations
@@ -13,207 +24,236 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_CHROMA_DIR = "./data/chroma"
+
+# ChromaDB Collection 名称最长 63 字符
+_MAX_COLLECTION_NAME = 63
+
 
 class VectorStore:
     """
-    向量存储管理器。
+    ChromaDB 向量存储封装。
 
-    封装 ChromaDB 操作，为代码节点提供高效的语义检索能力。
+    每个 graph_id 对应一个独立 Collection，互相隔离。
+    ChromaDB 内置 Embedding（all-MiniLM-L6-v2），无需外部 API。
 
     示例::
 
         store = VectorStore()
-        store.add_nodes(graph.nodes)
-        results = store.search("用户认证相关的函数", limit=5)
+        store.upsert("my-project", ids, documents, metadatas)
+        results = store.search("my-project", "用户认证相关函数", limit=5)
     """
 
-    def __init__(self, persist_dir: str = "./data/chroma") -> None:
+    def __init__(self, persist_dir: str = _DEFAULT_CHROMA_DIR) -> None:
         """
-        初始化向量存储。
-
         Args:
-            persist_dir: ChromaDB 持久化目录
+            persist_dir: ChromaDB 持久化目录（默认 ``./data/chroma``）。
         """
         self.persist_dir = Path(persist_dir)
         self.persist_dir.mkdir(parents=True, exist_ok=True)
         self._client = None
-        self._collection = None
+
+    # ------------------------------------------------------------------
+    # Client / Collection 管理
+    # ------------------------------------------------------------------
 
     def _get_client(self) -> object:
-        """懒加载 ChromaDB 客户端。"""
+        """懒加载 ChromaDB PersistentClient。"""
         if self._client is not None:
             return self._client
         try:
             import chromadb
 
             self._client = chromadb.PersistentClient(path=str(self.persist_dir))
-            logger.info(f"ChromaDB 初始化成功: {self.persist_dir}")
+            logger.info("ChromaDB 初始化成功: %s", self.persist_dir)
             return self._client
         except ImportError:
-            raise RuntimeError("chromadb 包未安装，请运行: pip install chromadb")
+            raise RuntimeError(
+                "chromadb 包未安装，请运行: pip install chromadb"
+            )
 
-    def get_collection(self, name: str = "code_nodes") -> object:
+    def _collection_name(self, graph_id: str) -> str:
+        """将 graph_id 映射为合法 ChromaDB Collection 名称。
+
+        格式：``kg_<graph_id>``，截断至最大长度。
         """
-        获取或创建集合。
+        name = f"kg_{graph_id}"
+        # ChromaDB 要求名称只含字母数字和 -_，用下划线替换其他字符
+        import re
+        name = re.sub(r"[^a-zA-Z0-9_\-]", "_", name)
+        return name[:_MAX_COLLECTION_NAME]
 
-        Args:
-            name: 集合名称
-
-        Returns:
-            ChromaDB Collection 对象
-        """
+    def _get_collection(self, graph_id: str) -> object:
+        """获取或创建指定图谱对应的 Collection。"""
         client = self._get_client()
-        try:
-            collection = client.get_or_create_collection(
-                name=name,
-                metadata={"description": "代码知识图谱节点向量存储"},
-            )
-            self._collection = collection
-            return collection
-        except Exception as e:
-            logger.error(f"获取集合失败: {e}")
-            raise
+        name = self._collection_name(graph_id)
+        return client.get_or_create_collection(
+            name=name,
+            metadata={"graph_id": graph_id},
+        )
 
-    def add_nodes(
+    # ------------------------------------------------------------------
+    # upsert
+    # ------------------------------------------------------------------
+
+    def upsert(
         self,
-        nodes: list[Any],
-        collection_name: str = "code_nodes",
+        graph_id: str,
+        ids: list[str],
+        documents: list[str],
+        metadatas: list[dict[str, Any]],
     ) -> int:
-        """
-        批量添加节点到向量存储。
+        """插入或更新文档（幂等）。
+
+        ChromaDB 会自动对 ``documents`` 生成 Embedding 向量。
 
         Args:
-            nodes: 图节点列表（需包含 embedding 字段）
-            collection_name: 目标集合名称
+            graph_id:  图谱 ID，决定写入哪个 Collection。
+            ids:       文档 ID 列表，与节点 ID 对应。
+            documents: 节点文本内容列表（用于生成 Embedding）。
+            metadatas: 元数据列表（用于过滤检索），值必须为标量。
 
         Returns:
-            成功添加的节点数量
+            实际写入的文档数量；ChromaDB 报错时返回 0。
         """
-        collection = self.get_collection(collection_name)
-        ids: list[str] = []
-        embeddings: list[list[float]] = []
-        metadatas: list[dict] = []
-        documents: list[str] = []
-
-        for node in nodes:
-            if not node.embedding:
-                continue  # 跳过无嵌入的节点
-            ids.append(node.id)
-            embeddings.append(node.embedding)
-            # 构建文档文本（用于全文检索）
-            doc_text = f"{node.name} {node.metadata.get('semantic_summary', '')} {node.metadata.get('docstring', '')}"
-            documents.append(doc_text[:1000])
-            # 元数据（用于过滤）
-            meta = {
-                "node_type": str(node.type),
-                "name": node.name,
-                "file_path": node.file_path or "",
-                "language": node.metadata.get("language", ""),
-            }
-            metadatas.append(meta)
-
         if not ids:
-            logger.warning("没有可添加的节点（缺少嵌入向量）")
             return 0
+
+        collection = self._get_collection(graph_id)
+        # ChromaDB 元数据值只支持 str / int / float / bool
+        clean_metas = [_clean_metadata(m) for m in metadatas]
 
         try:
-            collection.add(
-                ids=ids,
-                embeddings=embeddings,
-                metadatas=metadatas,
-                documents=documents,
+            collection.upsert(ids=ids, documents=documents, metadatas=clean_metas)
+            logger.debug(
+                "VectorStore.upsert: graph=%s, %d 条文档", graph_id, len(ids)
             )
-            logger.info(f"向量存储添加 {len(ids)} 个节点")
             return len(ids)
-        except Exception as e:
-            logger.error(f"向量存储添加失败: {e}")
+        except Exception:
+            logger.error(
+                "VectorStore.upsert 失败: graph=%s", graph_id, exc_info=True
+            )
             return 0
+
+    # ------------------------------------------------------------------
+    # search
+    # ------------------------------------------------------------------
 
     def search(
         self,
+        graph_id: str,
         query: str,
+        *,
         limit: int = 10,
-        node_type: Optional[str] = None,
-        language: Optional[str] = None,
-        collection_name: str = "code_nodes",
+        where: Optional[dict[str, Any]] = None,
     ) -> list[dict[str, Any]]:
-        """
-        语义检索节点。
+        """向量相似度检索。
 
         Args:
-            query: 查询文本
-            limit: 返回结果数量
-            node_type: 过滤节点类型（如 "Function"）
-            language: 过滤编程语言（如 "python"）
-            collection_name: 集合名称
+            graph_id: 图谱 ID。
+            query:    自然语言查询文本，ChromaDB 自动转换为 Embedding。
+            limit:    最多返回数量（默认 10）。
+            where:    元数据过滤条件，使用 ChromaDB ``$eq`` / ``$in`` 语法，
+                      例如 ``{"node_type": {"$eq": "Function"}}``。
 
         Returns:
-            检索结果列表，每项包含 id、metadata、distance
+            结果列表，每项格式::
+
+                {
+                    "id":       "<node_id>",
+                    "metadata": {"node_type": "Function", "name": "...", ...},
+                    "document": "<节点文本>",
+                    "distance": 0.23,   # L2 距离，越小越相似
+                }
+
+            集合为空或检索失败时返回空列表。
         """
-        collection = self.get_collection(collection_name)
-
-        # 构建过滤条件
-        where: Optional[dict] = None
-        if node_type or language:
-            where = {}
-            if node_type:
-                where["node_type"] = node_type
-            if language:
-                where["language"] = language
-
-        try:
-            # 使用查询文本直接检索（ChromaDB 会自动生成嵌入）
-            results = collection.query(
-                query_texts=[query],
-                n_results=limit,
-                where=where,
-            )
-            # 格式化结果
-            formatted: list[dict[str, Any]] = []
-            if results["ids"] and results["ids"][0]:
-                for i, node_id in enumerate(results["ids"][0]):
-                    formatted.append({
-                        "id": node_id,
-                        "metadata": results["metadatas"][0][i] if results["metadatas"] else {},
-                        "document": results["documents"][0][i] if results["documents"] else "",
-                        "distance": results["distances"][0][i] if results["distances"] else 0.0,
-                    })
-            return formatted
-        except Exception as e:
-            logger.error(f"向量检索失败: {e}")
+        collection = self._get_collection(graph_id)
+        total = collection.count()
+        if total == 0:
+            logger.debug("VectorStore.search: graph=%s 集合为空", graph_id)
             return []
 
-    def delete_collection(self, name: str = "code_nodes") -> bool:
-        """
-        删除集合。
+        n = min(limit, total)
+        try:
+            kwargs: dict[str, Any] = {"query_texts": [query], "n_results": n}
+            if where:
+                kwargs["where"] = where
 
-        Args:
-            name: 集合名称
+            results = collection.query(**kwargs)
+            formatted: list[dict[str, Any]] = []
+
+            if results["ids"] and results["ids"][0]:
+                ids_row = results["ids"][0]
+                metas_row = (results["metadatas"] or [[]])[0]
+                docs_row = (results["documents"] or [[]])[0]
+                dists_row = (results["distances"] or [[]])[0]
+
+                for i, node_id in enumerate(ids_row):
+                    formatted.append({
+                        "id":       node_id,
+                        "metadata": metas_row[i] if i < len(metas_row) else {},
+                        "document": docs_row[i]  if i < len(docs_row)  else "",
+                        "distance": dists_row[i] if i < len(dists_row) else 0.0,
+                    })
+
+            return formatted
+        except Exception:
+            logger.error(
+                "VectorStore.search 失败: graph=%s query='%s'",
+                graph_id, query[:40], exc_info=True,
+            )
+            return []
+
+    # ------------------------------------------------------------------
+    # delete / count
+    # ------------------------------------------------------------------
+
+    def delete_graph(self, graph_id: str) -> bool:
+        """删除整个图谱对应的 Collection。
 
         Returns:
-            删除成功返回 True
+            删除成功返回 True，失败返回 False。
         """
         client = self._get_client()
+        name = self._collection_name(graph_id)
         try:
             client.delete_collection(name)
-            logger.info(f"集合已删除: {name}")
+            logger.info("VectorStore: 集合已删除: %s", name)
             return True
-        except Exception as e:
-            logger.warning(f"删除集合失败: {e}")
+        except Exception:
+            logger.warning(
+                "VectorStore: 删除集合失败: %s", name, exc_info=True
+            )
             return False
 
-    def count(self, collection_name: str = "code_nodes") -> int:
-        """返回集合中的节点数量。"""
-        collection = self.get_collection(collection_name)
+    def count(self, graph_id: str) -> int:
+        """返回指定图谱 Collection 中的文档数量。"""
         try:
-            return collection.count()
+            return self._get_collection(graph_id).count()
         except Exception:
             return 0
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _clean_metadata(meta: dict[str, Any]) -> dict[str, Any]:
+    """将 metadata 中非标量值转为字符串（ChromaDB 限制）。"""
+    cleaned: dict[str, Any] = {}
+    for k, v in meta.items():
+        if v is None:
+            continue
+        if isinstance(v, (str, int, float, bool)):
+            cleaned[k] = v
+        else:
+            cleaned[k] = str(v)
+    return cleaned
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     store = VectorStore()
     print(f"向量存储路径: {store.persist_dir}")
-    count = store.count()
-    print(f"当前节点数: {count}")

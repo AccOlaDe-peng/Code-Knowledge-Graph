@@ -1,188 +1,295 @@
 """
 模块识别器模块。
 
-基于扫描和解析结果，识别代码仓库中的逻辑模块边界，
-构建模块节点并推断模块间的依赖关系（IMPORTS 边）。
+核心规则：同一目录下的文件视为同一模块。
 
-模块定义：
-- Python: 单个 .py 文件 或 含 __init__.py 的目录（包）
-- JavaScript/TypeScript: 单个文件 或 package.json 目录
-- Java: package 声明对应的目录
-- Go: package 声明对应的目录
+输出结构（ModuleGraph）::
+
+    repository: GraphNode          # type=Repository（根节点）
+    modules:    list[GraphNode]    # type=Module，每个目录对应一个
+    files:      list[GraphNode]    # type=File，每个源文件对应一个
+    edges:      list[GraphEdge]    # contains 边
+
+边关系：
+    Repository --contains--> Module
+    Module     --contains--> File
 """
 
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
+from uuid import uuid4
 
-from backend.graph.schema import EdgeBase, EdgeType, ModuleNode, NodeType
-from backend.parser.code_parser import ParsedFile
+from backend.graph.graph_schema import EdgeType, GraphEdge, GraphNode, NodeType
 from backend.scanner.repo_scanner import FileInfo, ScanResult
 
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Output container
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ModuleGraph:
+    """ModuleDetector.detect() 的完整输出。
+
+    Attributes:
+        repository:    仓库根节点（type=Repository）
+        modules:       模块节点列表（type=Module），每目录一个
+        files:         文件节点列表（type=File），每源文件一个
+        edges:         contains 边（Repository→Module 和 Module→File）
+        module_by_dir: 目录相对路径 → Module GraphNode 索引
+        file_by_path:  文件绝对路径 → File GraphNode 索引
+    """
+
+    repository: GraphNode
+    modules: list[GraphNode] = field(default_factory=list)
+    files: list[GraphNode] = field(default_factory=list)
+    edges: list[GraphEdge] = field(default_factory=list)
+
+    # 快捷索引（不参与序列化）
+    module_by_dir: dict[str, GraphNode] = field(default_factory=dict, repr=False)
+    file_by_path: dict[str, GraphNode] = field(default_factory=dict, repr=False)
+
+    @property
+    def stats(self) -> dict[str, int]:
+        return {
+            "modules": len(self.modules),
+            "files": len(self.files),
+            "edges": len(self.edges),
+        }
+
+
+# ---------------------------------------------------------------------------
+# ModuleDetector
+# ---------------------------------------------------------------------------
+
+
 class ModuleDetector:
     """
-    模块识别器。
+    目录级模块识别器。
 
-    分析扫描结果，为每个源码文件/包生成对应的 ModuleNode，
-    并根据 import 语句生成 IMPORTS 类型的边。
+    将仓库文件按所在目录聚合，每个目录产生一个 Module 节点，
+    同时为每个源文件产生一个 File 节点，并生成：
+      - Repository --contains--> Module
+      - Module     --contains--> File
 
     示例::
 
-        detector = ModuleDetector()
-        nodes, edges = detector.detect(scan_result, parsed_files)
+        detector = ModuleDetector(repo_root="/path/to/repo")
+        graph = detector.detect(scan_result)
+        print(graph.stats)
+        # {'modules': 12, 'files': 37, 'edges': 49}
     """
 
-    def __init__(self, repo_root: str) -> None:
-        """
-        初始化模块识别器。
+    def __init__(self, repo_root: str | Path) -> None:
+        self.repo_root = Path(repo_root).resolve()
 
-        Args:
-            repo_root: 仓库根目录路径（用于计算相对路径）
-        """
-        self.repo_root = Path(repo_root)
+    # ------------------------------------------------------------------
+    # Public
+    # ------------------------------------------------------------------
 
     def detect(
         self,
         scan_result: ScanResult,
-        parsed_files: dict[str, ParsedFile],
-    ) -> tuple[list[ModuleNode], list[EdgeBase]]:
-        """
-        执行模块识别。
+        repo_node_id: Optional[str] = None,
+    ) -> ModuleGraph:
+        """执行模块识别，返回 ModuleGraph。
 
         Args:
-            scan_result: 仓库扫描结果
-            parsed_files: 文件路径 -> 解析结果 的映射
-
-        Returns:
-            (模块节点列表, 导入边列表) 元组
+            scan_result:  仓库扫描结果（来自 RepoScanner）。
+            repo_node_id: 外部传入的 Repository 节点 ID；
+                          若为 None 则自动创建新的仓库根节点。
         """
-        nodes: list[ModuleNode] = []
-        edges: list[EdgeBase] = []
-        path_to_node: dict[str, ModuleNode] = {}
+        # 1. 仓库根节点
+        repo_node = self._make_repo_node(scan_result, repo_node_id)
 
-        # 创建文件级模块节点
+        # 2. 按目录分组
+        dir_groups = self._group_by_directory(scan_result.files)
+
+        # 3. 构建 Module 节点
+        modules: list[GraphNode] = []
+        module_by_dir: dict[str, GraphNode] = {}
+        for dir_path, dir_files in sorted(dir_groups.items()):
+            node = self._make_module_node(dir_path, dir_files)
+            modules.append(node)
+            module_by_dir[dir_path] = node
+
+        # 4. 构建 File 节点
+        files: list[GraphNode] = []
+        file_by_path: dict[str, GraphNode] = {}
         for file_info in scan_result.files:
-            node = self._create_module_node(file_info, parsed_files.get(file_info.path))
-            nodes.append(node)
-            path_to_node[file_info.path] = node
+            node = self._make_file_node(file_info)
+            files.append(node)
+            file_by_path[file_info.abs_path] = node
 
-        # 检测包节点（Python __init__.py 所在目录）
-        package_nodes = self._detect_packages(scan_result, path_to_node)
-        nodes.extend(package_nodes.values())
-
-        # 构建导入边
-        edges.extend(
-            self._build_import_edges(scan_result, parsed_files, path_to_node)
+        # 5. 构建 contains 边
+        edges = self._build_edges(
+            repo_node, modules, files,
+            dir_groups, module_by_dir, file_by_path,
         )
 
-        logger.info(f"模块识别完成: {len(nodes)} 个模块, {len(edges)} 条导入边")
-        return nodes, edges
+        graph = ModuleGraph(
+            repository=repo_node,
+            modules=modules,
+            files=files,
+            edges=edges,
+            module_by_dir=module_by_dir,
+            file_by_path=file_by_path,
+        )
 
-    def _create_module_node(
-        self,
-        file_info: FileInfo,
-        parsed: Optional[ParsedFile],
-    ) -> ModuleNode:
-        """根据文件信息创建模块节点。"""
-        path = Path(file_info.path)
-        package = str(path.parent).replace("/", ".").replace("\\", ".") if str(path.parent) != "." else ""
+        logger.info(
+            "模块识别完成: repo=%s modules=%d files=%d edges=%d",
+            scan_result.repo_name,
+            len(modules),
+            len(files),
+            len(edges),
+        )
+        return graph
 
-        exports: list[str] = []
-        imports: list[str] = []
+    # ------------------------------------------------------------------
+    # Node builders
+    # ------------------------------------------------------------------
 
-        if parsed:
-            imports = [imp.module for imp in parsed.imports]
-            # 导出：类名 + 模块级函数名
-            exports = [cls.name for cls in parsed.classes]
-            exports += [fn.name for fn in parsed.functions]
-
-        return ModuleNode(
-            name=path.stem,
-            file_path=file_info.abs_path,
-            line_start=1,
-            line_end=file_info.line_count,
-            package=package or None,
-            is_package=False,
-            exports=exports,
-            imports=imports,
-            metadata={
-                "language": file_info.language,
-                "size_bytes": file_info.size_bytes,
-                "sha256": file_info.sha256,
+    def _make_repo_node(
+        self, scan_result: ScanResult, node_id: Optional[str]
+    ) -> GraphNode:
+        return GraphNode(
+            id=node_id or str(uuid4()),
+            type=NodeType.REPOSITORY.value,
+            name=scan_result.repo_name,
+            properties={
+                "path": scan_result.repo_path,
+                "primary_language": scan_result.primary_language(),
+                "total_files": scan_result.total_files,
+                "total_lines": scan_result.total_lines,
+                "git_branch": scan_result.git_branch,
+                "git_commit": scan_result.git_commit,
+                "git_remote_url": scan_result.git_remote_url,
             },
         )
 
-    def _detect_packages(
+    def _make_module_node(
+        self, dir_path: str, files: list[FileInfo]
+    ) -> GraphNode:
+        """每个目录 → 一个 Module 节点。"""
+        # 主语言：文件数最多的语言
+        lang_count: dict[str, int] = defaultdict(int)
+        for f in files:
+            lang_count[f.language] += 1
+        primary_lang = max(lang_count, key=lang_count.__getitem__) if lang_count else "unknown"
+
+        # 目录的绝对路径
+        abs_dir = str(self.repo_root / dir_path) if dir_path else str(self.repo_root)
+
+        # 深度（根目录深度为 0）
+        depth = len(Path(dir_path).parts) if dir_path else 0
+
+        # 节点名称：取最后一段目录名；根目录用仓库名
+        name = Path(dir_path).name if dir_path else self.repo_root.name
+
+        return GraphNode(
+            type=NodeType.MODULE.value,
+            name=name,
+            properties={
+                "path": dir_path or "",
+                "abs_path": abs_dir,
+                "depth": depth,
+                "file_count": len(files),
+                "primary_language": primary_lang,
+                "languages": dict(lang_count),
+            },
+        )
+
+    def _make_file_node(self, file_info: FileInfo) -> GraphNode:
+        """每个源文件 → 一个 File 节点。"""
+        return GraphNode(
+            type=NodeType.FILE.value,
+            name=Path(file_info.path).name,
+            properties={
+                "path": file_info.path,
+                "abs_path": file_info.abs_path,
+                "language": file_info.language,
+                "size_bytes": file_info.size_bytes,
+                "line_count": file_info.line_count,
+                "sha256": file_info.sha256,
+                "last_modified": file_info.last_modified,
+            },
+        )
+
+    # ------------------------------------------------------------------
+    # Edge builders
+    # ------------------------------------------------------------------
+
+    def _build_edges(
         self,
-        scan_result: ScanResult,
-        path_to_node: dict[str, ModuleNode],
-    ) -> dict[str, ModuleNode]:
-        """检测 Python 包（含 __init__.py 的目录）。"""
-        packages: dict[str, ModuleNode] = {}
+        repo_node: GraphNode,
+        modules: list[GraphNode],
+        files: list[GraphNode],
+        dir_groups: dict[str, list[FileInfo]],
+        module_by_dir: dict[str, GraphNode],
+        file_by_path: dict[str, GraphNode],
+    ) -> list[GraphEdge]:
+        edges: list[GraphEdge] = []
 
-        init_files = [
-            f for f in scan_result.files
-            if f.language == "python" and Path(f.path).name == "__init__.py"
-        ]
+        # Repository --contains--> Module
+        for mod in modules:
+            edges.append(GraphEdge(**{
+                "from": repo_node.id,
+                "to": mod.id,
+                "type": EdgeType.CONTAINS.value,
+                "properties": {
+                    "relation": "repository_contains_module",
+                    "module_path": mod.properties.get("path", ""),
+                },
+            }))
 
-        for init in init_files:
-            pkg_dir = str(Path(init.path).parent)
-            if pkg_dir in packages:
+        # Module --contains--> File
+        for dir_path, dir_files in dir_groups.items():
+            mod_node = module_by_dir.get(dir_path)
+            if not mod_node:
                 continue
-            pkg_path = self.repo_root / pkg_dir
-            node = ModuleNode(
-                name=Path(pkg_dir).name,
-                file_path=str(pkg_path),
-                is_package=True,
-                package=pkg_dir.replace("/", ".").replace("\\", "."),
-                metadata={"language": "python"},
-            )
-            packages[pkg_dir] = node
-
-        return packages
-
-    def _build_import_edges(
-        self,
-        scan_result: ScanResult,
-        parsed_files: dict[str, ParsedFile],
-        path_to_node: dict[str, ModuleNode],
-    ) -> list[EdgeBase]:
-        """根据解析到的 import 语句构建模块依赖边。"""
-        edges: list[EdgeBase] = []
-        # 构建模块名 -> 节点 的索引
-        name_index: dict[str, ModuleNode] = {
-            n.name: n for n in path_to_node.values()
-        }
-        # 也按 package.name 索引
-        pkg_index: dict[str, ModuleNode] = {}
-        for node in path_to_node.values():
-            if node.package:
-                full_name = f"{node.package}.{node.name}"
-                pkg_index[full_name] = node
-
-        for file_path, parsed in parsed_files.items():
-            source_node = path_to_node.get(file_path)
-            if not source_node:
-                continue
-
-            for imp in parsed.imports:
-                # 查找目标节点
-                target = (
-                    pkg_index.get(imp.module)
-                    or name_index.get(imp.module)
-                    or name_index.get(imp.module.split(".")[-1])
-                )
-                if target and target.id != source_node.id:
-                    edges.append(EdgeBase(
-                        type=EdgeType.IMPORTS,
-                        source_id=source_node.id,
-                        target_id=target.id,
-                        metadata={"import_line": imp.line, "names": imp.names},
-                    ))
+            for fi in dir_files:
+                file_node = file_by_path.get(fi.abs_path)
+                if not file_node:
+                    continue
+                edges.append(GraphEdge(**{
+                    "from": mod_node.id,
+                    "to": file_node.id,
+                    "type": EdgeType.CONTAINS.value,
+                    "properties": {
+                        "relation": "module_contains_file",
+                        "file_path": fi.path,
+                        "language": fi.language,
+                    },
+                }))
 
         return edges
+
+    # ------------------------------------------------------------------
+    # Directory grouping
+    # ------------------------------------------------------------------
+
+    def _group_by_directory(
+        self, files: list[FileInfo]
+    ) -> dict[str, list[FileInfo]]:
+        """将文件列表按所在目录分组。
+
+        Returns:
+            { 目录相对路径: [FileInfo, ...] }
+            根目录下的文件键为空字符串 ""。
+        """
+        groups: dict[str, list[FileInfo]] = defaultdict(list)
+        for fi in files:
+            dir_path = str(Path(fi.path).parent)
+            # 根目录显示为空字符串
+            if dir_path == ".":
+                dir_path = ""
+            groups[dir_path].append(fi)
+        return dict(groups)

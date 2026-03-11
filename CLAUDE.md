@@ -22,8 +22,10 @@ pip install -r requirements.txt           # 完整功能
 ## 常用命令
 
 ```bash
+# 以下所有命令均需在 code-graph-system/ 根目录下执行
+
 # 启动 API 服务器（访问 http://localhost:8000/docs）
-cd backend/api && python server.py
+python -m uvicorn backend.api.server:app --host 0.0.0.0 --port 8000 --reload
 
 # 命令行分析代码仓库
 python scripts/run_analysis.py /path/to/repo

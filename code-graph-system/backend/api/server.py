@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -201,7 +201,7 @@ def query_graph(request: GraphQueryRequest):
 @app.get("/graphs/{graph_id}/nodes")
 def get_nodes(
     graph_id: str,
-    node_type: str | None = None,
+    node_type: Optional[str] = None,
     limit: int = 50,
 ):
     """
@@ -263,8 +263,8 @@ def get_neighbors(
 @app.get("/search")
 def search_code(
     query: str,
-    node_type: str | None = None,
-    language: str | None = None,
+    node_type: Optional[str] = None,
+    language: Optional[str] = None,
     limit: int = 10,
 ):
     """

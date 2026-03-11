@@ -1,376 +1,555 @@
 """
 图谱存储仓库模块。
 
-提供对 CodeGraph 的持久化操作接口，支持双写策略：
-1. Neo4j — 原生图数据库，支持 Cypher 查询
-2. SQLite（通过 JSON 序列化）— 轻量级备选存储
+提供对 BuiltGraph / graph.json 的持久化与查询接口，支持两种后端：
+    - 本地 JSON（默认，零依赖）
+    - Neo4j（可选，配置 NEO4J_URI 环境变量后自动启用）
 
-同时提供图谱的 CRUD 操作和常见查询方法。
+主要操作：
+    save(built, repo_name)  —— 持久化 BuiltGraph → {repo_name}.json
+    load(graph_id)          —— 读取并反序列化为 BuiltGraph
+    list_graphs()           —— 列出所有已存储图谱摘要
+    delete(graph_id)        —— 删除指定图谱
+    query_nodes(graph_id, type, name_contains, limit)
+    query_neighbors(graph_id, node_id, depth, edge_types)
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
+import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from backend.graph.schema import (
-    AnyNode,
-    CodeGraph,
-    EdgeBase,
-    GraphQueryRequest,
-    GraphQueryResponse,
-    NodeType,
-)
+from backend.graph.graph_builder import BuiltGraph
+from backend.graph.graph_schema import GraphEdge, GraphNode
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_STORAGE_DIR = "./data/graphs"
+
+
+# ---------------------------------------------------------------------------
+# GraphRepository
+# ---------------------------------------------------------------------------
 
 
 class GraphRepository:
     """
-    图谱存储仓库。
+    图谱持久化仓库。
 
-    提供统一的图谱持久化和查询接口。
-    自动检测 Neo4j 是否可用，不可用时降级到本地 JSON 存储。
+    自动检测 Neo4j 是否可用；不可用时仅使用本地 JSON 存储。
 
     示例::
 
-        repo = GraphRepository(neo4j_uri="bolt://localhost:7687")
-        await repo.save(code_graph)
-        graph = await repo.load(repo_id)
+        repo = GraphRepository()
+        repo.save(built_graph, repo_name="my-project")
+        built = repo.load("my-project")
     """
 
     def __init__(
         self,
+        storage_dir: str = _DEFAULT_STORAGE_DIR,
         neo4j_uri: Optional[str] = None,
         neo4j_user: str = "neo4j",
         neo4j_password: str = "password",
-        storage_dir: str = "./data/graphs",
     ) -> None:
-        """
-        初始化图谱仓库。
-
-        Args:
-            neo4j_uri: Neo4j Bolt URI，None 则仅使用本地存储
-            neo4j_user: Neo4j 用户名
-            neo4j_password: Neo4j 密码
-            storage_dir: 本地 JSON 存储目录
-        """
-        self.neo4j_uri = neo4j_uri
-        self.neo4j_user = neo4j_user
-        self.neo4j_password = neo4j_password
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
 
         self._driver = None
-        if neo4j_uri:
-            self._init_neo4j()
-
-    def _init_neo4j(self) -> None:
-        """初始化 Neo4j 驱动连接。"""
-        try:
-            from neo4j import GraphDatabase
-
-            self._driver = GraphDatabase.driver(
-                self.neo4j_uri,
-                auth=(self.neo4j_user, self.neo4j_password),
-            )
-            # 验证连接
-            with self._driver.session() as session:
-                session.run("RETURN 1")
-            logger.info(f"Neo4j 连接成功: {self.neo4j_uri}")
-        except ImportError:
-            logger.warning("neo4j 包未安装，跳过 Neo4j 初始化")
-            self._driver = None
-        except Exception as e:
-            logger.warning(f"Neo4j 连接失败，降级到本地存储: {e}")
-            self._driver = None
+        uri = neo4j_uri or os.getenv("NEO4J_URI")
+        if uri:
+            self._init_neo4j(uri, neo4j_user, neo4j_password)
 
     # ------------------------------------------------------------------
-    # 保存
+    # Save
     # ------------------------------------------------------------------
 
-    def save(self, graph: CodeGraph) -> str:
-        """
-        保存图谱到存储后端。
+    def save(self, built: BuiltGraph, repo_name: str = "") -> str:
+        """将 BuiltGraph 持久化到存储后端。
 
         Args:
-            graph: CodeGraph 对象
+            built:     GraphBuilder.build() 的输出。
+            repo_name: 仓库名称，用作文件名和索引键。
+                       空字符串时使用 ``graph_<timestamp>``。
 
         Returns:
-            图谱 ID
+            图谱 ID（即文件名 stem，不含扩展名）。
         """
-        # 始终写入本地 JSON（作为备份和快速加载）
-        self._save_local(graph)
+        graph_id = _safe_filename(repo_name) if repo_name else _timestamp_id()
+        self._save_json(built, graph_id, repo_name)
 
-        # 如果 Neo4j 可用，同步写入
         if self._driver:
             try:
-                self._save_neo4j(graph)
-            except Exception as e:
-                logger.error(f"Neo4j 写入失败（已保存到本地）: {e}")
+                self._save_neo4j(built, graph_id)
+            except Exception:
+                logger.error("Neo4j 写入失败（已保存到本地）", exc_info=True)
 
-        logger.info(f"图谱已保存: {graph.id} ({graph.stats.node_count} 节点)")
-        return graph.id
+        logger.info("图谱已保存: %s (%d 节点, %d 边)", graph_id,
+                    built.node_count, built.edge_count)
+        return graph_id
 
-    def _save_local(self, graph: CodeGraph) -> None:
-        """将图谱序列化为 JSON 文件存储。"""
-        file_path = self.storage_dir / f"{graph.id}.json"
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(graph.model_dump(mode="json"), f, ensure_ascii=False, indent=2)
-        # 同时更新索引文件
-        self._update_index(graph)
+    def _save_json(self, built: BuiltGraph, graph_id: str, repo_name: str) -> None:
+        """序列化并写入 JSON 文件，同步更新索引。"""
+        data = built.to_dict()
+        data["meta"]["graph_id"]   = graph_id
+        data["meta"]["repo_name"]  = repo_name
 
-    def _update_index(self, graph: CodeGraph) -> None:
-        """更新图谱索引文件（用于快速列表查询）。"""
-        index_file = self.storage_dir / "index.json"
+        file_path = self.storage_dir / f"{graph_id}.json"
+        file_path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        self._update_index(graph_id, repo_name, built)
+
+    def _update_index(self, graph_id: str, repo_name: str, built: BuiltGraph) -> None:
+        index_path = self.storage_dir / "index.json"
         index: dict[str, Any] = {}
-        if index_file.exists():
+        if index_path.exists():
             try:
-                index = json.loads(index_file.read_text(encoding="utf-8"))
+                index = json.loads(index_path.read_text(encoding="utf-8"))
             except Exception:
                 pass
-
-        index[graph.id] = {
-            "id": graph.id,
-            "repo_name": graph.repository.name,
-            "repo_path": graph.repository.file_path,
-            "node_count": graph.stats.node_count,
-            "edge_count": graph.stats.edge_count,
-            "created_at": graph.stats.created_at.isoformat(),
-            "primary_language": graph.repository.language,
+        index[graph_id] = {
+            "graph_id":   graph_id,
+            "repo_name":  repo_name,
+            "node_count": built.node_count,
+            "edge_count": built.edge_count,
+            "node_types": built.meta.get("node_type_counts", {}),
+            "created_at": built.meta.get("created_at", ""),
         }
-        index_file.write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    def _save_neo4j(self, graph: CodeGraph) -> None:
-        """将图谱写入 Neo4j。"""
-        with self._driver.session() as session:
-            # 清空旧数据
-            session.run(
-                "MATCH (n {graph_id: $gid}) DETACH DELETE n",
-                gid=graph.id,
-            )
-            # 批量创建节点
-            for node in graph.nodes:
-                props = {
-                    "graph_id": graph.id,
-                    "node_id": node.id,
-                    "name": node.name,
-                    "file_path": node.file_path or "",
-                    "line_start": node.line_start or 0,
-                }
-                props.update({k: str(v) for k, v in node.metadata.items() if isinstance(v, (str, int, float, bool))})
-                session.run(
-                    f"CREATE (n:{node.type} $props)",
-                    props=props,
-                )
-            # 批量创建边
-            for edge in graph.edges:
-                session.run(
-                    f"""
-                    MATCH (a {{node_id: $src, graph_id: $gid}})
-                    MATCH (b {{node_id: $tgt, graph_id: $gid}})
-                    CREATE (a)-[r:{edge.type} {{weight: $w}}]->(b)
-                    """,
-                    src=edge.source_id,
-                    tgt=edge.target_id,
-                    gid=graph.id,
-                    w=edge.weight,
-                )
+        index_path.write_text(
+            json.dumps(index, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
     # ------------------------------------------------------------------
-    # 加载
+    # Load
     # ------------------------------------------------------------------
 
-    def load(self, graph_id: str) -> Optional[CodeGraph]:
-        """
-        按 ID 加载图谱。
+    def load(self, graph_id: str) -> Optional[BuiltGraph]:
+        """从 JSON 文件加载 BuiltGraph。
 
         Args:
-            graph_id: 图谱唯一标识符
+            graph_id: 图谱 ID（文件名 stem）。
 
         Returns:
-            CodeGraph 对象，不存在时返回 None
+            BuiltGraph，文件不存在或解析失败时返回 None。
         """
-        file_path = self.storage_dir / f"{graph_id}.json"
-        if not file_path.exists():
-            logger.warning(f"图谱文件不存在: {graph_id}")
+        path = self.storage_dir / f"{graph_id}.json"
+        if not path.exists():
+            logger.warning("图谱文件不存在: %s", graph_id)
+            return None
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return _dict_to_built(data)
+        except Exception:
+            logger.error("加载图谱失败: %s", graph_id, exc_info=True)
             return None
 
-        try:
-            data = json.loads(file_path.read_text(encoding="utf-8"))
-            return CodeGraph.model_validate(data)
-        except Exception as e:
-            logger.error(f"加载图谱失败 {graph_id}: {e}")
-            return None
+    # ------------------------------------------------------------------
+    # List / Delete
+    # ------------------------------------------------------------------
 
     def list_graphs(self) -> list[dict[str, Any]]:
-        """
-        列出所有已存储的图谱摘要信息。
-
-        Returns:
-            图谱摘要字典列表
-        """
-        index_file = self.storage_dir / "index.json"
-        if not index_file.exists():
+        """列出所有已存储图谱的摘要信息。"""
+        index_path = self.storage_dir / "index.json"
+        if not index_path.exists():
             return []
         try:
-            index = json.loads(index_file.read_text(encoding="utf-8"))
+            index = json.loads(index_path.read_text(encoding="utf-8"))
             return list(index.values())
         except Exception:
             return []
 
     def delete(self, graph_id: str) -> bool:
-        """
-        删除图谱。
-
-        Args:
-            graph_id: 图谱 ID
+        """删除指定图谱（JSON 文件 + 索引条目）。
 
         Returns:
-            删除成功返回 True
+            True 表示文件已删除，False 表示文件不存在。
         """
-        file_path = self.storage_dir / f"{graph_id}.json"
+        path = self.storage_dir / f"{graph_id}.json"
         deleted = False
-        if file_path.exists():
-            file_path.unlink()
+        if path.exists():
+            path.unlink()
             deleted = True
 
-        # 更新索引
-        index_file = self.storage_dir / "index.json"
-        if index_file.exists():
+        index_path = self.storage_dir / "index.json"
+        if index_path.exists():
             try:
-                index = json.loads(index_file.read_text(encoding="utf-8"))
+                index = json.loads(index_path.read_text(encoding="utf-8"))
                 index.pop(graph_id, None)
-                index_file.write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
+                index_path.write_text(
+                    json.dumps(index, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
             except Exception:
                 pass
 
         if self._driver:
             try:
                 with self._driver.session() as session:
-                    session.run("MATCH (n {graph_id: $gid}) DETACH DELETE n", gid=graph_id)
-            except Exception as e:
-                logger.warning(f"Neo4j 删除失败: {e}")
+                    session.run(
+                        "MATCH (n {graph_id: $gid}) DETACH DELETE n",
+                        gid=graph_id,
+                    )
+            except Exception:
+                logger.warning("Neo4j 删除失败: %s", graph_id, exc_info=True)
 
-        logger.info(f"图谱已删除: {graph_id}")
+        logger.info("图谱已删除: %s", graph_id)
         return deleted
 
     # ------------------------------------------------------------------
-    # 查询
+    # Query
     # ------------------------------------------------------------------
 
-    def query_nodes_by_type(
-        self, graph_id: str, node_type: NodeType, limit: int = 50
+    def query_nodes(
+        self,
+        graph_id: str,
+        *,
+        node_type: Optional[str] = None,
+        name_contains: Optional[str] = None,
+        limit: int = 50,
     ) -> list[dict[str, Any]]:
-        """
-        按节点类型查询。
+        """按条件检索节点（从 JSON 文件加载后过滤）。
 
         Args:
-            graph_id: 图谱 ID
-            node_type: 节点类型枚举值
-            limit: 最大返回数量
+            graph_id:      图谱 ID。
+            node_type:     节点类型过滤（如 ``"Service"``），None 表示不过滤。
+            name_contains: 节点名称子串过滤（大小写不敏感），None 表示不过滤。
+            limit:         最多返回数量。
 
         Returns:
-            节点字典列表
+            节点字典列表（含 metrics 字段）。
         """
-        graph = self.load(graph_id)
-        if not graph:
+        built = self.load(graph_id)
+        if built is None:
             return []
-        results = [
-            n.model_dump(mode="json")
-            for n in graph.nodes
-            if str(n.type) == str(node_type)
-        ]
-        return results[:limit]
+
+        results: list[dict[str, Any]] = []
+        for node in built.nodes:
+            if node_type and node.type != node_type:
+                continue
+            if name_contains and name_contains.lower() not in node.name.lower():
+                continue
+            nd = node.model_dump()
+            m = built.metrics.get(node.id)
+            if m:
+                nd["metrics"] = m
+            results.append(nd)
+            if len(results) >= limit:
+                break
+
+        return results
 
     def query_neighbors(
         self,
         graph_id: str,
         node_id: str,
+        *,
         depth: int = 1,
         edge_types: Optional[list[str]] = None,
     ) -> dict[str, Any]:
-        """
-        查询节点的邻居子图。
+        """BFS 扩展指定节点的邻居子图。
 
         Args:
-            graph_id: 图谱 ID
-            node_id: 起始节点 ID
-            depth: 遍历深度
-            edge_types: 只遍历指定类型的边，None 表示全部
+            graph_id:   图谱 ID。
+            node_id:    起始节点 ID。
+            depth:      BFS 深度（默认 1）。
+            edge_types: 只遍历指定类型的边，None 表示全部。
 
         Returns:
-            包含 nodes 和 edges 的子图字典
+            ``{"nodes": [...], "edges": [...]}`` 子图字典。
         """
-        graph = self.load(graph_id)
-        if not graph:
+        built = self.load(graph_id)
+        if built is None:
             return {"nodes": [], "edges": []}
 
-        import networkx as nx
+        # 构建邻接结构（adjacency sets）
+        fwd: dict[str, set[str]] = {}   # node_id → 后继 node_id
+        bwd: dict[str, set[str]] = {}   # node_id → 前驱 node_id
+        for e in built.edges:
+            if edge_types and e.type not in edge_types:
+                continue
+            fwd.setdefault(e.from_, set()).add(e.to)
+            bwd.setdefault(e.to,    set()).add(e.from_)
 
-        G = nx.DiGraph()
-        for n in graph.nodes:
-            G.add_node(n.id, **{"name": n.name, "type": str(n.type)})
-        for e in graph.edges:
-            if edge_types is None or str(e.type) in edge_types:
-                G.add_edge(e.source_id, e.target_id, edge_type=str(e.type))
-
-        # BFS 扩展到 depth 深度
         visited: set[str] = {node_id}
-        frontier = {node_id}
+        frontier: set[str] = {node_id}
         for _ in range(depth):
-            new_frontier: set[str] = set()
+            nxt: set[str] = set()
             for nid in frontier:
-                new_frontier.update(G.successors(nid))
-                new_frontier.update(G.predecessors(nid))
-            frontier = new_frontier - visited
+                nxt.update(fwd.get(nid, set()))
+                nxt.update(bwd.get(nid, set()))
+            frontier = nxt - visited
             visited.update(frontier)
 
-        node_map = {n.id: n for n in graph.nodes}
-        sub_nodes = [node_map[nid].model_dump(mode="json") for nid in visited if nid in node_map]
-        sub_edges = [
-            e.model_dump(mode="json")
-            for e in graph.edges
-            if e.source_id in visited and e.target_id in visited
+        node_map = {n.id: n for n in built.nodes}
+        sub_nodes = [
+            node_map[nid].model_dump()
+            for nid in visited
+            if nid in node_map
         ]
-
+        sub_edges = [
+            e.model_dump(by_alias=True)
+            for e in built.edges
+            if e.from_ in visited and e.to in visited
+        ]
         return {"nodes": sub_nodes, "edges": sub_edges}
 
-    def cypher_query(self, query: str, params: Optional[dict] = None) -> list[dict[str, Any]]:
-        """
-        执行 Neo4j Cypher 查询。
+    # ------------------------------------------------------------------
+    # Neo4j — 公开接口
+    # ------------------------------------------------------------------
+
+    def connect(
+        self,
+        uri: str,
+        user: str = "neo4j",
+        password: str = "password",
+    ) -> bool:
+        """显式建立 Neo4j 连接，成功后自动创建约束/索引。
 
         Args:
-            query: Cypher 查询语句
-            params: 查询参数
+            uri:      Neo4j Bolt URI，例如 ``"bolt://localhost:7687"``。
+            user:     用户名（默认 ``"neo4j"``）。
+            password: 密码。
 
         Returns:
-            查询结果列表，Neo4j 不可用时返回空列表
+            True 表示连接成功，False 表示连接失败或 neo4j 包未安装。
+        """
+        self._init_neo4j(uri, user, password)
+        return self._driver is not None
+
+    def save_nodes(self, graph_id: str, nodes: list[GraphNode]) -> int:
+        """批量写入节点到 Neo4j（MERGE 语义，幂等）。
+
+        使用 ``UNWIND`` + ``MERGE`` 减少网络往返次数。
+        节点标签来自 ``node.type``；属性中仅保留标量类型（str/int/float/bool）。
+
+        Args:
+            graph_id: 图谱 ID，写入每个节点的 ``graph_id`` 属性。
+            nodes:    要写入的 ``GraphNode`` 列表。
+
+        Returns:
+            实际写入（MERGE）的节点数量。
+
+        Raises:
+            RuntimeError: Neo4j 未连接时抛出。
         """
         if not self._driver:
-            logger.warning("Neo4j 不可用，无法执行 Cypher 查询")
-            return []
+            raise RuntimeError("Neo4j 未连接，请先调用 connect() 或配置 NEO4J_URI")
+        if not nodes:
+            return 0
+
+        # 按 node.type 分组，每组用一条 UNWIND 语句写入（标签不能参数化）
+        by_type: dict[str, list[dict[str, Any]]] = {}
+        for node in nodes:
+            props: dict[str, Any] = {
+                "graph_id": graph_id,
+                "node_id":  node.id,
+                "name":     node.name,
+            }
+            # 只保留标量属性（Neo4j 不支持嵌套 dict/list 作为属性值）
+            for k, v in node.properties.items():
+                if isinstance(v, (str, int, float, bool)):
+                    props[k] = v
+            by_type.setdefault(node.type, []).append(props)
+
+        total = 0
+        with self._driver.session() as session:
+            for node_type, batch in by_type.items():
+                result = session.run(
+                    f"""
+                    UNWIND $batch AS props
+                    MERGE (n:`{node_type}` {{node_id: props.node_id, graph_id: props.graph_id}})
+                    SET n += props
+                    RETURN count(n) AS cnt
+                    """,
+                    batch=batch,
+                )
+                record = result.single()
+                total += record["cnt"] if record else 0
+
+        logger.debug("Neo4j save_nodes: graph=%s, 写入 %d 节点", graph_id, total)
+        return total
+
+    def save_edges(self, graph_id: str, edges: list[GraphEdge]) -> int:
+        """批量写入边到 Neo4j（MERGE 语义，幂等）。
+
+        使用 ``UNWIND`` + ``MERGE`` 减少网络往返次数。
+        边类型来自 ``edge.type``；属性中仅保留标量类型。
+
+        Args:
+            graph_id: 图谱 ID，用于定位源/目标节点。
+            edges:    要写入的 ``GraphEdge`` 列表。
+
+        Returns:
+            实际写入（MERGE）的边数量。
+
+        Raises:
+            RuntimeError: Neo4j 未连接时抛出。
+        """
+        if not self._driver:
+            raise RuntimeError("Neo4j 未连接，请先调用 connect() 或配置 NEO4J_URI")
+        if not edges:
+            return 0
+
+        # 按 edge.type 分组
+        by_type: dict[str, list[dict[str, Any]]] = {}
+        for edge in edges:
+            props: dict[str, Any] = {}
+            for k, v in edge.properties.items():
+                if isinstance(v, (str, int, float, bool)):
+                    props[k] = v
+            by_type.setdefault(edge.type, []).append({
+                "src":   edge.from_,
+                "tgt":   edge.to,
+                "props": props,
+            })
+
+        total = 0
+        with self._driver.session() as session:
+            for edge_type, batch in by_type.items():
+                result = session.run(
+                    f"""
+                    UNWIND $batch AS row
+                    MATCH (a {{node_id: row.src, graph_id: $gid}})
+                    MATCH (b {{node_id: row.tgt, graph_id: $gid}})
+                    MERGE (a)-[r:`{edge_type}`]->(b)
+                    SET r += row.props
+                    RETURN count(r) AS cnt
+                    """,
+                    batch=batch,
+                    gid=graph_id,
+                )
+                record = result.single()
+                total += record["cnt"] if record else 0
+
+        logger.debug("Neo4j save_edges: graph=%s, 写入 %d 边", graph_id, total)
+        return total
+
+    def query(
+        self,
+        cypher: str,
+        params: Optional[dict[str, Any]] = None,
+    ) -> list[dict[str, Any]]:
+        """执行任意 Cypher 语句，返回结果记录列表。
+
+        Args:
+            cypher: Cypher 查询字符串，例如::
+
+                "MATCH (n {graph_id: $gid}) RETURN n.name AS name, labels(n) AS types"
+
+            params: 查询参数字典，例如 ``{"gid": "my-project"}``。
+
+        Returns:
+            每条记录转换为普通 Python 字典的列表；查询无结果时返回空列表。
+
+        Raises:
+            RuntimeError: Neo4j 未连接时抛出。
+
+        示例::
+
+            rows = repo.query(
+                "MATCH (n {graph_id: $gid}) RETURN n.name AS name LIMIT 10",
+                {"gid": "my-project"},
+            )
+            for row in rows:
+                print(row["name"])
+        """
+        if not self._driver:
+            raise RuntimeError("Neo4j 未连接，请先调用 connect() 或配置 NEO4J_URI")
+
+        with self._driver.session() as session:
+            result = session.run(cypher, **(params or {}))
+            return [dict(record) for record in result]
+
+    # ------------------------------------------------------------------
+    # Neo4j — 内部实现
+    # ------------------------------------------------------------------
+
+    def _init_neo4j(self, uri: str, user: str, password: str) -> None:
+        """建立 Neo4j 连接并初始化约束/索引（内部）。"""
         try:
+            from neo4j import GraphDatabase
+
+            self._driver = GraphDatabase.driver(uri, auth=(user, password))
             with self._driver.session() as session:
-                result = session.run(query, **(params or {}))
-                return [dict(record) for record in result]
-        except Exception as e:
-            logger.error(f"Cypher 查询失败: {e}")
-            return []
+                session.run("RETURN 1")
+            logger.info("Neo4j 连接成功: %s", uri)
+            self._ensure_constraints()
+        except ImportError:
+            logger.warning("neo4j 包未安装，使用本地 JSON 存储")
+        except Exception:
+            logger.warning("Neo4j 连接失败，降级到本地 JSON 存储", exc_info=True)
+            self._driver = None
+
+    def _ensure_constraints(self) -> None:
+        """创建节点唯一性约束和属性索引（幂等，IF NOT EXISTS）。"""
+        ddl_statements = [
+            # 通用节点查找索引（graph_id + node_id 组合唯一）
+            "CREATE INDEX node_lookup IF NOT EXISTS "
+            "FOR (n:__KGNode__) ON (n.graph_id, n.node_id)",
+        ]
+        with self._driver.session() as session:
+            for ddl in ddl_statements:
+                try:
+                    session.run(ddl)
+                except Exception:
+                    # 旧版 Neo4j 不支持 IF NOT EXISTS 语法，忽略错误
+                    logger.debug("约束创建跳过（可能已存在或版本不支持）", exc_info=True)
+
+    def _save_neo4j(self, built: BuiltGraph, graph_id: str) -> None:
+        """将 BuiltGraph 写入 Neo4j（清空旧数据后重建，供 save() 内部调用）。"""
+        with self._driver.session() as session:
+            session.run(
+                "MATCH (n {graph_id: $gid}) DETACH DELETE n",
+                gid=graph_id,
+            )
+        self.save_nodes(graph_id, built.nodes)
+        self.save_edges(graph_id, built.edges)
 
     def close(self) -> None:
-        """关闭数据库连接。"""
+        """关闭 Neo4j 连接。"""
         if self._driver:
             self._driver.close()
             self._driver = None
 
 
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    repo = GraphRepository()
-    graphs = repo.list_graphs()
-    print(f"已存储 {len(graphs)} 个图谱:")
-    for g in graphs:
-        print(f"  - {g['repo_name']}: {g['node_count']} 节点, {g['edge_count']} 边")
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _dict_to_built(data: dict[str, Any]) -> BuiltGraph:
+    """将 JSON 反序列化为 BuiltGraph。"""
+    meta    = data.get("meta", {})
+    metrics: dict[str, dict[str, float]] = {}
+
+    nodes: list[GraphNode] = []
+    for nd in data.get("nodes", []):
+        m = nd.pop("metrics", None)
+        node = GraphNode.model_validate(nd)
+        nodes.append(node)
+        if m:
+            metrics[node.id] = m
+
+    edges: list[GraphEdge] = []
+    for ed in data.get("edges", []):
+        edges.append(GraphEdge.model_validate(ed))
+
+    return BuiltGraph(nodes=nodes, edges=edges, meta=meta, metrics=metrics)
+
+
+def _safe_filename(name: str) -> str:
+    """将仓库名转为合法文件名（保留字母数字和 - _）。"""
+    s = re.sub(r"[^\w\-]", "_", name.strip())
+    return s[:80] or "graph"
+
+
+def _timestamp_id() -> str:
+    return "graph_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")

@@ -164,13 +164,21 @@ class LanguageLoader:
 
         try:
             import importlib
+            from tree_sitter import Language
 
             module = importlib.import_module(config.package_name)
-            # tree-sitter v0.22+ API
-            if hasattr(module, "language"):
-                from tree_sitter import Language
 
+            # tree-sitter-typescript 分为 language_typescript / language_tsx
+            if language == "typescript":
+                if hasattr(module, "language_typescript"):
+                    return Language(module.language_typescript())
+                if hasattr(module, "language_tsx"):
+                    return Language(module.language_tsx())
+
+            # 通用：tree-sitter v0.22+ 使用 language()
+            if hasattr(module, "language"):
                 return Language(module.language())
+
             logger.warning(f"语言模块 {config.package_name} 不符合预期接口")
             return None
         except ImportError:
