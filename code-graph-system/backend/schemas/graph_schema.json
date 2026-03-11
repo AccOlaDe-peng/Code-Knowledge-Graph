@@ -1,0 +1,235 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CodeKnowledgeGraph",
+  "description": "AI代码知识图谱数据模型定义",
+  "version": "1.0.0",
+  "definitions": {
+    "NodeBase": {
+      "type": "object",
+      "required": ["id", "type", "name"],
+      "properties": {
+        "id": { "type": "string", "description": "节点唯一标识符 (UUID)" },
+        "type": { "type": "string", "description": "节点类型" },
+        "name": { "type": "string", "description": "节点名称" },
+        "file_path": { "type": "string", "description": "所在文件路径" },
+        "line_start": { "type": "integer", "minimum": 1 },
+        "line_end": { "type": "integer", "minimum": 1 },
+        "metadata": { "type": "object", "description": "扩展元数据" },
+        "embedding": {
+          "type": "array",
+          "items": { "type": "number" },
+          "description": "语义嵌入向量"
+        },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "RepositoryNode": {
+      "allOf": [
+        { "$ref": "#/definitions/NodeBase" },
+        {
+          "properties": {
+            "type": { "const": "Repository" },
+            "url": { "type": "string", "format": "uri" },
+            "language": { "type": "string" },
+            "branch": { "type": "string" },
+            "commit_hash": { "type": "string" },
+            "description": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "ModuleNode": {
+      "allOf": [
+        { "$ref": "#/definitions/NodeBase" },
+        {
+          "properties": {
+            "type": { "const": "Module" },
+            "package": { "type": "string" },
+            "is_package": { "type": "boolean" },
+            "exports": { "type": "array", "items": { "type": "string" } },
+            "imports": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      ]
+    },
+    "ComponentNode": {
+      "allOf": [
+        { "$ref": "#/definitions/NodeBase" },
+        {
+          "properties": {
+            "type": { "const": "Component" },
+            "component_type": {
+              "type": "string",
+              "enum": ["class", "interface", "struct", "enum", "trait", "mixin"]
+            },
+            "is_abstract": { "type": "boolean" },
+            "methods": { "type": "array", "items": { "type": "string" } },
+            "attributes": { "type": "array", "items": { "type": "string" } },
+            "base_classes": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      ]
+    },
+    "FunctionNode": {
+      "allOf": [
+        { "$ref": "#/definitions/NodeBase" },
+        {
+          "properties": {
+            "type": { "const": "Function" },
+            "signature": { "type": "string" },
+            "parameters": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "type": { "type": "string" },
+                  "default": { "type": "string" }
+                }
+              }
+            },
+            "return_type": { "type": "string" },
+            "is_async": { "type": "boolean" },
+            "is_generator": { "type": "boolean" },
+            "decorators": { "type": "array", "items": { "type": "string" } },
+            "complexity": { "type": "integer", "description": "圈复杂度" },
+            "docstring": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "DataNode": {
+      "allOf": [
+        { "$ref": "#/definitions/NodeBase" },
+        {
+          "properties": {
+            "type": { "const": "DataEntity" },
+            "entity_type": {
+              "type": "string",
+              "enum": ["table", "model", "schema", "collection", "queue", "topic"]
+            },
+            "fields": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "type": { "type": "string" },
+                  "nullable": { "type": "boolean" },
+                  "primary_key": { "type": "boolean" }
+                }
+              }
+            },
+            "database": { "type": "string" },
+            "schema_name": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "EventNode": {
+      "allOf": [
+        { "$ref": "#/definitions/NodeBase" },
+        {
+          "properties": {
+            "type": { "const": "Event" },
+            "event_type": {
+              "type": "string",
+              "enum": ["emit", "listen", "publish", "subscribe", "webhook", "signal"]
+            },
+            "channel": { "type": "string" },
+            "payload_schema": { "type": "object" }
+          }
+        }
+      ]
+    },
+    "InfraNode": {
+      "allOf": [
+        { "$ref": "#/definitions/NodeBase" },
+        {
+          "properties": {
+            "type": { "const": "Infrastructure" },
+            "infra_type": {
+              "type": "string",
+              "enum": ["database", "cache", "queue", "storage", "api", "service", "container"]
+            },
+            "technology": { "type": "string" },
+            "host": { "type": "string" },
+            "port": { "type": "integer" },
+            "config": { "type": "object" }
+          }
+        }
+      ]
+    },
+    "EdgeBase": {
+      "type": "object",
+      "required": ["id", "type", "source_id", "target_id"],
+      "properties": {
+        "id": { "type": "string", "description": "边唯一标识符" },
+        "type": { "type": "string", "description": "关系类型" },
+        "source_id": { "type": "string", "description": "源节点ID" },
+        "target_id": { "type": "string", "description": "目标节点ID" },
+        "weight": { "type": "number", "minimum": 0, "maximum": 1 },
+        "metadata": { "type": "object" },
+        "created_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "EdgeTypes": {
+      "type": "string",
+      "enum": [
+        "CONTAINS",
+        "IMPORTS",
+        "CALLS",
+        "INHERITS",
+        "IMPLEMENTS",
+        "USES",
+        "READS",
+        "WRITES",
+        "EMITS",
+        "LISTENS",
+        "DEPENDS_ON",
+        "DEPLOYED_ON",
+        "TRIGGERS",
+        "TRANSFORMS"
+      ]
+    },
+    "Graph": {
+      "type": "object",
+      "required": ["id", "repository", "nodes", "edges"],
+      "properties": {
+        "id": { "type": "string" },
+        "repository": { "$ref": "#/definitions/RepositoryNode" },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              { "$ref": "#/definitions/RepositoryNode" },
+              { "$ref": "#/definitions/ModuleNode" },
+              { "$ref": "#/definitions/ComponentNode" },
+              { "$ref": "#/definitions/FunctionNode" },
+              { "$ref": "#/definitions/DataNode" },
+              { "$ref": "#/definitions/EventNode" },
+              { "$ref": "#/definitions/InfraNode" }
+            ]
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/EdgeBase" }
+        },
+        "stats": {
+          "type": "object",
+          "properties": {
+            "node_count": { "type": "integer" },
+            "edge_count": { "type": "integer" },
+            "language_distribution": { "type": "object" },
+            "created_at": { "type": "string", "format": "date-time" },
+            "analysis_duration_seconds": { "type": "number" }
+          }
+        }
+      }
+    }
+  },
+  "type": "object",
+  "$ref": "#/definitions/Graph"
+}

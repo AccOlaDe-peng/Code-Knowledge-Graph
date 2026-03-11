@@ -1,0 +1,57 @@
+# Core Framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Tree-sitter (code parsing)
+tree-sitter>=0.20.0
+tree-sitter-python>=0.20.0
+tree-sitter-javascript>=0.20.0
+tree-sitter-typescript>=0.20.0
+tree-sitter-java>=0.20.0
+tree-sitter-go>=0.20.0
+tree-sitter-rust>=0.20.0
+
+# Graph
+networkx>=3.1,<4.0
+neo4j>=5.14.0
+
+# Vector Store
+chromadb>=0.4.0
+
+# AI / LLM
+anthropic>=0.25.0
+openai>=1.12.0
+tiktoken>=0.5.0
+
+# Data Processing
+gitpython>=3.1.40
+pathspec>=0.11.0
+chardet>=5.0.0
+
+# Scheduling
+apscheduler>=3.10.0
+celery>=5.3.0
+redis>=5.0.0
+
+# Storage
+sqlalchemy>=2.0.0
+alembic>=1.12.0
+aiosqlite>=0.19.0
+
+# Utilities
+python-dotenv>=1.0.0
+httpx>=0.25.0
+tenacity>=8.2.0
+loguru>=0.7.0
+rich>=13.0.0
+typer>=0.9.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+
+# Optional: TOML support for pyproject.toml parsing (Python < 3.11)
+tomli>=2.0.0; python_version < '3.11'

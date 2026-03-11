@@ -1,0 +1,36 @@
+# 最小依赖版本 - 用于快速安装和测试核心功能
+# 不包含 AI、向量存储等可选功能
+
+# 核心框架
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+
+# 代码解析（核心功能）
+tree-sitter>=0.20.0
+
+# 图计算
+networkx>=3.1,<4.0
+
+# 数据处理
+gitpython>=3.1.0
+
+# 工具
+python-dotenv>=1.0.0
+rich>=13.0.0
+
+# 测试
+pytest>=7.4.0
+
+# 可选：Tree-sitter 语言包（按需安装）
+# tree-sitter-python>=0.20.0
+# tree-sitter-javascript>=0.20.0
+# tree-sitter-typescript>=0.20.0
+
+# 可选：AI 功能（按需安装）
+# anthropic>=0.25.0
+# openai>=1.12.0
+# chromadb>=0.4.0
+
+# 可选：图数据库（按需安装）
+# neo4j>=5.14.0
