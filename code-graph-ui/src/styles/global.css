@@ -1,0 +1,319 @@
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap');
+
+/* ─── Design System ─────────────────────────────────────── */
+:root {
+  /* Surfaces */
+  --s-void:    #07090d;
+  --s-base:    #0c0f16;
+  --s-raised:  #111520;
+  --s-float:   #171b28;
+  --s-overlay: #1e2234;
+
+  /* Borders */
+  --b-faint:   rgba(255,255,255,0.045);
+  --b-subtle:  rgba(255,255,255,0.08);
+  --b-visible: rgba(255,255,255,0.14);
+  --b-cyan:    rgba(0,212,255,0.45);
+
+  /* Text */
+  --t-primary:   #d0d5e8;
+  --t-secondary: #6e7a99;
+  --t-muted:     #3d4460;
+  --t-cyan:      #00d4ff;
+  --t-green:     #00f084;
+  --t-amber:     #ffc145;
+  --t-red:       #ff4568;
+  --t-purple:    #b08eff;
+
+  /* Accent */
+  --a-cyan:       #00d4ff;
+  --a-cyan-dim:   rgba(0,212,255,0.12);
+  --a-cyan-glow:  0 0 18px rgba(0,212,255,0.22);
+  --a-green:      #00f084;
+  --a-green-dim:  rgba(0,240,132,0.1);
+  --a-amber:      #ffc145;
+  --a-purple:     #b08eff;
+
+  /* Typography */
+  --font-ui:   'Syne', -apple-system, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'Fira Code', monospace;
+
+  /* Layout */
+  --sidebar-w: 244px;
+  --header-h:  54px;
+  --radius-s:  3px;
+  --radius-m:  6px;
+  --radius-l:  10px;
+}
+
+/* ─── Reset ──────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-ui);
+  background: var(--s-void);
+  color: var(--t-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── Scrollbar ──────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0,212,255,0.4); }
+
+/* ─── Dot Grid Background ────────────────────────────────── */
+.dot-grid {
+  background-image: radial-gradient(circle, rgba(255,255,255,0.055) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+/* ─── Ant Design Core Overrides ──────────────────────────── */
+
+/* Layout */
+.ant-layout { background: var(--s-void) !important; }
+.ant-layout-content { background: transparent !important; }
+
+/* Card */
+.ant-card {
+  background: var(--s-raised) !important;
+  border-color: var(--b-subtle) !important;
+  border-radius: var(--radius-m) !important;
+}
+.ant-card-head {
+  background: transparent !important;
+  border-bottom-color: var(--b-faint) !important;
+  color: var(--t-primary) !important;
+  font-family: var(--font-ui) !important;
+  font-weight: 600 !important;
+  min-height: 44px !important;
+  padding: 0 20px !important;
+}
+.ant-card-head-title {
+  font-size: 13px !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+  color: var(--t-secondary) !important;
+}
+.ant-card-body { padding: 20px !important; }
+
+/* Table */
+.ant-table { background: transparent !important; font-family: var(--font-ui) !important; }
+.ant-table-thead > tr > th {
+  background: var(--s-float) !important;
+  border-bottom-color: var(--b-subtle) !important;
+  color: var(--t-secondary) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  font-family: var(--font-mono) !important;
+  padding: 10px 16px !important;
+}
+.ant-table-tbody > tr > td {
+  background: transparent !important;
+  border-bottom-color: var(--b-faint) !important;
+  color: var(--t-primary) !important;
+  padding: 11px 16px !important;
+  font-size: 13px !important;
+}
+.ant-table-tbody > tr:hover > td { background: var(--s-float) !important; }
+.ant-table-wrapper .ant-pagination { margin-top: 16px !important; }
+
+/* Input */
+.ant-input, .ant-input-affix-wrapper {
+  background: var(--s-float) !important;
+  border-color: var(--b-subtle) !important;
+  color: var(--t-primary) !important;
+  border-radius: var(--radius-s) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 13px !important;
+}
+.ant-input:focus, .ant-input-affix-wrapper:focus,
+.ant-input-affix-wrapper-focused {
+  border-color: var(--a-cyan) !important;
+  box-shadow: 0 0 0 2px var(--a-cyan-dim) !important;
+}
+.ant-input::placeholder { color: var(--t-muted) !important; }
+textarea.ant-input { font-family: var(--font-mono) !important; }
+
+/* Select */
+.ant-select-selector {
+  background: var(--s-float) !important;
+  border-color: var(--b-subtle) !important;
+  color: var(--t-primary) !important;
+  border-radius: var(--radius-s) !important;
+  font-family: var(--font-ui) !important;
+}
+.ant-select-focused .ant-select-selector {
+  border-color: var(--a-cyan) !important;
+  box-shadow: 0 0 0 2px var(--a-cyan-dim) !important;
+}
+.ant-select-dropdown {
+  background: var(--s-overlay) !important;
+  border: 1px solid var(--b-subtle) !important;
+  border-radius: var(--radius-m) !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important;
+}
+.ant-select-item {
+  color: var(--t-primary) !important;
+  font-family: var(--font-ui) !important;
+  font-size: 13px !important;
+}
+.ant-select-item-option-active { background: var(--s-float) !important; }
+.ant-select-item-option-selected { background: var(--a-cyan-dim) !important; color: var(--t-cyan) !important; }
+
+/* Button */
+.ant-btn-primary {
+  background: var(--a-cyan) !important;
+  border-color: var(--a-cyan) !important;
+  color: #07090d !important;
+  font-weight: 600 !important;
+  font-family: var(--font-ui) !important;
+  letter-spacing: 0.03em !important;
+  border-radius: var(--radius-s) !important;
+}
+.ant-btn-primary:hover {
+  background: #33dcff !important;
+  border-color: #33dcff !important;
+  box-shadow: var(--a-cyan-glow) !important;
+}
+.ant-btn-default {
+  background: var(--s-float) !important;
+  border-color: var(--b-visible) !important;
+  color: var(--t-primary) !important;
+  border-radius: var(--radius-s) !important;
+}
+.ant-btn-default:hover {
+  border-color: var(--a-cyan) !important;
+  color: var(--t-cyan) !important;
+}
+
+/* Tag */
+.ant-tag {
+  border-radius: var(--radius-s) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 11px !important;
+  border: 1px solid transparent !important;
+  padding: 1px 7px !important;
+}
+.ant-tag-blue   { background: rgba(0,212,255,0.1) !important; border-color: rgba(0,212,255,0.25) !important; color: var(--t-cyan) !important; }
+.ant-tag-green  { background: rgba(0,240,132,0.1) !important; border-color: rgba(0,240,132,0.25) !important; color: var(--t-green) !important; }
+.ant-tag-orange { background: rgba(255,193,69,0.1)  !important; border-color: rgba(255,193,69,0.25) !important; color: var(--t-amber) !important; }
+.ant-tag-purple { background: rgba(176,142,255,0.1) !important; border-color: rgba(176,142,255,0.25) !important; color: var(--t-purple) !important; }
+.ant-tag-geekblue { background: rgba(0,212,255,0.08) !important; border-color: rgba(0,212,255,0.2) !important; color: var(--t-cyan) !important; }
+
+/* Form Labels */
+.ant-form-item-label > label {
+  color: var(--t-secondary) !important;
+  font-size: 12px !important;
+  font-family: var(--font-mono) !important;
+  font-weight: 400 !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+}
+
+/* Switch */
+.ant-switch { background: var(--s-overlay) !important; border: 1px solid var(--b-subtle) !important; }
+.ant-switch-checked { background: var(--a-cyan) !important; border-color: var(--a-cyan) !important; }
+
+/* Alert */
+.ant-alert { border-radius: var(--radius-m) !important; font-family: var(--font-ui) !important; }
+.ant-alert-info {
+  background: rgba(0,212,255,0.07) !important;
+  border-color: rgba(0,212,255,0.2) !important;
+  color: var(--t-secondary) !important;
+}
+.ant-alert-success {
+  background: rgba(0,240,132,0.07) !important;
+  border-color: rgba(0,240,132,0.2) !important;
+}
+.ant-alert-error {
+  background: rgba(255,69,104,0.07) !important;
+  border-color: rgba(255,69,104,0.2) !important;
+}
+.ant-alert-message { color: var(--t-primary) !important; font-weight: 600 !important; }
+.ant-alert-description { color: var(--t-secondary) !important; font-size: 13px !important; }
+
+/* Statistic */
+.ant-statistic-title {
+  color: var(--t-muted) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 10px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.1em !important;
+}
+.ant-statistic-content {
+  font-family: var(--font-mono) !important;
+  color: var(--t-primary) !important;
+}
+
+/* Spin */
+.ant-spin-dot-item { background: var(--a-cyan) !important; }
+
+/* Rate */
+.ant-rate-star-full .anticon { color: var(--a-cyan) !important; }
+.ant-rate-star-zero .anticon { color: var(--b-visible) !important; }
+
+/* Progress */
+.ant-progress-bg { background: var(--a-cyan) !important; }
+.ant-progress-inner { background: var(--s-float) !important; }
+.ant-progress-text { color: var(--t-secondary) !important; font-family: var(--font-mono) !important; font-size: 11px !important; }
+
+/* Divider */
+.ant-divider { border-color: var(--b-faint) !important; }
+
+/* Pagination */
+.ant-pagination-item {
+  background: var(--s-float) !important;
+  border-color: var(--b-subtle) !important;
+  border-radius: var(--radius-s) !important;
+}
+.ant-pagination-item a { color: var(--t-secondary) !important; font-family: var(--font-mono) !important; font-size: 12px !important; }
+.ant-pagination-item-active {
+  background: var(--a-cyan-dim) !important;
+  border-color: var(--a-cyan) !important;
+}
+.ant-pagination-item-active a { color: var(--t-cyan) !important; }
+.ant-pagination-prev button, .ant-pagination-next button {
+  background: var(--s-float) !important;
+  border-color: var(--b-subtle) !important;
+  color: var(--t-secondary) !important;
+}
+
+/* Typography */
+.ant-typography { color: var(--t-primary) !important; font-family: var(--font-ui) !important; }
+h1.ant-typography, h2.ant-typography, h3.ant-typography,
+h4.ant-typography, h5.ant-typography {
+  color: var(--t-primary) !important;
+  font-family: var(--font-ui) !important;
+  font-weight: 700 !important;
+}
+.ant-typography.ant-typography-secondary { color: var(--t-secondary) !important; }
+
+/* Empty */
+.ant-empty-description { color: var(--t-muted) !important; font-family: var(--font-ui) !important; font-size: 13px !important; }
+
+/* ─── Page Transition ─────────────────────────────────────── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.page-enter { animation: fadeUp 0.3s ease forwards; }
+
+/* ─── Glow Pulse ─────────────────────────────────────────── */
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(0,212,255,0.15); }
+  50%       { box-shadow: 0 0 20px rgba(0,212,255,0.35); }
+}
+
+/* ─── Cursor Blink ───────────────────────────────────────── */
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+.cursor-blink::after {
+  content: '▌';
+  color: var(--a-cyan);
+  animation: blink 1s step-end infinite;
+  font-size: 0.85em;
+}
