@@ -1,36 +1,21 @@
 import React from 'react';
-import { Typography, Empty, Alert } from 'antd';
-import { RadarChartOutlined } from '@ant-design/icons';
-import { useGraphStore } from '../../store/graphStore';
+import ComingSoon from '../../components/ComingSoon';
 
-const { Title } = Typography;
-
-const ImpactAnalysis: React.FC = () => {
-  const { activeGraphId } = useGraphStore();
-
-  return (
-    <div>
-      <Title level={4} style={{ marginTop: 0 }}>
-        <RadarChartOutlined style={{ marginRight: 8 }} />
-        影响分析
-      </Title>
-
-      {!activeGraphId ? (
-        <Alert
-          type="info"
-          message="请先在顶部选择一个仓库"
-          description="选择仓库后可分析修改某节点对其他模块的影响范围"
-          showIcon
-        />
-      ) : (
-        <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description="影响分析（基于图遍历的变更影响评估，即将实现）"
-          style={{ padding: '60px 0' }}
-        />
-      )}
-    </div>
-  );
-};
+const ImpactAnalysis: React.FC = () => (
+  <ComingSoon
+    breadcrumb="IMPACT"
+    title="Impact Analysis"
+    icon="◎"
+    accent="#ff4568"
+    renderer="ECharts + ReactFlow"
+    description="Select any node to compute the blast radius of a change. Performs bidirectional graph traversal to identify all directly and transitively affected modules, services, and functions."
+    features={[
+      { label: 'Blast Radius Computation', desc: 'BFS/DFS from selected node' },
+      { label: 'Severity Heatmap', desc: 'Color by traversal depth (red = direct)' },
+      { label: 'Risk Scoring', desc: 'Weighted by PageRank + in-degree' },
+      { label: 'Change Report Export', desc: 'JSON/Markdown summary of affected nodes' },
+    ]}
+  />
+);
 
 export default ImpactAnalysis;

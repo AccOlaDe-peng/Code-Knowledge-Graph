@@ -1,36 +1,22 @@
 import React from 'react';
-import { Typography, Empty, Alert } from 'antd';
-import { ThunderboltOutlined } from '@ant-design/icons';
-import { useGraphStore } from '../../store/graphStore';
+import ComingSoon from '../../components/ComingSoon';
 
-const { Title } = Typography;
-
-const EventFlow: React.FC = () => {
-  const { activeGraphId } = useGraphStore();
-
-  return (
-    <div>
-      <Title level={4} style={{ marginTop: 0 }}>
-        <ThunderboltOutlined style={{ marginRight: 8 }} />
-        事件流
-      </Title>
-
-      {!activeGraphId ? (
-        <Alert
-          type="info"
-          message="请先在顶部选择一个仓库"
-          description="选择仓库后将展示 Kafka/RabbitMQ 事件发布订阅关系"
-          showIcon
-        />
-      ) : (
-        <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description="事件流图谱（ECharts 可视化，即将实现）"
-          style={{ padding: '60px 0' }}
-        />
-      )}
-    </div>
-  );
-};
+const EventFlow: React.FC = () => (
+  <ComingSoon
+    breadcrumb="EVENT FLOW"
+    title="Event Flow"
+    icon="⚡"
+    accent="#ffc145"
+    renderer="ECharts"
+    description="Visualize async event-driven communication across services. See which components publish and subscribe to Kafka topics, RabbitMQ queues, and other message buses."
+    edgeTypes={['publishes', 'subscribes', 'produces', 'consumes']}
+    features={[
+      { label: 'Topic / Queue Map', desc: 'Event nodes between producers & consumers' },
+      { label: 'Kafka & RabbitMQ', desc: 'Detected from EventAnalyzer output' },
+      { label: 'Flow Sankey Diagram', desc: 'ECharts Sankey for message volume' },
+      { label: 'Orphan Detection', desc: 'Topics with no subscribers highlighted' },
+    ]}
+  />
+);
 
 export default EventFlow;

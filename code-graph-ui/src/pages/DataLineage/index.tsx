@@ -1,36 +1,22 @@
 import React from 'react';
-import { Typography, Empty, Alert } from 'antd';
-import { ShareAltOutlined } from '@ant-design/icons';
-import { useGraphStore } from '../../store/graphStore';
+import ComingSoon from '../../components/ComingSoon';
 
-const { Title } = Typography;
-
-const DataLineage: React.FC = () => {
-  const { activeGraphId } = useGraphStore();
-
-  return (
-    <div>
-      <Title level={4} style={{ marginTop: 0 }}>
-        <ShareAltOutlined style={{ marginRight: 8 }} />
-        数据血缘
-      </Title>
-
-      {!activeGraphId ? (
-        <Alert
-          type="info"
-          message="请先在顶部选择一个仓库"
-          description="选择仓库后将展示数据血缘关系图（reads/writes/depends_on）"
-          showIcon
-        />
-      ) : (
-        <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description="数据血缘图谱（Cytoscape.js 可视化，即将实现）"
-          style={{ padding: '60px 0' }}
-        />
-      )}
-    </div>
-  );
-};
+const DataLineage: React.FC = () => (
+  <ComingSoon
+    breadcrumb="DATA LINEAGE"
+    title="Data Lineage"
+    icon="⊞"
+    accent="#b08eff"
+    renderer="Cytoscape.js"
+    description="Track how data flows through your system — from source to destination. Understand which services read from or write to databases, and how data transformations propagate."
+    edgeTypes={['reads', 'writes', 'depends_on', 'produces', 'consumes']}
+    features={[
+      { label: 'Source-to-Sink Paths', desc: 'Trace complete data flow end-to-end' },
+      { label: 'Database Access Map', desc: 'Which components touch which stores' },
+      { label: 'Cytoscape.js Layout', desc: 'Dagre hierarchical layout for DAGs' },
+      { label: 'Impact Highlighting', desc: 'Color nodes by upstream/downstream depth' },
+    ]}
+  />
+);
 
 export default DataLineage;

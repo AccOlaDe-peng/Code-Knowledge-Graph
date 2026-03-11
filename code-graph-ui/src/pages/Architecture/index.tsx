@@ -1,36 +1,22 @@
 import React from 'react';
-import { Typography, Empty, Alert } from 'antd';
-import { ApartmentOutlined } from '@ant-design/icons';
-import { useGraphStore } from '../../store/graphStore';
+import ComingSoon from '../../components/ComingSoon';
 
-const { Title } = Typography;
-
-const Architecture: React.FC = () => {
-  const { activeGraphId } = useGraphStore();
-
-  return (
-    <div>
-      <Title level={4} style={{ marginTop: 0 }}>
-        <ApartmentOutlined style={{ marginRight: 8 }} />
-        架构视图
-      </Title>
-
-      {!activeGraphId ? (
-        <Alert
-          type="info"
-          message="请先在顶部选择一个仓库"
-          description="选择仓库后将展示模块依赖关系图"
-          showIcon
-        />
-      ) : (
-        <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description="架构图谱（ReactFlow 可视化，即将实现）"
-          style={{ padding: '60px 0' }}
-        />
-      )}
-    </div>
-  );
-};
+const Architecture: React.FC = () => (
+  <ComingSoon
+    breadcrumb="ARCHITECTURE"
+    title="Architecture View"
+    icon="⌥"
+    accent="#00d4ff"
+    renderer="ReactFlow"
+    description="Visualize module-level dependencies and component relationships as an interactive force-directed graph. Identify tightly-coupled clusters, circular dependencies, and architectural hotspots."
+    edgeTypes={['contains', 'depends_on', 'imports']}
+    features={[
+      { label: 'Module Dependency Graph', desc: 'Interactive ReactFlow canvas with pan/zoom' },
+      { label: 'Circular Dependency Detection', desc: 'Highlighted cycles from DependencyAnalyzer' },
+      { label: 'Cluster Layout', desc: 'Auto-group by directory / service boundary' },
+      { label: 'Node Detail Panel', desc: 'Click any node to inspect properties & neighbors' },
+    ]}
+  />
+);
 
 export default Architecture;

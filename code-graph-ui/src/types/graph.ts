@@ -1,61 +1,65 @@
-// 图谱节点类型
-export interface GraphNode {
-  id: string;
-  type: string;
-  label: string;
-  properties: Record<string, unknown>;
+// ─── Core Graph Types ────────────────────────────────────────────────────────
+
+export type GraphNode = {
+  id: string
+  type: string
+  label: string
+  properties?: Record<string, unknown>
 }
 
-// 图谱边类型
-export interface GraphEdge {
-  source: string;
-  target: string;
-  type: string;
-  properties?: Record<string, unknown>;
+export type GraphEdge = {
+  source: string
+  target: string
+  type: string
 }
 
-// 图谱数据
-export interface GraphData {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
+export type Graph = {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
 }
 
-// 节点类型常量
+// Backward-compatible alias
+export type GraphData = Graph
+
+// ─── Node Type Constants ─────────────────────────────────────────────────────
+
 export const NodeType = {
-  Module: 'Module',
-  Component: 'Component',
-  Function: 'Function',
-  Class: 'Class',
-  Service: 'Service',
-  Database: 'Database',
-  API: 'API',
-  Event: 'Event',
-  Cluster: 'Cluster',
+  Module:         'Module',
+  Component:      'Component',
+  Function:       'Function',
+  Class:          'Class',
+  Service:        'Service',
+  Database:       'Database',
+  API:            'API',
+  Event:          'Event',
+  Cluster:        'Cluster',
   Infrastructure: 'Infrastructure',
-} as const;
+} as const
 
-export type NodeTypeValue = (typeof NodeType)[keyof typeof NodeType];
+export type NodeTypeValue = (typeof NodeType)[keyof typeof NodeType]
 
-// 边类型常量
+// ─── Edge Type Constants ──────────────────────────────────────────────────────
+
 export const EdgeType = {
-  Contains: 'contains',
-  Calls: 'calls',
-  DependsOn: 'depends_on',
-  Imports: 'imports',
-  Produces: 'produces',
-  Consumes: 'consumes',
-  Reads: 'reads',
-  Writes: 'writes',
-  Publishes: 'publishes',
+  Contains:   'contains',
+  Calls:      'calls',
+  DependsOn:  'depends_on',
+  Imports:    'imports',
+  Produces:   'produces',
+  Consumes:   'consumes',
+  Reads:      'reads',
+  Writes:     'writes',
+  Publishes:  'publishes',
   Subscribes: 'subscribes',
-} as const;
+} as const
 
-export type EdgeTypeValue = (typeof EdgeType)[keyof typeof EdgeType];
+export type EdgeTypeValue = (typeof EdgeType)[keyof typeof EdgeType]
 
-// 图谱指标
-export interface GraphMetrics {
-  nodeCount: number;
-  edgeCount: number;
-  nodeTypeCounts: Record<string, number>;
-  edgeTypeCounts: Record<string, number>;
+// ─── Graph Metrics ────────────────────────────────────────────────────────────
+
+export type GraphMetrics = {
+  nodeCount: number
+  edgeCount: number
+  nodeTypeCounts: Record<string, number>
+  edgeTypeCounts: Record<string, number>
 }
