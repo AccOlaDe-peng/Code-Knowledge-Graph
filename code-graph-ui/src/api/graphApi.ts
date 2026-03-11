@@ -1,60 +1,82 @@
-import axios from 'axios';
+import axios, { type AxiosInstance } from 'axios'
 import type {
   GraphListResponse,
   GraphDetailResponse,
   CallGraphResponse,
   LineageGraphResponse,
+  EventsGraphResponse,
   ServicesGraphResponse,
-} from '../types/api';
+} from '../types/api'
 
-const api = axios.create({
+// ─── HTTP Client ──────────────────────────────────────────────────────────────
+
+const httpClient: AxiosInstance = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000',
-  timeout: 30000,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
+  timeout: 30_000,
+  headers: { 'Content-Type': 'application/json' },
+})
 
-// 请求拦截器
-api.interceptors.request.use(
+httpClient.interceptors.request.use(
   (config) => config,
-  (error) => Promise.reject(error)
-);
+  (err) => Promise.reject(err),
+)
 
-// 响应拦截器
-api.interceptors.response.use(
-  (response) => response.data,
-  (error) => {
-    const message = error.response?.data?.detail || error.message || '请求失败';
-    return Promise.reject(new Error(message));
-  }
-);
+httpClient.interceptors.response.use(
+  (res) => res.data,
+  (err) => {
+    const message: string =
+      err.response?.data?.detail ?? err.message ?? 'Request failed'
+    return Promise.reject(new Error(message))
+  },
+)
+
+export default httpClient
+
+// ─── Graph API ────────────────────────────────────────────────────────────────
 
 export const graphApi = {
-  // 获取图谱列表
+  /**
+   * GET /graph
+   * No graphId → returns list of analyzed repos.
+   * With graphId → returns full graph (nodes + edges + metrics).
+   */
   listGraphs(): Promise<GraphListResponse> {
-    return api.get('/graph');
+    return httpClient.get('/graph')
   },
 
-  // 获取图谱详情
   getGraph(graphId: string): Promise<GraphDetailResponse> {
-    return api.get('/graph', { params: { graph_id: graphId } });
+    return httpClient.get('/graph', { params: { graph_id: graphId } })
   },
 
-  // 获取调用图
+  /**
+   * GET /callgraph
+   * Returns Function/API nodes and their calls edges.
+   */
   getCallGraph(graphId: string): Promise<CallGraphResponse> {
-    return api.get('/callgraph', { params: { graph_id: graphId } });
+    return httpClient.get('/callgraph', { params: { graph_id: graphId } })
   },
 
-  // 获取数据血缘图
+  /**
+   * GET /lineage
+   * Returns nodes connected by depends_on / reads / writes / produces / consumes.
+   */
   getLineageGraph(graphId: string): Promise<LineageGraphResponse> {
-    return api.get('/lineage', { params: { graph_id: graphId } });
+    return httpClient.get('/lineage', { params: { graph_id: graphId } })
   },
 
-  // 获取服务图
+  /**
+   * GET /events
+   * Returns Event nodes and their publishes / subscribes edges.
+   */
+  getEventsGraph(graphId: string): Promise<EventsGraphResponse> {
+    return httpClient.get('/events', { params: { graph_id: graphId } })
+  },
+
+  /**
+   * GET /services
+   * Returns Service / Cluster / Database nodes.
+   */
   getServicesGraph(graphId: string): Promise<ServicesGraphResponse> {
-    return api.get('/services', { params: { graph_id: graphId } });
+    return httpClient.get('/services', { params: { graph_id: graphId } })
   },
-};
-
-export default api;
+}

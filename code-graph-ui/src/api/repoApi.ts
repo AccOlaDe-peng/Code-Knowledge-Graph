@@ -1,15 +1,20 @@
-import api from './graphApi';
-import type { AnalyzeRepoRequest, AnalyzeRepoResponse } from '../types/api';
+import httpClient from './graphApi'
+import type { AnalyzeRepoRequest, AnalyzeRepoResponse } from '../types/api'
+
+// ─── Repo API ─────────────────────────────────────────────────────────────────
 
 export const repoApi = {
-  // 分析仓库
-  analyzeRepository(request: AnalyzeRepoRequest): Promise<AnalyzeRepoResponse> {
-    return api.post('/analyze/repository', {
-      repo_path: request.repoPath,
-      repo_name: request.repoName,
-      languages: request.languages,
-      enable_ai: request.enableAi ?? false,
-      enable_rag: request.enableRag ?? false,
-    });
+  /**
+   * POST /analyze/repository
+   * Triggers full pipeline analysis on the given local repo path.
+   */
+  analyzeRepository(req: AnalyzeRepoRequest): Promise<AnalyzeRepoResponse> {
+    return httpClient.post('/analyze/repository', {
+      repo_path:  req.repoPath,
+      repo_name:  req.repoName,
+      languages:  req.languages,
+      enable_ai:  req.enableAi  ?? false,
+      enable_rag: req.enableRag ?? false,
+    })
   },
-};
+}

@@ -8,7 +8,7 @@ export interface FlowNode {
   data: {
     label: string;
     nodeType: string;
-    properties: Record<string, unknown>;
+    properties: Record<string, unknown> | undefined;
   };
 }
 

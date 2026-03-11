@@ -1,80 +1,83 @@
-import type { GraphData, GraphMetrics } from './graph';
+import type { Graph, GraphMetrics, GraphNode, GraphEdge } from './graph'
 
-// 仓库信息
-export interface RepoInfo {
-  graphId: string;
-  repoName: string;
-  language: string[];
-  createdAt: string;
-  nodeCount: number;
-  edgeCount: number;
-  gitCommit?: string;
+// ─── Repo / Graph Metadata ────────────────────────────────────────────────────
+
+export type RepoInfo = {
+  graphId: string
+  repoName: string
+  language: string[]
+  createdAt: string
+  nodeCount: number
+  edgeCount: number
+  gitCommit?: string
 }
 
-// 图谱列表响应
-export interface GraphListResponse {
-  graphs: RepoInfo[];
+// ─── GET /graph ───────────────────────────────────────────────────────────────
+
+/** No graph_id → list of repos */
+export type GraphListResponse = {
+  graphs: RepoInfo[]
 }
 
-// 图谱详情响应
-export interface GraphDetailResponse extends GraphData {
-  graphId: string;
-  repoName: string;
-  metrics: GraphMetrics;
+/** With graph_id → full graph + metadata */
+export type GraphDetailResponse = Graph & {
+  graphId: string
+  repoName: string
+  metrics: GraphMetrics
 }
 
-// 分析仓库请求
-export interface AnalyzeRepoRequest {
-  repoPath: string;
-  repoName?: string;
-  languages?: string[];
-  enableAi?: boolean;
-  enableRag?: boolean;
+// ─── Graph View Responses (all extend Graph) ──────────────────────────────────
+
+/** GET /callgraph — Function/API nodes + calls edges */
+export type CallGraphResponse = Graph & { graphId: string }
+
+/** GET /lineage — depends_on / reads / writes / produces / consumes */
+export type LineageGraphResponse = Graph & { graphId: string }
+
+/** GET /events — publishes / subscribes / produces / consumes */
+export type EventsGraphResponse = Graph & { graphId: string }
+
+/** GET /services — Service / Cluster / Database nodes */
+export type ServicesGraphResponse = Graph & { graphId: string }
+
+// ─── POST /analyze/repository ─────────────────────────────────────────────────
+
+export type AnalyzeRepoRequest = {
+  repoPath: string
+  repoName?: string
+  languages?: string[]
+  enableAi?: boolean
+  enableRag?: boolean
 }
 
-// 分析仓库响应
-export interface AnalyzeRepoResponse {
-  graphId: string;
-  repoName: string;
-  nodeCount: number;
-  edgeCount: number;
-  duration: number;
-  stepStats: Record<string, number>;
+export type AnalyzeRepoResponse = {
+  graphId: string
+  repoName: string
+  nodeCount: number
+  edgeCount: number
+  duration: number
+  stepStats: Record<string, number>
 }
 
-// RAG 查询请求
-export interface RagQueryRequest {
-  graphId: string;
-  question: string;
+// ─── POST /query ──────────────────────────────────────────────────────────────
+
+export type RagQueryRequest = {
+  graphId: string
+  question: string
 }
 
-// RAG 查询响应
-export interface RagQueryResponse {
-  question: string;
-  answer: string;
-  nodes: import('./graph').GraphNode[];
-  edges: import('./graph').GraphEdge[];
-  sources: string[];
-  confidence: number;
+export type RagQueryResponse = {
+  question: string
+  answer: string
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+  sources: string[]
+  confidence: number
 }
 
-// 调用图响应
-export interface CallGraphResponse extends GraphData {
-  graphId: string;
-}
+// ─── Error ────────────────────────────────────────────────────────────────────
 
-// 血缘图响应
-export interface LineageGraphResponse extends GraphData {
-  graphId: string;
-}
-
-// 服务图响应
-export interface ServicesGraphResponse extends GraphData {
-  graphId: string;
-}
-
-// API 通用错误
-export interface ApiError {
-  detail: string;
-  status?: number;
+export type ApiError = {
+  detail: string
+  status?: number
 }

@@ -1,46 +1,110 @@
-import { create } from 'zustand';
-import type { GraphData, GraphNode } from '../types/graph';
+import { create } from 'zustand'
+import type { Graph, GraphNode } from '../types/graph'
+import { graphApi } from '../api/graphApi'
 
-interface GraphState {
-  // 当前选中的图谱 ID
-  activeGraphId: string | null;
-  // 图谱数据缓存 graphId -> GraphData
-  graphCache: Record<string, GraphData>;
-  // 当前选中节点
-  selectedNode: GraphNode | null;
-  // 加载状态
-  loading: boolean;
-  // 错误信息
-  error: string | null;
+// ─── Async Slice Helper ───────────────────────────────────────────────────────
 
-  // Actions
-  setActiveGraphId: (id: string | null) => void;
-  setGraphCache: (graphId: string, data: GraphData) => void;
-  setSelectedNode: (node: GraphNode | null) => void;
-  setLoading: (loading: boolean) => void;
-  setError: (error: string | null) => void;
-  clearError: () => void;
+type AsyncSlice<T> = {
+  data: T | null
+  loading: boolean
+  error: string | null
 }
 
-export const useGraphStore = create<GraphState>((set) => ({
+const idle = <T>(): AsyncSlice<T> => ({ data: null, loading: false, error: null })
+
+// ─── State Shape ──────────────────────────────────────────────────────────────
+
+type GraphStore = {
+  // Active repo context
+  activeGraphId: string | null
+  selectedNode:  GraphNode | null
+
+  // Graph views
+  graph:        AsyncSlice<Graph>
+  callGraph:    AsyncSlice<Graph>
+  lineageGraph: AsyncSlice<Graph>
+  eventGraph:   AsyncSlice<Graph>
+
+  // Actions — context
+  setActiveGraphId: (id: string | null) => void
+  setSelectedNode:  (node: GraphNode | null) => void
+
+  // Actions — async loaders
+  loadGraph:     (graphId: string) => Promise<void>
+  loadCallGraph: (graphId: string) => Promise<void>
+  loadLineage:   (graphId: string) => Promise<void>
+  loadEvents:    (graphId: string) => Promise<void>
+
+  // Actions — reset
+  clearGraphs: () => void
+}
+
+// ─── Store ────────────────────────────────────────────────────────────────────
+
+export const useGraphStore = create<GraphStore>((set) => ({
   activeGraphId: null,
-  graphCache: {},
-  selectedNode: null,
-  loading: false,
-  error: null,
+  selectedNode:  null,
+
+  graph:        idle(),
+  callGraph:    idle(),
+  lineageGraph: idle(),
+  eventGraph:   idle(),
+
+  // ── Context ─────────────────────────────────────────────────────────────────
 
   setActiveGraphId: (id) => set({ activeGraphId: id }),
 
-  setGraphCache: (graphId, data) =>
-    set((state) => ({
-      graphCache: { ...state.graphCache, [graphId]: data },
-    })),
-
   setSelectedNode: (node) => set({ selectedNode: node }),
 
-  setLoading: (loading) => set({ loading }),
+  // ── Loaders ─────────────────────────────────────────────────────────────────
 
-  setError: (error) => set({ error }),
+  loadGraph: async (graphId) => {
+    set({ graph: { data: null, loading: true, error: null } })
+    try {
+      const res = await graphApi.getGraph(graphId)
+      set({ graph: { data: res, loading: false, error: null } })
+    } catch (e) {
+      set({ graph: { data: null, loading: false, error: String(e) } })
+    }
+  },
 
-  clearError: () => set({ error: null }),
-}));
+  loadCallGraph: async (graphId) => {
+    set({ callGraph: { data: null, loading: true, error: null } })
+    try {
+      const res = await graphApi.getCallGraph(graphId)
+      set({ callGraph: { data: res, loading: false, error: null } })
+    } catch (e) {
+      set({ callGraph: { data: null, loading: false, error: String(e) } })
+    }
+  },
+
+  loadLineage: async (graphId) => {
+    set({ lineageGraph: { data: null, loading: true, error: null } })
+    try {
+      const res = await graphApi.getLineageGraph(graphId)
+      set({ lineageGraph: { data: res, loading: false, error: null } })
+    } catch (e) {
+      set({ lineageGraph: { data: null, loading: false, error: String(e) } })
+    }
+  },
+
+  loadEvents: async (graphId) => {
+    set({ eventGraph: { data: null, loading: true, error: null } })
+    try {
+      const res = await graphApi.getEventsGraph(graphId)
+      set({ eventGraph: { data: res, loading: false, error: null } })
+    } catch (e) {
+      set({ eventGraph: { data: null, loading: false, error: String(e) } })
+    }
+  },
+
+  // ── Reset ────────────────────────────────────────────────────────────────────
+
+  clearGraphs: () =>
+    set({
+      graph:        idle(),
+      callGraph:    idle(),
+      lineageGraph: idle(),
+      eventGraph:   idle(),
+    }),
+}))

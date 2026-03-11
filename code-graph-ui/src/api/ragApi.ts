@@ -1,12 +1,18 @@
-import api from './graphApi';
-import type { RagQueryRequest, RagQueryResponse } from '../types/api';
+import httpClient from './graphApi'
+import type { RagQueryRequest, RagQueryResponse } from '../types/api'
+
+// ─── RAG API ──────────────────────────────────────────────────────────────────
 
 export const ragApi = {
-  // GraphRAG 自然语言查询
-  query(request: RagQueryRequest): Promise<RagQueryResponse> {
-    return api.post('/query', {
-      graph_id: request.graphId,
-      question: request.question,
-    });
+  /**
+   * POST /query
+   * GraphRAG: vector search → graph expand → LLM synthesis.
+   * Returns answer text, related nodes/edges, confidence score.
+   */
+  query(req: RagQueryRequest): Promise<RagQueryResponse> {
+    return httpClient.post('/query', {
+      graph_id: req.graphId,
+      question: req.question,
+    })
   },
-};
+}
