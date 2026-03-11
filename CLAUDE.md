@@ -14,8 +14,7 @@ AI 代码知识图谱系统，基于 Python 构建，能够解析多语言代码
 cd code-graph-system
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements-minimal.txt   # 快速启动
-# 或
+pip install -r requirements-minimal.txt   # 快速启动（无 AI/向量/Neo4j）
 pip install -r requirements.txt           # 完整功能
 ```
 
@@ -27,19 +26,22 @@ pip install -r requirements.txt           # 完整功能
 # 启动 API 服务器（访问 http://localhost:8000/docs）
 python -m uvicorn backend.api.server:app --host 0.0.0.0 --port 8000 --reload
 
-# 命令行分析代码仓库
-python scripts/run_analysis.py /path/to/repo
-python scripts/run_analysis.py /path/to/repo --enable-ai   # 启用 AI 语义增强
-python scripts/run_analysis.py /path/to/repo --languages python javascript
+# 命令行分析代码仓库（直接使用 pipeline 模块）
+python -m backend.pipeline.analyze_repository /path/to/repo
+python -m backend.pipeline.analyze_repository /path/to/repo --enable-ai
+python -m backend.pipeline.analyze_repository /path/to/repo --languages python typescript
+python -m backend.pipeline.analyze_repository /path/to/repo --json   # JSON 输出
 
-# 运行测试
+# 运行测试（注意：test_basic.py 中部分测试仍依赖旧 schema，会 fail）
 pytest backend/tests/test_basic.py -v
-
-# 运行单个测试
-pytest backend/tests/test_basic.py::test_code_parser -v
+pytest backend/tests/test_basic.py::test_language_loader -v
 
 # 检查依赖状态
 python scripts/check_deps.py
+
+# Celery Worker（需先启动 Redis）
+celery -A backend.scheduler.celery_app worker --loglevel=info
+celery -A backend.scheduler.celery_app worker --beat --loglevel=info  # Worker + Beat
 ```
 
 ## 架构概览
@@ -47,62 +49,132 @@ python scripts/check_deps.py
 ### 核心数据流
 
 ```
-代码仓库 → RepoScanner → CodeParser → 各类 Analyzer → GraphBuilder → GraphRepository
-                                                                    ↓
-                                                             VectorStore（可选）
-                                                                    ↓
-                                                          GraphRAGEngine（查询）
+代码仓库
+  → RepoScanner       扫描文件 + Git 信息
+  → CodeParser        Tree-sitter AST 解析
+  → [Analyzers]       各类分析器（见流水线步骤）
+  → GraphBuilder      合并 → BuiltGraph（含 PageRank/度指标）
+  → GraphRepository   持久化 JSON / Neo4j
+  → VectorStore       向量化写入 ChromaDB（可选）
+  → GraphRAGEngine    向量检索 + 图展开 + LLM 回答（查询时用）
 ```
 
 ### 分析流水线（`backend/pipeline/analyze_repository.py`）
 
-`AnalysisPipeline.analyze()` 是整个系统的核心入口，按顺序执行：
-1. `RepoScanner` - 扫描文件，识别语言，获取 Git 信息
-2. `CodeParser` - 用 Tree-sitter 解析 AST，提取函数/类/导入
-3. `ModuleDetector` - 识别模块边界，生成 IMPORTS 边
-4. `ComponentDetector` - 识别类/接口，生成 CONTAINS/INHERITS 边
-5. `CallGraphBuilder` - 构建函数调用关系 CALLS 边
-6. `DataLineageAnalyzer` - 追踪数据读写关系 READS/WRITES 边
-7. `EventAnalyzer` - 分析事件发布/订阅 EMITS/LISTENS 边
-8. `DependencyAnalyzer` + `InfraAnalyzer` - 外部依赖和基础设施分析
-9. `GraphBuilder` - 汇总所有节点和边，构建 `CodeGraph` 对象
-10. `GraphRepository` - 持久化为 JSON（`data/graphs/`）
-11. `VectorStore` - 可选，写入 ChromaDB（`data/chroma/`）
+`AnalysisPipeline.analyze(repo_path, *, repo_name, languages, enable_ai, enable_rag)` 按顺序执行 13 步，返回 `AnalysisResult`：
 
-### 数据模型（`backend/graph/schema.py`）
+| 步骤 | 类 | 说明 |
+|------|----|------|
+| 1 | `RepoScanner` | 扫描文件，识别语言 |
+| 2 | `CodeParser` | AST 解析，提取类/函数/调用 |
+| 3 | `ModuleDetector` | 目录级模块节点 + contains 边 |
+| 4 | `ComponentDetector` | 组件/类/函数节点 |
+| 5 | `DependencyAnalyzer` | 模块/服务依赖 + 循环依赖检测 |
+| 6 | `CallGraphBuilder` | 函数调用图（calls 边） |
+| 7 | ~~DataLineageAnalyzer~~ | **跳过**（依赖旧 schema，待迁移） |
+| 8 | `EventAnalyzer` | Kafka/RabbitMQ 事件发布/订阅 |
+| 9 | `InfraAnalyzer` | Dockerfile/K8s/Terraform 基础设施 |
+| 10 | `SemanticAnalyzer` | LLM 语义标注（`enable_ai=True` 时运行） |
+| 11 | `GraphBuilder` | 合并所有图谱，计算图论指标 |
+| 12 | `GraphRepository` | 持久化 JSON / Neo4j |
+| 13 | `GraphRAGEngine` | 向量化节点到 ChromaDB（`enable_rag=True` 时运行） |
 
-所有节点继承自 `NodeBase`，关键节点类型：`RepositoryNode`、`ModuleNode`、`ComponentNode`、`FunctionNode`、`DataEntityNode`、`EventNode`、`InfrastructureNode`。
+### 数据模型（双 schema 并存）
 
-边统一使用 `EdgeBase`，通过 `EdgeType` 枚举区分关系类型（`CALLS`、`IMPORTS`、`INHERITS` 等）。
+**新 schema**（`backend/graph/graph_schema.py`）— 当前流水线和所有新代码使用：
+- `GraphNode(id, type, name, properties)` — 通用节点
+- `GraphEdge(from_, to, type, properties)` — 通用边（`from_` 是 Python 属性名，序列化为 `"from"`）
+- `NodeType` / `EdgeType` — 枚举定义所有合法类型
+- `GraphSchema.validate_graph()` — 三层验证（节点/边/引用完整性）
 
-`CodeGraph` 是顶层容器，含 `nodes: list[NodeBase]`、`edges: list[EdgeBase]`，`stats` 自动统计。
+**旧 schema**（`backend/graph/schema.py`）— 仅 `test_basic.py` 和 `scripts/run_analysis.py` 仍在使用，**不要在新代码中引入**：
+- `NodeBase` 及其子类：`FunctionNode`、`ModuleNode`、`ComponentNode` 等
+- `CodeGraph`、`AnalysisRequest`、`GraphQueryRequest`
 
-### GraphRAG 查询（`backend/rag/`）
+**`BuiltGraph`**（`backend/graph/graph_builder.py`）— 流水线输出容器：
+- `nodes: list[GraphNode]`，`edges: list[GraphEdge]`
+- `meta: dict`（含 `node_type_counts`、`edge_type_counts`、`created_at`、`git_commit`）
+- `metrics: dict[node_id, {in_degree, out_degree, pagerank}]`（需安装 networkx）
 
-- `VectorStore` 封装 ChromaDB，将节点 `embedding` 字段存储为向量索引
-- `GraphRAGEngine` 混合向量检索和图遍历：先向量搜索候选节点，再沿图边扩展上下文，最后调用 LLM 生成答案
+### GraphRepository（`backend/graph/graph_repository.py`）
 
-### API 层（`backend/api/server.py`）
+默认本地 JSON（`data/graphs/`），配置 `NEO4J_URI` 后自动双写 Neo4j：
 
-FastAPI 应用，通过 `lifespan` 管理 `GraphRepository`、`VectorStore`、`AnalysisPipeline`、`GraphRAGEngine` 四个全局单例。
+```python
+repo.save(built, repo_name="my-svc")
+repo.load(graph_id)
+repo.list_graphs()
+repo.query_neighbors(graph_id, node_id, depth=1, edge_types=["calls"])
+
+# Neo4j 专属（需先 connect 或配置 NEO4J_URI）
+repo.connect("bolt://localhost:7687", "neo4j", "password")
+repo.save_nodes(graph_id, nodes)   # UNWIND+MERGE，按 node.type 分组
+repo.save_edges(graph_id, edges)
+repo.query("MATCH (n {graph_id: $gid}) RETURN n LIMIT 10", {"gid": graph_id})
+```
+
+### GraphRAGEngine（`backend/rag/graph_rag_engine.py`）
+
+向量化目标类型：`Function`、`Component`、`API`；ChromaDB Collection 命名：`kg_{graph_id}`：
+
+```python
+engine.embed_nodes(graph_id, built.nodes)
+engine.vector_search(graph_id, "用户登录", limit=5)
+engine.graph_expand(graph_id, seed_ids, depth=1)
+engine.rag_query(graph_id, "登录如何实现？")
+# 返回: {question, answer, nodes, edges, sources, confidence}
+```
+
+### API 端点（`backend/api/server.py`）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/analyze/repository` | 全量分析，返回 graph_id + 统计 |
+| GET  | `/graph` | 无 `graph_id` 返回列表；有则返回节点+边 |
+| GET  | `/callgraph` | Function/API 节点 + calls 边 |
+| GET  | `/lineage` | depends_on / reads / writes / produces / consumes 边 |
+| GET  | `/services` | Service / Cluster / Database 节点 |
+| POST | `/query` | GraphRAG 自然语言查询 |
+
+四个全局单例通过 `lifespan` 管理：`_graph_repo`、`_vector_store`、`_pipeline`、`_rag_engine`。
+
+### Celery 异步任务（`backend/scheduler/`）
+
+- `celery_app.py` — Celery 实例，broker/backend 均为 Redis
+- `tasks.py` — 两个任务（task name 前缀为 `tasks.`）：
+
+```python
+from backend.scheduler.tasks import analyze_repository, incremental_update
+
+analyze_repository.delay("/path/to/repo", repo_name="my-svc")
+incremental_update.delay("my-svc", "/path/to/repo")
+# 返回: {updated, reason, new_commits, graph_id, node_count, ...}
+```
+
+增量检测优先级：Git SHA 对比 → commit 计数（自 `created_at`）→ 目录 mtime → 退化全量分析。每次分析完毕将当前 git HEAD SHA 写回 `BuiltGraph.meta["git_commit"]`。
 
 ## 存储
 
-- 图谱数据：`data/graphs/`（JSON 文件，已加入 .gitignore）
-- 向量索引：`data/chroma/`（ChromaDB，已加入 .gitignore）
-- 默认不需要 Neo4j，配置 `NEO4J_URI` 环境变量后自动切换
+| 路径 | 内容 |
+|------|------|
+| `data/graphs/` | 图谱 JSON 文件（已加入 .gitignore） |
+| `data/graphs/index.json` | 所有图谱摘要索引 |
+| `data/chroma/` | ChromaDB 向量索引（已加入 .gitignore） |
 
 ## 环境变量
 
-复制 `.env.example` 为 `.env`，关键配置：
-
 | 变量 | 说明 |
 |------|------|
-| `ANTHROPIC_API_KEY` | 启用 AI 功能时必须 |
+| `ANTHROPIC_API_KEY` | 启用 SemanticAnalyzer 时必须 |
 | `LLM_PROVIDER` | `anthropic`（默认）/ `openai` / `ollama` |
-| `NEO4J_URI` | 可选，配置后使用 Neo4j 替代 JSON 存储 |
+| `NEO4J_URI` | 可选，如 `bolt://localhost:7687` |
+| `CELERY_BROKER_URL` | 默认 `redis://localhost:6379/0` |
+| `CELERY_RESULT_BACKEND` | 默认 `redis://localhost:6379/1` |
 
-## 添加新 Analyzer 的方式
+## 添加新 Analyzer
 
-1. 在 `backend/analyzer/` 创建新模块，实现 `analyze(parsed_files, ...)` 方法，返回 `(nodes, edges)` 元组
-2. 在 `backend/pipeline/analyze_repository.py` 的 `AnalysisPipeline.analyze()` 中调用，并将返回的节点/边通过 `builder.add_nodes()` / `builder.add_edges()` 注册
+1. 在 `backend/analyzer/` 创建新模块，实现 `analyze(...)` 方法，返回带 `nodes`/`edges` 属性的 graph 对象（duck typing）
+2. 在 `AnalysisPipeline.analyze()` 中按步骤顺序调用，通过 `builder.merge_graph(new_graph)` 合并到主图
+3. 将统计写入 `step_stats[f"{N}_<name>"]`
+
+`GraphBuilder.merge_graph()` 通过 duck typing 自动提取 `GraphNode` / `GraphEdge`；后 merge 的同 ID 节点覆盖前者。
