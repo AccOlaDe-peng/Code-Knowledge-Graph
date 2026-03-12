@@ -215,17 +215,32 @@ class AnalysisPipeline:
         # ── Step 1: RepoScanner ────────────────────────────────────────
         logger.info("[1/16] RepoScanner: 扫描仓库文件...")
         scan_result = RepoScanner().scan(path, languages=languages)
+        commit_sha: str = getattr(scan_result, "git_commit", "") or ""
         step_stats["1_scan"] = {
-            "files":     scan_result.total_files,
-            "languages": getattr(scan_result, "language_counts", {}),
-            "repo_name": scan_result.repo_name,
+            "files":      scan_result.total_files,
+            "languages":  getattr(scan_result, "language_counts", {}),
+            "repo_name":  scan_result.repo_name,
+            "commit_sha": commit_sha[:8] if commit_sha else "(none)",
         }
-        logger.info("  → %d 个文件", scan_result.total_files)
+        logger.info(
+            "  → %d 个文件  commit=%s",
+            scan_result.total_files,
+            commit_sha[:8] if commit_sha else "(no git)",
+        )
 
         if scan_result.total_files == 0:
             raise ValueError(
                 "未找到可分析的源码文件，请检查仓库路径或语言过滤条件"
             )
+
+        # ── AI 结果缓存（在 AI 步骤前初始化）─────────────────────────
+        # commit_sha 为空时，cache.get() / cache.put() 自动跳过缓存操作
+        try:
+            from backend.ai.cache import AnalysisCache
+            _ai_cache = AnalysisCache()
+        except Exception:
+            logger.debug("AnalysisCache 初始化失败，缓存将被禁用", exc_info=True)
+            _ai_cache = None
 
         # ── Step 2: CodeParser ─────────────────────────────────────────
         logger.info("[2/16] CodeParser: AST 解析...")
@@ -384,6 +399,24 @@ class AnalysisPipeline:
                     step_stats[stat_key] = {"skipped": True}
                     continue
 
+                # ── Cache check ──────────────────────────────────────────
+                if _ai_cache is not None:
+                    cached_graph = _ai_cache.get(name, commit_sha, cls_name)
+                    if cached_graph is not None:
+                        ai_graphs.append(cached_graph)
+                        step_stats[stat_key] = {
+                            **cached_graph.stats,
+                            "from_cache": True,
+                        }
+                        logger.info(
+                            "[%s/16] %s: 命中缓存 [%d 节点 / %d 边 / 置信度=%.2f]",
+                            step_num, cls_name,
+                            len(cached_graph.nodes), len(cached_graph.edges),
+                            cached_graph.confidence,
+                        )
+                        continue
+
+                # ── Run analyzer ─────────────────────────────────────────
                 logger.info("[%s/16] %s: 运行中...", step_num, cls_name)
                 try:
                     analyzer_cls = _analyzer_classes[cls_name]
@@ -396,6 +429,9 @@ class AnalysisPipeline:
                         ai_graph.confidence,
                         " [fallback]" if ai_graph.metadata.get("fallback") else "",
                     )
+                    # ── Write to cache ────────────────────────────────────
+                    if _ai_cache is not None:
+                        _ai_cache.put(name, commit_sha, cls_name, ai_graph)
                 except Exception:
                     logger.warning(
                         "[%s/16] %s 失败，跳过", step_num, cls_name, exc_info=True
@@ -451,6 +487,13 @@ class AnalysisPipeline:
         graph_id: str = self._repo.save(built, repo_name=name)
         step_stats["15_repository"] = {"graph_id": graph_id}
         logger.info("  → 图谱 ID: %s", graph_id)
+
+        # Back-fill graph_id into cache entries written during steps 10–13
+        if _ai_cache is not None and commit_sha:
+            try:
+                _ai_cache.update_graph_id(name, commit_sha, graph_id)
+            except Exception:
+                logger.debug("AnalysisCache.update_graph_id 失败", exc_info=True)
 
         # ── Step 16: GraphRAGEngine (optional) ────────────────────────
         if enable_rag:
