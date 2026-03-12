@@ -1,189 +1,477 @@
-import React from 'react';
-import { Table, Tag, Empty } from 'antd';
-import { useRepoStore } from '../../store/repoStore';
-import type { RepoInfo } from '../../types/api';
-import type { ColumnsType } from 'antd/es/table';
+import React, { useEffect, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Alert } from 'antd'
+import ReactECharts from 'echarts-for-react'
+import type { EChartsOption } from 'echarts'
+import { useGraphStore } from '../../store/graphStore'
+import { useRepoStore } from '../../store/repoStore'
+import type { GraphNode, GraphEdge } from '../../types/graph'
 
-/* ── Metric Card ─────────────────────────────────────────── */
-interface MetricCardProps {
-  label: string;
-  value: string | number;
-  sub?: string;
-  accent: string;
-  icon: string;
+// ─── Stat Card ────────────────────────────────────────────────────────────────
+
+type StatCardProps = {
+  icon:   string
+  label:  string
+  value:  number
+  color:  string
+  trend?: string
 }
 
-const MetricCard: React.FC<MetricCardProps> = ({ label, value, sub, accent, icon }) => (
+const StatCard: React.FC<StatCardProps> = ({ icon, label, value, color, trend }) => (
   <div style={{
-    background: 'var(--s-raised)',
-    border: '1px solid var(--b-faint)',
-    borderTop: `2px solid ${accent}`,
-    borderRadius: 'var(--radius-m)',
-    padding: '20px 22px',
-    position: 'relative', overflow: 'hidden',
-    flex: 1, minWidth: 0,
-  }}>
-    {/* bg glow */}
+    background:    'var(--s-raised)',
+    border:        '1px solid var(--b-faint)',
+    borderTop:     `2px solid ${color}`,
+    borderRadius:  'var(--radius-m)',
+    padding:       '18px 20px',
+    position:      'relative',
+    overflow:      'hidden',
+    flex:          1,
+    minWidth:      140,
+    cursor:        'default',
+    transition:    'all 0.2s',
+  }}
+  onMouseEnter={e => {
+    e.currentTarget.style.borderTopColor = color
+    e.currentTarget.style.transform = 'translateY(-2px)'
+    e.currentTarget.style.boxShadow = `0 8px 24px ${color}22`
+  }}
+  onMouseLeave={e => {
+    e.currentTarget.style.transform = 'translateY(0)'
+    e.currentTarget.style.boxShadow = 'none'
+  }}
+  >
+    {/* Glow effect */}
     <div style={{
-      position: 'absolute', top: -40, right: -40,
-      width: 120, height: 120, borderRadius: '50%',
-      background: `radial-gradient(circle, ${accent}18 0%, transparent 70%)`,
+      position:      'absolute',
+      top:           -30,
+      right:         -30,
+      width:         100,
+      height:        100,
+      borderRadius:  '50%',
+      background:    `radial-gradient(circle, ${color}15 0%, transparent 70%)`,
       pointerEvents: 'none',
     }} />
-    <div style={{ fontSize: 22, marginBottom: 12, lineHeight: 1 }}>{icon}</div>
-    <div style={{
-      fontFamily: 'var(--font-mono)', fontWeight: 500,
-      fontSize: 32, lineHeight: 1, color: 'var(--t-primary)',
-      letterSpacing: '-0.02em',
-    }}>
-      {typeof value === 'number' ? value.toLocaleString() : value}
-    </div>
-    <div style={{
-      fontSize: 10, fontFamily: 'var(--font-mono)', textTransform: 'uppercase',
-      letterSpacing: '0.12em', color: 'var(--t-muted)', marginTop: 8,
-    }}>{label}</div>
-    {sub && (
-      <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: accent, marginTop: 4 }}>{sub}</div>
-    )}
-  </div>
-);
 
-/* ── Table columns ───────────────────────────────────────── */
-const columns: ColumnsType<RepoInfo> = [
-  {
-    title: 'REPOSITORY',
-    dataIndex: 'repoName',
-    key: 'repoName',
-    render: (name: string) => (
-      <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 500, color: 'var(--t-cyan)', fontSize: 13 }}>
-        {name}
-      </span>
-    ),
-  },
-  {
-    title: 'LANGUAGES',
-    dataIndex: 'language',
-    key: 'language',
-    render: (langs: string[]) => (
-      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-        {langs?.map((l) => <Tag color="blue" key={l}>{l}</Tag>)}
+    <div style={{ position: 'relative', zIndex: 1 }}>
+      <div style={{ fontSize: 20, marginBottom: 10, lineHeight: 1 }}>{icon}</div>
+      <div style={{
+        fontFamily:    'var(--font-mono)',
+        fontSize:      28,
+        fontWeight:    600,
+        color:         'var(--t-primary)',
+        lineHeight:    1,
+        letterSpacing: '-0.02em',
+        marginBottom:  6,
+      }}>
+        {value.toLocaleString()}
       </div>
-    ),
-  },
-  {
-    title: 'NODES',
-    dataIndex: 'nodeCount',
-    key: 'nodeCount',
-    sorter: (a, b) => a.nodeCount - b.nodeCount,
-    render: (v: number) => (
-      <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--t-cyan)', fontWeight: 500 }}>
-        {v.toLocaleString()}
-      </span>
-    ),
-  },
-  {
-    title: 'EDGES',
-    dataIndex: 'edgeCount',
-    key: 'edgeCount',
-    sorter: (a, b) => a.edgeCount - b.edgeCount,
-    render: (v: number) => (
-      <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--t-green)', fontWeight: 500 }}>
-        {v.toLocaleString()}
-      </span>
-    ),
-  },
-  {
-    title: 'COMMIT',
-    dataIndex: 'gitCommit',
-    key: 'gitCommit',
-    render: (c?: string) => c
-      ? <Tag color="orange" style={{ fontFamily: 'var(--font-mono)' }}>{c.slice(0, 7)}</Tag>
-      : <span style={{ color: 'var(--t-muted)' }}>—</span>,
-  },
-  {
-    title: 'ANALYZED',
-    dataIndex: 'createdAt',
-    key: 'createdAt',
-    render: (d: string) => (
-      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--t-secondary)' }}>
-        {new Date(d).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
-      </span>
-    ),
-  },
-];
+      <div style={{
+        fontFamily:    'var(--font-mono)',
+        fontSize:      9,
+        color:         'var(--t-muted)',
+        letterSpacing: '0.12em',
+        textTransform: 'uppercase',
+      }}>
+        {label}
+      </div>
+      {trend && (
+        <div style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize:   10,
+          color,
+          marginTop:  4,
+        }}>
+          {trend}
+        </div>
+      )}
+    </div>
+  </div>
+)
 
-/* ── Dashboard ───────────────────────────────────────────── */
+// ─── Chart Card ───────────────────────────────────────────────────────────────
+
+type ChartCardProps = {
+  title:    string
+  children: React.ReactNode
+}
+
+const ChartCard: React.FC<ChartCardProps> = ({ title, children }) => (
+  <div style={{
+    background:   'var(--s-raised)',
+    border:       '1px solid var(--b-faint)',
+    borderRadius: 'var(--radius-m)',
+    overflow:     'hidden',
+    height:       '100%',
+  }}>
+    <div style={{
+      padding:      '14px 20px',
+      borderBottom: '1px solid var(--b-faint)',
+    }}>
+      <div style={{
+        fontFamily:    'var(--font-mono)',
+        fontSize:      10,
+        color:         'var(--t-secondary)',
+        letterSpacing: '0.1em',
+        textTransform: 'uppercase',
+      }}>
+        {title}
+      </div>
+    </div>
+    <div style={{ padding: '20px' }}>
+      {children}
+    </div>
+  </div>
+)
+
+// ─── Dashboard ────────────────────────────────────────────────────────────────
+
 const Dashboard: React.FC = () => {
-  const { repos, loading } = useRepoStore();
-  const totalNodes = repos.reduce((s, r) => s + r.nodeCount, 0);
-  const totalEdges = repos.reduce((s, r) => s + r.edgeCount, 0);
-  const lastUpdated = repos.length > 0
-    ? new Date(repos[0].createdAt).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
-    : '—';
+  const navigate = useNavigate()
+  const { activeGraphId, graph, loadGraph } = useGraphStore()
+  const { repos, loading: reposLoading } = useRepoStore()
+
+  useEffect(() => {
+    if (activeGraphId) loadGraph(activeGraphId)
+  }, [activeGraphId, loadGraph])
+
+  const nodes: GraphNode[] = graph.data?.nodes ?? []
+  const edges: GraphEdge[] = graph.data?.edges ?? []
+
+  // ── Compute node type counts ──────────────────────────────────────────────
+
+  const nodeTypeCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    nodes.forEach(n => {
+      counts[n.type] = (counts[n.type] ?? 0) + 1
+    })
+    return counts
+  }, [nodes])
+
+  const edgeTypeCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    edges.forEach(e => {
+      counts[e.type] = (counts[e.type] ?? 0) + 1
+    })
+    return counts
+  }, [edges])
+
+  const moduleCount   = nodeTypeCounts.Module ?? 0
+  const functionCount = nodeTypeCounts.Function ?? 0
+  const apiCount      = nodeTypeCounts.API ?? 0
+  const tableCount    = nodeTypeCounts.Database ?? 0
+  const eventCount    = nodeTypeCounts.Event ?? 0
+
+  // ── ECharts: Node type distribution (pie) ─────────────────────────────────
+
+  const pieOption: EChartsOption = useMemo(() => {
+    const data = Object.entries(nodeTypeCounts)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 8)
+
+    return {
+      backgroundColor: 'transparent',
+      tooltip: { trigger: 'item', backgroundColor: '#1e2234', borderColor: '#00d4ff', textStyle: { color: '#d0d5e8', fontFamily: 'IBM Plex Mono' } },
+      legend: { show: false },
+      series: [{
+        type: 'pie',
+        radius: ['45%', '70%'],
+        avoidLabelOverlap: true,
+        itemStyle: { borderRadius: 4, borderColor: '#0c0f16', borderWidth: 2 },
+        label: {
+          show: true,
+          position: 'outside',
+          formatter: '{b}\n{c}',
+          color: '#6e7a99',
+          fontFamily: 'IBM Plex Mono',
+          fontSize: 10,
+        },
+        labelLine: { show: true, lineStyle: { color: '#3d4460' } },
+        emphasis: { itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0,212,255,0.3)' } },
+        data,
+        color: ['#00d4ff', '#00f084', '#ffc145', '#b08eff', '#ff6b6b', '#7ed957', '#ffcc44', '#44aaff'],
+      }],
+    }
+  }, [nodeTypeCounts])
+
+  // ── ECharts: Edge type distribution (bar) ─────────────────────────────────
+
+  const barOption: EChartsOption = useMemo(() => {
+    const entries = Object.entries(edgeTypeCounts).sort((a, b) => b[1] - a[1]).slice(0, 8)
+    const xData = entries.map(([name]) => name)
+    const yData = entries.map(([, value]) => value)
+
+    return {
+      backgroundColor: 'transparent',
+      tooltip: { trigger: 'axis', backgroundColor: '#1e2234', borderColor: '#00f084', textStyle: { color: '#d0d5e8', fontFamily: 'IBM Plex Mono' } },
+      grid: { left: 50, right: 20, top: 20, bottom: 40 },
+      xAxis: {
+        type: 'category',
+        data: xData,
+        axisLine: { lineStyle: { color: '#3d4460' } },
+        axisLabel: { color: '#6e7a99', fontFamily: 'IBM Plex Mono', fontSize: 10, rotate: 20 },
+      },
+      yAxis: {
+        type: 'value',
+        axisLine: { show: false },
+        axisTick: { show: false },
+        splitLine: { lineStyle: { color: '#3d4460', type: 'dashed' } },
+        axisLabel: { color: '#6e7a99', fontFamily: 'IBM Plex Mono', fontSize: 10 },
+      },
+      series: [{
+        type: 'bar',
+        data: yData,
+        itemStyle: {
+          color: {
+            type: 'linear',
+            x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: '#00f084' },
+              { offset: 1, color: '#00f08440' },
+            ],
+          },
+          borderRadius: [4, 4, 0, 0],
+        },
+        emphasis: { itemStyle: { color: '#00f084' } },
+        barWidth: '60%',
+      }],
+    }
+  }, [edgeTypeCounts])
+
+  // ── Recent tasks ──────────────────────────────────────────────────────────
+
+  const recentRepos = repos.slice(0, 5)
 
   return (
-    <div>
-      {/* Page heading */}
-      <div style={{ marginBottom: 28 }}>
-        <div style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--t-muted)', letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: 4 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+      {/* ── Page heading ──────────────────────────────────────────────────── */}
+      <div>
+        <div style={{
+          fontSize:      9,
+          fontFamily:    'var(--font-mono)',
+          color:         'var(--t-muted)',
+          letterSpacing: '0.15em',
+          marginBottom:  4,
+        }}>
           SYS / OVERVIEW
         </div>
-        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--t-primary)', fontFamily: 'var(--font-ui)', letterSpacing: '-0.01em' }}>
-          System Dashboard
+        <h2 style={{
+          margin:        0,
+          fontSize:      22,
+          fontWeight:    700,
+          color:         'var(--t-primary)',
+          fontFamily:    'var(--font-ui)',
+          letterSpacing: '-0.01em',
+        }}>
+          Mission Control
         </h2>
       </div>
 
-      {/* Metrics row */}
-      <div style={{ display: 'flex', gap: 16, marginBottom: 28, flexWrap: 'wrap' }}>
-        <MetricCard icon="⬡" label="Repositories"  value={repos.length}  accent="#00d4ff" />
-        <MetricCard icon="◈" label="Total Nodes"    value={totalNodes}    accent="#00f084" sub={totalNodes > 0 ? `across ${repos.length} repo${repos.length !== 1 ? 's' : ''}` : undefined} />
-        <MetricCard icon="⇢" label="Total Edges"    value={totalEdges}    accent="#b08eff" />
-        <MetricCard icon="⊙" label="Last Analyzed"  value={lastUpdated}   accent="#ffc145" />
+      {/* ── No repo selected ──────────────────────────────────────────────── */}
+      {!activeGraphId && (
+        <Alert
+          type="info"
+          message="Select a repository from the top bar to view detailed statistics"
+          showIcon
+          style={{ borderRadius: 4 }}
+        />
+      )}
+
+      {/* ── Stats grid ────────────────────────────────────────────────────── */}
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        <StatCard icon="◫" label="Modules"   value={moduleCount}   color="#00d4ff" />
+        <StatCard icon="ƒ"  label="Functions" value={functionCount} color="#ffc145" />
+        <StatCard icon="⇌" label="APIs"      value={apiCount}      color="#ff6b6b" />
+        <StatCard icon="⊞" label="Tables"    value={tableCount}    color="#b08eff" />
+        <StatCard icon="⚡" label="Events"    value={eventCount}    color="#ffcc44" />
       </div>
 
-      {/* Repos table */}
+      {/* ── Charts row ────────────────────────────────────────────────────── */}
+      {activeGraphId && nodes.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <ChartCard title="Node Type Distribution">
+            <ReactECharts option={pieOption} style={{ height: 280 }} />
+          </ChartCard>
+          <ChartCard title="Edge Type Distribution">
+            <ReactECharts option={barOption} style={{ height: 280 }} />
+          </ChartCard>
+        </div>
+      )}
+
+      {/* ── Recent analysis tasks ─────────────────────────────────────────── */}
       <div style={{
-        background: 'var(--s-raised)',
-        border: '1px solid var(--b-faint)',
+        background:   'var(--s-raised)',
+        border:       '1px solid var(--b-faint)',
         borderRadius: 'var(--radius-m)',
-        overflow: 'hidden',
+        overflow:     'hidden',
       }}>
         <div style={{
-          padding: '14px 20px',
+          padding:      '14px 20px',
           borderBottom: '1px solid var(--b-faint)',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          display:      'flex',
+          alignItems:   'center',
+          justifyContent: 'space-between',
         }}>
-          <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--t-secondary)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-            Analyzed Repositories
-          </span>
-          <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--t-muted)' }}>
-            {repos.length} record{repos.length !== 1 ? 's' : ''}
-          </span>
+          <div style={{
+            fontFamily:    'var(--font-mono)',
+            fontSize:      10,
+            color:         'var(--t-secondary)',
+            letterSpacing: '0.1em',
+            textTransform: 'uppercase',
+          }}>
+            Recent Analysis Tasks
+          </div>
+          <div style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize:   10,
+            color:      'var(--t-muted)',
+          }}>
+            {repos.length} total
+          </div>
         </div>
 
-        {repos.length === 0 && !loading ? (
-          <div style={{ padding: '48px 0' }}>
-            <Empty
-              description={
-                <span style={{ color: 'var(--t-muted)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-                  no repos — navigate to /repository to analyze
-                </span>
-              }
-            />
+        {reposLoading && (
+          <div style={{
+            padding:        '40px',
+            textAlign:      'center',
+            color:          'var(--t-muted)',
+            fontFamily:     'var(--font-mono)',
+            fontSize:       11,
+            letterSpacing:  '0.1em',
+          }}>
+            LOADING…
           </div>
-        ) : (
-          <Table
-            columns={columns}
-            dataSource={repos}
-            rowKey="graphId"
-            loading={loading}
-            pagination={{ pageSize: 10, size: 'small' }}
-            style={{ background: 'transparent' }}
-          />
+        )}
+
+        {!reposLoading && repos.length === 0 && (
+          <div style={{
+            padding:        '40px',
+            textAlign:      'center',
+            color:          'var(--t-muted)',
+            fontFamily:     'var(--font-mono)',
+            fontSize:       11,
+            letterSpacing:  '0.1em',
+          }}>
+            NO ANALYSIS TASKS YET
+          </div>
+        )}
+
+        {!reposLoading && recentRepos.length > 0 && (
+          <div style={{ padding: '16px 20px' }}>
+            {recentRepos.map((repo, i) => (
+              <div
+                key={repo.graphId}
+                onClick={() => navigate('/architecture')}
+                style={{
+                  display:       'flex',
+                  alignItems:    'center',
+                  gap:           16,
+                  padding:       '12px 16px',
+                  marginBottom:  i < recentRepos.length - 1 ? 8 : 0,
+                  background:    'var(--s-float)',
+                  border:        '1px solid var(--b-faint)',
+                  borderRadius:  4,
+                  cursor:        'pointer',
+                  transition:    'all 0.15s',
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.borderColor = 'rgba(0,212,255,0.3)'
+                  e.currentTarget.style.background = 'var(--s-overlay)'
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.borderColor = 'var(--b-faint)'
+                  e.currentTarget.style.background = 'var(--s-float)'
+                }}
+              >
+                {/* Timeline dot */}
+                <div style={{
+                  width:        8,
+                  height:       8,
+                  borderRadius: '50%',
+                  background:   '#00d4ff',
+                  flexShrink:   0,
+                }} />
+
+                {/* Repo name */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    fontFamily:   'var(--font-mono)',
+                    fontSize:     13,
+                    fontWeight:   500,
+                    color:        'var(--t-cyan)',
+                    overflow:     'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace:   'nowrap',
+                  }}>
+                    {repo.repoName}
+                  </div>
+                  <div style={{
+                    fontFamily: 'var(--font-mono)',
+                    fontSize:   10,
+                    color:      'var(--t-muted)',
+                    marginTop:  2,
+                  }}>
+                    {repo.nodeCount.toLocaleString()} nodes · {repo.edgeCount.toLocaleString()} edges
+                  </div>
+                </div>
+
+                {/* Commit SHA */}
+                {repo.gitCommit && (
+                  <div style={{
+                    fontFamily:    'var(--font-mono)',
+                    fontSize:      10,
+                    color:         'var(--t-amber)',
+                    background:    'rgba(255,193,69,0.08)',
+                    border:        '1px solid rgba(255,193,69,0.2)',
+                    borderRadius:  3,
+                    padding:       '2px 8px',
+                    letterSpacing: '0.02em',
+                  }}>
+                    {repo.gitCommit.slice(0, 7)}
+                  </div>
+                )}
+
+                {/* Timestamp */}
+                <div style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize:   10,
+                  color:      'var(--t-secondary)',
+                  flexShrink: 0,
+                  minWidth:   80,
+                  textAlign:  'right',
+                }}>
+                  {new Date(repo.createdAt).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </div>
-    </div>
-  );
-};
 
-export default Dashboard;
+      {/* ── Empty state for no data ───────────────────────────────────────── */}
+      {activeGraphId && nodes.length === 0 && !graph.loading && (
+        <div style={{
+          background:     'var(--s-raised)',
+          border:         '1px solid var(--b-faint)',
+          borderRadius:   'var(--radius-m)',
+          padding:        '60px 40px',
+          textAlign:      'center',
+        }}>
+          <div style={{ fontSize: 48, opacity: 0.1, marginBottom: 16 }}>◈</div>
+          <div style={{
+            fontFamily:    'var(--font-mono)',
+            fontSize:      11,
+            color:         'var(--t-muted)',
+            letterSpacing: '0.1em',
+          }}>
+            NO GRAPH DATA AVAILABLE
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default Dashboard

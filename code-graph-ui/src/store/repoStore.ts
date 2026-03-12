@@ -15,6 +15,7 @@ interface RepoState {
   setRepos: (repos: RepoInfo[]) => void;
   setActiveRepo: (repo: RepoInfo | null) => void;
   addRepo: (repo: RepoInfo) => void;
+  removeRepo: (graphId: string) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
 }
@@ -32,6 +33,12 @@ export const useRepoStore = create<RepoState>((set) => ({
   addRepo: (repo) =>
     set((state) => ({
       repos: [repo, ...state.repos],
+    })),
+
+  removeRepo: (graphId) =>
+    set((state) => ({
+      repos: state.repos.filter(r => r.graphId !== graphId),
+      activeRepo: state.activeRepo?.graphId === graphId ? null : state.activeRepo,
     })),
 
   setLoading: (loading) => set({ loading }),

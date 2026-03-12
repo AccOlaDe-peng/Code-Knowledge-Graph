@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Alert } from 'antd';
 import { ragApi } from '../../api/ragApi';
 import { useGraphStore } from '../../store/graphStore';
+import GraphViewer from '../../components/GraphViewer';
 import type { RagQueryResponse } from '../../types/api';
 
 const EXAMPLES = [
@@ -233,7 +234,43 @@ const GraphQuery: React.FC = () => {
                 </div>
               </div>
             )}
+
+            {result.sources?.length > 0 && (
+              <div>
+                <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--t-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>
+                  Source Files · {result.sources.length}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {result.sources.map((file, i) => (
+                    <div key={i} style={{
+                      fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--t-secondary)',
+                      padding: '4px 8px', background: 'var(--s-float)', borderRadius: 3,
+                      border: '1px solid var(--b-faint)',
+                    }}>
+                      {file}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
+
+          {/* Graph visualization */}
+          {result.nodes?.length > 0 && (
+            <div style={{ borderTop: '1px solid var(--b-faint)' }}>
+              <div style={{ padding: '10px 20px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--t-muted)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+                  Graph · {result.nodes.length} nodes · {result.edges?.length ?? 0} edges
+                </div>
+              </div>
+              <GraphViewer
+                nodes={result.nodes}
+                edges={result.edges ?? []}
+                layout="force"
+                height={340}
+              />
+            </div>
+          )}
         </div>
       )}
 
