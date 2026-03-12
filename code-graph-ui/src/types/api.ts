@@ -10,6 +10,12 @@ export type RepoInfo = {
   nodeCount: number
   edgeCount: number
   gitCommit?: string
+  // 重新分析所需的信息
+  repoPath?: string      // 原始路径或 Git URL
+  branch?: string        // Git 分支
+  sourceMode?: 'local' | 'git' | 'zip'  // 源模式
+  enableAi?: boolean     // AI 分析开关
+  enableRag?: boolean    // RAG 开关
 }
 
 // ─── GET /graph ───────────────────────────────────────────────────────────────

@@ -61,6 +61,11 @@ const Repository: React.FC = () => {
   const removeRepo = useRepoStore(s => s.removeRepo)
   const { setActiveGraphId } = useGraphStore()
 
+  // 调试：在组件加载时打印仓库数据
+  React.useEffect(() => {
+    console.log('当前仓库列表:', repos)
+  }, [repos])
+
   const [modalOpen, setModalOpen] = useState(false)
   const [sourceMode, setSourceMode] = useState<SourceMode>('git')
   const [form] = Form.useForm()
@@ -77,15 +82,31 @@ const Repository: React.FC = () => {
     setZipFileList([])
   }
 
-  const onAnalyzeSuccess = (res: AnalyzeRepoResponse, languages?: string[]) => {
+  const onAnalyzeSuccess = (
+    res: AnalyzeRepoResponse,
+    options: {
+      languages?: string[]
+      repoPath?: string
+      branch?: string
+      sourceMode?: 'local' | 'git' | 'zip'
+      enableAi?: boolean
+      enableRag?: boolean
+    }
+  ) => {
     setResult(res)
     addRepo({
-      graphId:   res.graphId,
-      repoName:  res.repoName,
-      language:  languages || [],
-      createdAt: new Date().toISOString(),
-      nodeCount: res.nodeCount,
-      edgeCount: res.edgeCount,
+      graphId:    res.graphId,
+      repoName:   res.repoName,
+      language:   options.languages || [],
+      createdAt:  new Date().toISOString(),
+      nodeCount:  res.nodeCount,
+      edgeCount:  res.edgeCount,
+      // 保存重新分析所需的信息
+      repoPath:   options.repoPath,
+      branch:     options.branch,
+      sourceMode: options.sourceMode,
+      enableAi:   options.enableAi,
+      enableRag:  options.enableRag,
     })
     setTimeout(handleCloseModal, 2000)
   }
@@ -115,17 +136,31 @@ const Repository: React.FC = () => {
           enableAi:  values.enableAi ?? false,
           enableRag: values.enableRag ?? false,
         })
-        onAnalyzeSuccess(res, values.languages)
+        onAnalyzeSuccess(res, {
+          languages:  values.languages,
+          repoPath:   rawFile.name,  // ZIP 文件名
+          sourceMode: 'zip',
+          enableAi:   values.enableAi,
+          enableRag:  values.enableRag,
+        })
       } else {
+        const repoPath = sourceMode === 'git' ? (values.gitUrl ?? '') : (values.repoPath ?? '')
         const res = await repoApi.analyzeRepository({
-          repoPath:  sourceMode === 'git' ? (values.gitUrl ?? '') : (values.repoPath ?? ''),
+          repoPath:  repoPath,
           repoName:  values.repoName,
           branch:    values.branch,
           languages: values.languages,
           enableAi:  values.enableAi ?? false,
           enableRag: values.enableRag ?? false,
         })
-        onAnalyzeSuccess(res, values.languages)
+        onAnalyzeSuccess(res, {
+          languages:  values.languages,
+          repoPath:   repoPath,
+          branch:     values.branch,
+          sourceMode: sourceMode,
+          enableAi:   values.enableAi,
+          enableRag:  values.enableRag,
+        })
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : '分析失败')
@@ -137,11 +172,61 @@ const Repository: React.FC = () => {
   // ── Handle re-analyze ─────────────────────────────────────────────────────
 
   const handleReanalyze = async (repo: RepoInfo) => {
-    // In a real app, you'd need to store the original repoPath
-    // For now, just show a message
-    Modal.info({
+    // 检查是否有重新分析所需的信息
+    if (!repo.repoPath) {
+      Modal.warning({
+        title: '无法重新分析',
+        content: `仓库 "${repo.repoName}" 缺少原始路径信息。这可能是旧版本添加的仓库，请删除后重新添加。`,
+      })
+      return
+    }
+
+    // ZIP 模式无法重新分析（文件已被删除）
+    if (repo.sourceMode === 'zip') {
+      Modal.warning({
+        title: '无法重新分析',
+        content: `ZIP 上传的仓库无法重新分析，请重新上传 ZIP 文件。`,
+      })
+      return
+    }
+
+    // 确认对话框
+    Modal.confirm({
       title: '重新分析仓库',
-      content: `将重新触发对 "${repo.repoName}" 的分析。此功能需要存储原始仓库路径。`,
+      content: `确定要重新分析 "${repo.repoName}" 吗？这将覆盖现有的图谱数据。`,
+      okText: '确定',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          message.loading({ content: '正在重新分析...', key: 'reanalyze', duration: 0 })
+
+          const res = await repoApi.analyzeRepository({
+            repoPath:  repo.repoPath!,
+            repoName:  repo.repoName,
+            branch:    repo.branch,
+            languages: repo.language,
+            enableAi:  repo.enableAi ?? false,
+            enableRag: repo.enableRag ?? false,
+          })
+
+          // 更新仓库信息
+          removeRepo(repo.graphId)
+          addRepo({
+            ...repo,
+            graphId:   res.graphId,
+            nodeCount: res.nodeCount,
+            edgeCount: res.edgeCount,
+            createdAt: new Date().toISOString(),
+          })
+
+          message.success({ content: '重新分析完成', key: 'reanalyze' })
+        } catch (e) {
+          message.error({
+            content: e instanceof Error ? e.message : '重新分析失败',
+            key: 'reanalyze',
+          })
+        }
+      },
     })
   }
 
@@ -155,6 +240,12 @@ const Repository: React.FC = () => {
   // ── Handle delete ─────────────────────────────────────────────────────────
 
   const handleDelete = async (graphId: string) => {
+    if (!graphId) {
+      message.error('仓库 ID 缺失，无法删除')
+      console.error('graphId is undefined or empty')
+      return
+    }
+
     try {
       await repoApi.deleteRepository(graphId)
       removeRepo(graphId)
@@ -301,9 +392,15 @@ const Repository: React.FC = () => {
             </div>
 
             {/* Data rows */}
-            {repos.map((repo, i) => (
+            {repos.map((repo, i) => {
+              // 调试：检查 graphId 是否存在
+              if (!repo.graphId) {
+                console.warn('仓库缺少 graphId:', repo)
+              }
+
+              return (
               <div
-                key={repo.graphId}
+                key={repo.graphId || `repo-${i}`}
                 style={{
                   display:             'grid',
                   gridTemplateColumns: '2fr 1fr 1fr 1.5fr 1.5fr',
@@ -455,7 +552,8 @@ const Repository: React.FC = () => {
                   </Popconfirm>
                 </div>
               </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

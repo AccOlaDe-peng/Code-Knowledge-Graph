@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(npm i:*)",
-      "Bash(python -c \"from backend.api.server import app; print\\(''后端 API 导入成功''\\)\")"
+      "Bash(python -c \"from backend.api.server import app; print\\(''后端 API 导入成功''\\)\")",
+      "Bash(python3:*)"
     ]
   }
 }
