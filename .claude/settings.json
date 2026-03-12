@@ -29,7 +29,10 @@
       "Bash(cp -r src/components/GraphViewer src/components/graph/)",
       "Bash(cp -r src/components/NodeDetailPanel src/components/graph/)",
       "Read(//c/code/**)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(npx tsc:*)",
+      "Bash(find c:codeCode-Knowledge-Graphcode-graph-uisrcfeaturesarchitecture -type f -name *.ts -o -name *.tsx -o -name *.json)",
+      "Bash(find c:codeCode-Knowledge-Graphcode-graph-uisrccomponents -type f -name *.ts -o -name *.tsx)"
     ]
   }
 }
