@@ -376,11 +376,13 @@ function isNotFound(err: unknown): boolean {
   if (err instanceof Error) {
     // Axios wraps HTTP errors — check common patterns
     const msg = err.message.toLowerCase()
+    const status = (err as { response?: { status?: number } }).response?.status
     return (
       msg.includes('404') ||
       msg.includes('not found') ||
-      // axios error shape
-      (err as { response?: { status?: number } }).response?.status === 404
+      // 405 means the path matched a different-method route (endpoint not implemented)
+      status === 404 ||
+      status === 405
     )
   }
   return false

@@ -405,6 +405,41 @@ def get_graph(
 
 
 # ---------------------------------------------------------------------------
+# GET /graph/summary
+# ---------------------------------------------------------------------------
+
+
+@app.get("/graph/summary", tags=["图谱"])
+def get_graph_summary(
+    graph_id: str = Query(description="图谱 ID"),
+):
+    """
+    获取图谱 LOD-0 摘要（仅 Repository + Module 节点）。
+
+    返回顶层 Repository 和 Module 节点及其之间的边，
+    同时附带全图节点/边总数供前端进度条使用。
+    """
+    built = _load_or_404(graph_id)
+
+    summary_types = {"Repository", "Module"}
+    summary_nodes = [n.model_dump() for n in built.nodes if n.type in summary_types]
+    summary_node_ids = {n["id"] for n in summary_nodes}
+    summary_edges = [
+        e.model_dump(by_alias=True)
+        for e in built.edges
+        if e.from_ in summary_node_ids and e.to in summary_node_ids
+    ]
+
+    return {
+        "graph_id":         graph_id,
+        "nodes":            summary_nodes,
+        "edges":            summary_edges,
+        "total_node_count": built.node_count,
+        "total_edge_count": built.edge_count,
+    }
+
+
+# ---------------------------------------------------------------------------
 # GET /callgraph
 # ---------------------------------------------------------------------------
 
