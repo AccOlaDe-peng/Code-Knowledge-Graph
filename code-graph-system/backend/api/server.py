@@ -7,6 +7,7 @@ API 端点：
     DELETE /graph/{graph_id}    — 删除指定图谱
     GET    /callgraph           — 获取函数调用图（Function 节点 + calls 边）
     GET    /lineage             — 获取依赖血缘图（Module/Service 节点 + depends_on 边）
+    GET    /events              — 获取事件流图（Event/Topic 节点 + produces/consumes 边）
     GET    /services            — 获取基础设施图（Service/Cluster/Database 节点）
     POST   /query               — GraphRAG 自然语言查询
 
@@ -173,6 +174,7 @@ def root():
             "DELETE /graph/{graph_id}",
             "GET    /callgraph",
             "GET    /lineage",
+            "GET    /events",
             "GET    /services",
             "POST   /query",
         ],
@@ -523,6 +525,58 @@ def get_lineage(
         "edge_count": len(lineage_edges),
         "nodes":      lineage_nodes,
         "edges":      lineage_edges,
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /events
+# ---------------------------------------------------------------------------
+
+
+@app.get("/events", tags=["图谱"])
+def get_events(
+    graph_id: str = Query(description="图谱 ID"),
+    include_edges: bool = Query(default=True, description="是否返回事件关系边"),
+):
+    """
+    获取事件流图。
+
+    返回 `Event`、`Topic` 节点及其 `produces`、`consumes` 关系。
+    """
+    _EVENT_NODE_TYPES = {"Event", "Topic"}
+    _EVENT_EDGE_TYPES = {"produces", "consumes", "publishes", "subscribes"}
+
+    built = _load_or_404(graph_id)
+
+    event_nodes = [
+        n.model_dump()
+        for n in built.nodes
+        if n.type in _EVENT_NODE_TYPES
+    ]
+    event_node_ids = {n["id"] for n in event_nodes}
+
+    if include_edges:
+        event_edges = [
+            e.model_dump(by_alias=True)
+            for e in built.edges
+            if e.type in _EVENT_EDGE_TYPES
+            and (e.from_ in event_node_ids or e.to in event_node_ids)
+        ]
+    else:
+        event_edges = []
+
+    # 统计：按 node.type 分组
+    type_counts: dict[str, int] = {}
+    for n in event_nodes:
+        type_counts[n["type"]] = type_counts.get(n["type"], 0) + 1
+
+    return {
+        "graph_id":    graph_id,
+        "node_count":  len(event_nodes),
+        "edge_count":  len(event_edges),
+        "type_counts": type_counts,
+        "nodes":       event_nodes,
+        "edges":       event_edges,
     }
 
 
