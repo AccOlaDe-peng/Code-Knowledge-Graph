@@ -49,9 +49,15 @@ def main():
     # 创建客户端
     print("\n2. 创建 LLM 客户端...")
     try:
-        client = LLMClient()
+        client = LLMClient(
+            provider=provider or "openai",
+            model=model,
+            api_key=api_key,
+            base_url=base_url
+        )
         print(f"   提供商: {client.provider}")
         print(f"   模型: {client.model}")
+        print(f"   API Key: {client.api_key[:10] if client.api_key else 'None'}...")
         print(f"   Base URL: {client.base_url or '(默认)'}")
         print(f"   可用性: {'✅ 是' if client.is_available() else '❌ 否'}")
     except Exception as e:

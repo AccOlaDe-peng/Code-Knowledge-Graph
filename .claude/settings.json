@@ -6,7 +6,8 @@
       "Bash(python3:*)",
       "Bash(/Users/wayne/Documents/code/code-knowledge-graph/code-graph-system/.env.example:*)",
       "Bash(.env:*)",
-      "Bash(chmod +x /Users/wayne/Documents/code/code-knowledge-graph/code-graph-system/scripts/verify_minimax.py)"
+      "Bash(chmod +x /Users/wayne/Documents/code/code-knowledge-graph/code-graph-system/scripts/verify_minimax.py)",
+      "Bash(python scripts/verify_minimax.py)"
     ]
   }
 }

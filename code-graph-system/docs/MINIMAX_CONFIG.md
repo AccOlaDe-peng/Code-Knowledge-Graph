@@ -11,7 +11,7 @@
 2. **安装依赖**
    ```bash
    cd code-graph-system
-   pip install openai python-dotenv
+   pip install anthropic python-dotenv
    ```
 
 ## 配置步骤
@@ -21,18 +21,23 @@
 编辑 `code-graph-system/.env` 文件，配置以下内容：
 
 ```bash
-# LLM 提供商（使用 openai，因为 MiniMax 兼容 OpenAI API）
-LLM_PROVIDER=openai
+# LLM 提供商（设置为 minimax）
+LLM_PROVIDER=minimax
 
 # MiniMax API Key（替换为你的实际 Key）
 OPENAI_API_KEY=your_minimax_api_key_here
 
-# MiniMax API 基础 URL
-OPENAI_BASE_URL=https://api.minimax.chat/v1
+# MiniMax API 基础 URL（Anthropic 兼容接口）
+OPENAI_BASE_URL=https://api.minimaxi.com/anthropic
 
 # MiniMax 模型名称
-LLM_MODEL=abab6.5s-chat
+LLM_MODEL=MiniMax-M2.5
 ```
+
+**重要说明：**
+- MiniMax 使用 Anthropic 兼容接口，所以 API Key 存储在 `OPENAI_API_KEY` 环境变量中
+- Base URL 设置为 `https://api.minimaxi.com/anthropic`
+- 系统会自动检测 MiniMax 并使用正确的 API 格式
 
 ### 2. MiniMax 可用模型
 
@@ -40,10 +45,8 @@ LLM_MODEL=abab6.5s-chat
 
 | 模型名称 | 说明 | 适用场景 |
 |---------|------|---------|
-| `abab6.5s-chat` | 标准版，速度快 | 日常代码分析 |
-| `abab6.5-chat` | 标准版 | 通用场景 |
-| `abab6.5g-chat` | 高级版，效果更好 | 复杂代码理解 |
-| `abab5.5s-chat` | 经济版 | 成本敏感场景 |
+| `MiniMax-M2.5` | 最新版本，推荐使用 | 代码分析、语义理解 |
+| `MiniMax-Text-01` | 文本生成模型 | 通用文本任务 |
 
 ### 3. 验证配置
 
@@ -51,32 +54,10 @@ LLM_MODEL=abab6.5s-chat
 
 ```bash
 cd code-graph-system
-python3 << 'PYTHON'
-import os
-from dotenv import load_dotenv
-from backend.ai.llm_client import LLMClient
-
-# 加载环境变量
-load_dotenv()
-
-# 创建客户端
-client = LLMClient()
-
-print(f"提供商: {client.provider}")
-print(f"模型: {client.model}")
-print(f"API Key: {client.api_key[:10] if client.api_key else 'None'}...")
-print(f"Base URL: {client.base_url}")
-print(f"可用性: {client.is_available()}")
-
-# 测试调用
-try:
-    response = client.complete("你好，请用一句话介绍你自己。")
-    print(f"\n测试响应: {response[:100]}...")
-    print("\n✅ MiniMax AI 配置成功！")
-except Exception as e:
-    print(f"\n❌ 配置失败: {e}")
-PYTHON
+python scripts/verify_minimax.py
 ```
+
+如果看到 "✅ MiniMax AI 配置验证成功！"，说明配置正确。
 
 ### 4. 使用 SemanticAnalyzer
 

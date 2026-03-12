@@ -50,13 +50,17 @@ class LLMClient:
         初始化 LLM 客户端。
 
         Args:
-            provider: LLM 提供商 ("anthropic" | "openai" | "ollama")
+            provider: LLM 提供商 ("anthropic" | "openai" | "ollama" | "minimax")
             model: 模型名称，None 则使用默认模型
             api_key: API 密钥，None 则从环境变量读取
             base_url: 自定义 API 基础 URL（用于代理或本地部署）
             max_tokens: 最大生成 Token 数
             temperature: 采样温度（0.0-1.0，越低越确定性）
         """
+        # 自动检测 MiniMax（通过 base_url）
+        if base_url and "minimax" in base_url.lower():
+            provider = "minimax"
+
         self.provider = provider
         self.model = model or self._default_model(provider)
         self.api_key = api_key or self._load_api_key(provider)
@@ -71,6 +75,7 @@ class LLMClient:
             "anthropic": "claude-sonnet-4-6",
             "openai": "gpt-4o",
             "ollama": "llama3.2",
+            "minimax": "MiniMax-M2.5",
         }
         return defaults.get(provider, "claude-sonnet-4-6")
 
@@ -80,6 +85,7 @@ class LLMClient:
             "anthropic": "ANTHROPIC_API_KEY",
             "openai": "OPENAI_API_KEY",
             "ollama": None,  # Ollama 本地部署不需要 Key
+            "minimax": "OPENAI_API_KEY",  # MiniMax 使用 OPENAI_API_KEY
         }
         env_name = env_keys.get(provider)
         return os.getenv(env_name) if env_name else None
@@ -122,6 +128,17 @@ class LLMClient:
             except ImportError:
                 raise RuntimeError("openai 包未安装（用于 Ollama 兼容接口）")
 
+        elif self.provider == "minimax":
+            try:
+                import anthropic
+
+                kwargs = {"api_key": self.api_key}
+                if self.base_url:
+                    kwargs["base_url"] = self.base_url
+                self._client = anthropic.Anthropic(**kwargs)
+            except ImportError:
+                raise RuntimeError("anthropic 包未安装，请运行: pip install anthropic")
+
         else:
             raise ValueError(f"不支持的 LLM 提供商: {self.provider}")
 
@@ -156,7 +173,7 @@ class LLMClient:
         _temperature = temperature if temperature is not None else self.temperature
 
         try:
-            if self.provider == "anthropic":
+            if self.provider == "anthropic" or self.provider == "minimax":
                 response = client.messages.create(
                     model=self.model,
                     max_tokens=_max_tokens,
@@ -164,7 +181,14 @@ class LLMClient:
                     system=system or "你是一个代码分析专家。",
                     messages=[{"role": "user", "content": prompt}],
                 )
-                return response.content[0].text
+                # 处理响应内容（可能包含 ThinkingBlock 和 TextBlock）
+                text_parts = []
+                for block in response.content:
+                    if hasattr(block, 'text'):
+                        text_parts.append(block.text)
+                    elif hasattr(block, 'type') and block.type == 'text':
+                        text_parts.append(str(block))
+                return ''.join(text_parts) if text_parts else ""
 
             else:  # OpenAI 兼容接口
                 messages = []
@@ -239,7 +263,7 @@ class LLMClient:
 
     def is_available(self) -> bool:
         """检查 LLM 服务是否可用。"""
-        if self.provider == "anthropic" and not self.api_key:
+        if self.provider in ("anthropic", "minimax") and not self.api_key:
             return False
         if self.provider == "openai" and not self.api_key:
             return False
