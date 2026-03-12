@@ -113,7 +113,11 @@ const ImpactAnalysis: React.FC = () => {
     if (!graph.data?.nodes) return [];
     return graph.data.nodes
       .filter(n => ANALYZABLE_TYPES.includes(n.type))
-      .sort((a, b) => a.label.localeCompare(b.label));
+      .sort((a, b) => {
+        const labelA = a.label || a.id || '';
+        const labelB = b.label || b.id || '';
+        return labelA.localeCompare(labelB);
+      });
   }, [graph.data]);
 
   // Compute impact when node is selected

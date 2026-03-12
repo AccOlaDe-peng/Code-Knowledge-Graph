@@ -19,7 +19,8 @@ const NodeChip: React.FC<{ label: string; type: string }> = ({ label, type }) =>
     Function: '0,212,255', Module: '0,240,132', Class: '176,142,255',
     Service: '255,193,69', API: '255,69,104', Database: '0,212,255',
   };
-  const rgb = COLOR_MAP[type] ?? '110,122,153';
+  const safeType = type || 'Unknown';
+  const rgb = COLOR_MAP[safeType] ?? '110,122,153';
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 4,
@@ -27,7 +28,7 @@ const NodeChip: React.FC<{ label: string; type: string }> = ({ label, type }) =>
       background: `rgba(${rgb},0.1)`, border: `1px solid rgba(${rgb},0.25)`,
       fontFamily: 'var(--font-mono)', fontSize: 11, color: `rgb(${rgb})`,
     }}>
-      <span style={{ opacity: 0.6 }}>{type.toLowerCase()}</span>
+      <span style={{ opacity: 0.6 }}>{safeType.toLowerCase()}</span>
       <span style={{ opacity: 0.3 }}>·</span>
       {label}
     </span>
