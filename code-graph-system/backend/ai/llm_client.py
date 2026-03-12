@@ -284,7 +284,8 @@ def get_default_client() -> LLMClient:
     if _default_client is None:
         provider = os.getenv("LLM_PROVIDER", "anthropic")
         model = os.getenv("LLM_MODEL")
-        _default_client = LLMClient(provider=provider, model=model)
+        base_url = os.getenv("OPENAI_BASE_URL")
+        _default_client = LLMClient(provider=provider, model=model, base_url=base_url)
     return _default_client
 
 

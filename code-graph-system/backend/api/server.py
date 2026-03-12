@@ -19,6 +19,10 @@ from __future__ import annotations
 
 import logging
 import os
+
+from dotenv import load_dotenv
+
+load_dotenv()
 import shutil
 import subprocess
 import tempfile
