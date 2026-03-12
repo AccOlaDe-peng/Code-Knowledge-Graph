@@ -207,7 +207,7 @@ const DataLineageInner: React.FC = () => {
 
     const searchLower = searchQuery.toLowerCase()
     const matchIds = searchQuery
-      ? new Set(rawData.nodes.filter((n) => n.label.toLowerCase().includes(searchLower)).map((n) => n.id))
+      ? new Set(rawData.nodes.filter((n) => (n.label ?? '').toLowerCase().includes(searchLower)).map((n) => n.id))
       : null
 
     const filteredNodes = rawData.nodes.filter((n) => visibleNodeTypes.has(n.type))

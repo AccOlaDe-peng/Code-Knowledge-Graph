@@ -202,7 +202,7 @@ const CallGraphInner: React.FC = () => {
 
     const searchLower = searchQuery.toLowerCase()
     const matchIds = searchQuery
-      ? new Set(rawData.nodes.filter((n) => n.label.toLowerCase().includes(searchLower)).map((n) => n.id))
+      ? new Set(rawData.nodes.filter((n) => (n.label ?? '').toLowerCase().includes(searchLower)).map((n) => n.id))
       : null
 
     const rfNodes: Node<NodeData>[] = rawData.nodes
