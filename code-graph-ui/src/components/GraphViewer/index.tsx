@@ -3,6 +3,7 @@ import cytoscape from 'cytoscape'
 import dagre from 'cytoscape-dagre'
 import coseBilkent from 'cytoscape-cose-bilkent'
 import type { GraphNode, GraphEdge } from '../../types/graph'
+import { NodeTypeColors, EdgeTypeColors } from '../../theme'
 
 // Register layout plugins (idempotent)
 cytoscape.use(dagre)
@@ -20,33 +21,33 @@ export type GraphViewerProps = {
   height?: string | number
 }
 
-// ─── Colour palette (matches Mission Control Dark design system) ──────────────
+// ─── Colour palette (from theme) ─────────────────────────────────────────────
 
 const NODE_COLORS: Record<string, { bg: string; border: string; text: string }> = {
-  Module:         { bg: '#0d1f2d', border: '#00d4ff', text: '#00d4ff' },
-  Component:      { bg: '#0d2118', border: '#00f084', text: '#00f084' },
-  Function:       { bg: '#1d1a0d', border: '#ffc145', text: '#ffc145' },
-  Class:          { bg: '#1a1428', border: '#b08eff', text: '#b08eff' },
-  Service:        { bg: '#1a2214', border: '#7ed957', text: '#7ed957' },
-  Database:       { bg: '#1a1228', border: '#9d7dff', text: '#9d7dff' },
-  API:            { bg: '#2a1010', border: '#ff6b6b', text: '#ff6b6b' },
-  Event:          { bg: '#1d1a0d', border: '#ffcc44', text: '#ffcc44' },
-  Cluster:        { bg: '#0d1a2a', border: '#44aaff', text: '#44aaff' },
-  Infrastructure: { bg: '#1a1a1a', border: '#888899', text: '#888899' },
+  Module:         { bg: NodeTypeColors.Module.bg,         border: NodeTypeColors.Module.primary,         text: NodeTypeColors.Module.text },
+  Component:      { bg: NodeTypeColors.Component.bg,      border: NodeTypeColors.Component.primary,      text: NodeTypeColors.Component.text },
+  Function:       { bg: NodeTypeColors.Function.bg,       border: NodeTypeColors.Function.primary,       text: NodeTypeColors.Function.text },
+  Class:          { bg: NodeTypeColors.Class.bg,          border: NodeTypeColors.Class.primary,          text: NodeTypeColors.Class.text },
+  Service:        { bg: NodeTypeColors.Service.bg,        border: NodeTypeColors.Service.primary,        text: NodeTypeColors.Service.text },
+  Database:       { bg: NodeTypeColors.Database.bg,       border: NodeTypeColors.Database.primary,       text: NodeTypeColors.Database.text },
+  API:            { bg: NodeTypeColors.API.bg,            border: NodeTypeColors.API.primary,            text: NodeTypeColors.API.text },
+  Event:          { bg: NodeTypeColors.Event.bg,          border: NodeTypeColors.Event.primary,          text: NodeTypeColors.Event.text },
+  Cluster:        { bg: NodeTypeColors.Cluster.bg,        border: NodeTypeColors.Cluster.primary,        text: NodeTypeColors.Cluster.text },
+  Infrastructure: { bg: NodeTypeColors.Infrastructure.bg, border: NodeTypeColors.Infrastructure.primary, text: NodeTypeColors.Infrastructure.text },
   default:        { bg: '#13161e', border: '#4a5068', text: '#6e7a99' },
 }
 
 const EDGE_COLORS: Record<string, string> = {
-  calls:       '#00f084',
-  depends_on:  '#00d4ff',
-  imports:     '#b08eff',
-  contains:    '#4a5068',
-  reads:       '#ffc145',
-  writes:      '#ff6b6b',
-  produces:    '#ffcc44',
-  consumes:    '#ff9955',
-  publishes:   '#44aaff',
-  subscribes:  '#7ed957',
+  calls:       EdgeTypeColors.calls,
+  depends_on:  EdgeTypeColors.depends_on,
+  imports:     EdgeTypeColors.imports,
+  contains:    EdgeTypeColors.contains,
+  reads:       EdgeTypeColors.reads,
+  writes:      EdgeTypeColors.writes,
+  produces:    EdgeTypeColors.produces,
+  consumes:    EdgeTypeColors.consumes,
+  publishes:   EdgeTypeColors.publishes,
+  subscribes:  EdgeTypeColors.subscribes,
   default:     '#3d4460',
 }
 
