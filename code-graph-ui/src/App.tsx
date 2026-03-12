@@ -7,12 +7,14 @@ import { antdTheme } from './theme';
 
 const Dashboard     = lazy(() => import('./pages/Dashboard'));
 const Repository    = lazy(() => import('./pages/Repository'));
-const Architecture  = lazy(() => import('./pages/Architecture'));
 const CallGraph     = lazy(() => import('./pages/CallGraph'));
 const DataLineage   = lazy(() => import('./pages/DataLineage'));
 const EventFlow     = lazy(() => import('./pages/EventFlow'));
 const GraphQuery    = lazy(() => import('./pages/GraphQuery'));
 const ImpactAnalysis = lazy(() => import('./pages/ImpactAnalysis'));
+
+// New feature modules
+const ArchitectureExplorer = lazy(() => import('./features/architecture'));
 
 const PageLoader: React.FC = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
@@ -34,7 +36,7 @@ const App: React.FC = () => (
         <Route path="/" element={<MainLayout />}>
           <Route index                  element={wrap(Dashboard)} />
           <Route path="repository"      element={wrap(Repository)} />
-          <Route path="architecture"    element={wrap(Architecture)} />
+          <Route path="architecture"    element={wrap(ArchitectureExplorer)} />
           <Route path="callgraph"       element={wrap(CallGraph)} />
           <Route path="lineage"         element={wrap(DataLineage)} />
           <Route path="eventflow"       element={wrap(EventFlow)} />

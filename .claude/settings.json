@@ -24,7 +24,12 @@
       "Bash(find /c/Users/changchang -name *.pth -path */site-packages/*)",
       "Bash(head -5 find /c/code/Code-Knowledge-Graph -name *.cfg -o -name pyproject.toml)",
       "Bash(find /c/Users/changchang/AppData/Local/uv -name tenacity*)",
-      "Bash(PYTHON=\"/c/Users/changchang/AppData/Local/uv/cache/archive-v0/zT7Wkf9qA2mcQYKkqwl80/Scripts/python.exe\" \"$PYTHON\" -m pip install tenacity)"
+      "Bash(PYTHON=\"/c/Users/changchang/AppData/Local/uv/cache/archive-v0/zT7Wkf9qA2mcQYKkqwl80/Scripts/python.exe\" \"$PYTHON\" -m pip install tenacity)",
+      "Bash(find code-graph-ui/src/pages -name \"*.tsx\" -exec basename {})",
+      "Bash(cp -r src/components/GraphViewer src/components/graph/)",
+      "Bash(cp -r src/components/NodeDetailPanel src/components/graph/)",
+      "Read(//c/code/**)",
+      "Bash(npm run:*)"
     ]
   }
 }

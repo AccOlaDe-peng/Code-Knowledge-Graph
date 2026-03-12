@@ -2,8 +2,8 @@ import React, { useEffect, useRef, useCallback, useState } from 'react'
 import cytoscape from 'cytoscape'
 import dagre from 'cytoscape-dagre'
 import coseBilkent from 'cytoscape-cose-bilkent'
-import type { GraphNode, GraphEdge } from '../../types/graph'
-import { NodeTypeColors, EdgeTypeColors } from '../../theme'
+import type { GraphNode, GraphEdge } from '../../../types/graph'
+import { NodeTypeColors, EdgeTypeColors } from '../../../theme'
 
 // Register layout plugins (idempotent)
 cytoscape.use(dagre)
