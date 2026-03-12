@@ -170,7 +170,7 @@ const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ node, edges = [], all
       {node && (
         <>
           {/* ── Node ID ──────────────────────────────────────── */}
-          <SectionLabel>Node ID</SectionLabel>
+          <SectionLabel>节点 ID</SectionLabel>
           <div style={{
             fontFamily:    'var(--font-mono)',
             fontSize:      10,
@@ -189,7 +189,7 @@ const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ node, edges = [], all
           {propEntries.length > 0 && (
             <>
               <Divider />
-              <SectionLabel>Properties</SectionLabel>
+              <SectionLabel>属性</SectionLabel>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 {propEntries.map(([key, val]) => (
                   <div key={key} style={{
@@ -232,7 +232,7 @@ const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ node, edges = [], all
           {outgoing.length > 0 && (
             <>
               <Divider />
-              <SectionLabel>Dependencies ({outgoing.length})</SectionLabel>
+              <SectionLabel>依赖 ({outgoing.length})</SectionLabel>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 {outgoing.map((r, i) => (
                   <RelatedNodeRow key={i} related={r} />
@@ -245,7 +245,7 @@ const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ node, edges = [], all
           {incoming.length > 0 && (
             <>
               <Divider />
-              <SectionLabel>Referenced By ({incoming.length})</SectionLabel>
+              <SectionLabel>被引用 ({incoming.length})</SectionLabel>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 {incoming.map((r, i) => (
                   <RelatedNodeRow key={i} related={r} />
@@ -258,7 +258,7 @@ const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ node, edges = [], all
           {apiNodes.length > 0 && (
             <>
               <Divider />
-              <SectionLabel>Related APIs ({apiNodes.length})</SectionLabel>
+              <SectionLabel>相关接口 ({apiNodes.length})</SectionLabel>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 {apiNodes.map((r, i) => (
                   <RelatedNodeRow key={i} related={r} highlight />
@@ -279,7 +279,7 @@ const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ node, edges = [], all
                 color:         'var(--t-muted)',
                 letterSpacing: '0.08em',
               }}>
-                NO CONNECTIONS
+                暂无连接
               </div>
             </>
           )}

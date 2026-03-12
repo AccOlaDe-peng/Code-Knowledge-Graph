@@ -46,7 +46,7 @@ const ComingSoon: React.FC<ComingSoonProps> = ({
         }}>
           <span style={{ color: 'var(--a-cyan)', fontSize: 14, flexShrink: 0 }}>ℹ</span>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--t-secondary)' }}>
-            Select a repository from the top bar to unlock this view
+            请从顶栏选择一个仓库以解锁此视图
           </span>
         </div>
       )}
@@ -87,7 +87,7 @@ const ComingSoon: React.FC<ComingSoonProps> = ({
             }}>
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: accent, display: 'inline-block', opacity: 0.7 }} />
               <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: accent, letterSpacing: '0.1em' }}>
-                COMING SOON · {renderer}
+                即将推出 · {renderer}
               </span>
             </div>
           </div>
@@ -102,7 +102,7 @@ const ComingSoon: React.FC<ComingSoonProps> = ({
             {edgeTypes && (
               <div>
                 <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--t-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
-                  Edge Types
+                  边类型
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {edgeTypes.map(e => (

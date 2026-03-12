@@ -255,7 +255,7 @@ const Dashboard: React.FC = () => {
           letterSpacing: '0.15em',
           marginBottom:  4,
         }}>
-          SYS / OVERVIEW
+          系统 / 概览
         </div>
         <h2 style={{
           margin:        0,
@@ -265,7 +265,7 @@ const Dashboard: React.FC = () => {
           fontFamily:    'var(--font-ui)',
           letterSpacing: '-0.01em',
         }}>
-          Mission Control
+          任务控制台
         </h2>
       </div>
 
@@ -273,7 +273,7 @@ const Dashboard: React.FC = () => {
       {!activeGraphId && (
         <Alert
           type="info"
-          message="Select a repository from the top bar to view detailed statistics"
+          message="请从顶栏选择一个仓库以查看详细统计信息"
           showIcon
           style={{ borderRadius: 4 }}
         />
@@ -281,20 +281,20 @@ const Dashboard: React.FC = () => {
 
       {/* ── Stats grid ────────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-        <StatCard icon="◫" label="Modules"   value={moduleCount}   color="#00d4ff" />
-        <StatCard icon="ƒ"  label="Functions" value={functionCount} color="#ffc145" />
-        <StatCard icon="⇌" label="APIs"      value={apiCount}      color="#ff6b6b" />
-        <StatCard icon="⊞" label="Tables"    value={tableCount}    color="#b08eff" />
-        <StatCard icon="⚡" label="Events"    value={eventCount}    color="#ffcc44" />
+        <StatCard icon="◫" label="模块"   value={moduleCount}   color="#00d4ff" />
+        <StatCard icon="ƒ"  label="函数" value={functionCount} color="#ffc145" />
+        <StatCard icon="⇌" label="接口"  value={apiCount}      color="#ff6b6b" />
+        <StatCard icon="⊞" label="数据表" value={tableCount}  color="#b08eff" />
+        <StatCard icon="⚡" label="事件"  value={eventCount}   color="#ffcc44" />
       </div>
 
       {/* ── Charts row ────────────────────────────────────────────────────── */}
       {activeGraphId && nodes.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          <ChartCard title="Node Type Distribution">
+          <ChartCard title="节点类型分布">
             <ReactECharts option={pieOption} style={{ height: 280 }} />
           </ChartCard>
-          <ChartCard title="Edge Type Distribution">
+          <ChartCard title="边类型分布">
             <ReactECharts option={barOption} style={{ height: 280 }} />
           </ChartCard>
         </div>
@@ -321,14 +321,14 @@ const Dashboard: React.FC = () => {
             letterSpacing: '0.1em',
             textTransform: 'uppercase',
           }}>
-            Recent Analysis Tasks
+            最近分析任务
           </div>
           <div style={{
             fontFamily: 'var(--font-mono)',
             fontSize:   10,
             color:      'var(--t-muted)',
           }}>
-            {repos.length} total
+            共 {repos.length} 个
           </div>
         </div>
 
@@ -341,7 +341,7 @@ const Dashboard: React.FC = () => {
             fontSize:       11,
             letterSpacing:  '0.1em',
           }}>
-            LOADING…
+            加载中…
           </div>
         )}
 
@@ -354,7 +354,7 @@ const Dashboard: React.FC = () => {
             fontSize:       11,
             letterSpacing:  '0.1em',
           }}>
-            NO ANALYSIS TASKS YET
+            暂无分析任务
           </div>
         )}
 
@@ -413,7 +413,7 @@ const Dashboard: React.FC = () => {
                     color:      'var(--t-muted)',
                     marginTop:  2,
                   }}>
-                    {repo.nodeCount.toLocaleString()} nodes · {repo.edgeCount.toLocaleString()} edges
+                    {repo.nodeCount.toLocaleString()} 节点 · {repo.edgeCount.toLocaleString()} 边
                   </div>
                 </div>
 
@@ -466,7 +466,7 @@ const Dashboard: React.FC = () => {
             color:         'var(--t-muted)',
             letterSpacing: '0.1em',
           }}>
-            NO GRAPH DATA AVAILABLE
+            暂无图谱数据
           </div>
         </div>
       )}

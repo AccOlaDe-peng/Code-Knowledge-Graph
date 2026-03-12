@@ -301,14 +301,14 @@ const CallGraphInner: React.FC = () => {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginRight: 8 }}>
           <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#00f084', boxShadow: '0 0 8px #00f084' }} />
           <span style={{ fontFamily: "'Syne', sans-serif", fontSize: 13, fontWeight: 700, color: '#00f084', letterSpacing: '0.08em' }}>
-            CALL GRAPH
+            调用图
           </span>
         </div>
 
         <div style={{ display: 'flex', gap: 12, marginRight: 'auto' }}>
           {[
-            { label: 'NODES', value: nodeCount },
-            { label: 'EDGES', value: edgeCount },
+            { label: '节点', value: nodeCount },
+            { label: '边', value: edgeCount },
           ].map(({ label, value }) => (
             <div key={label} style={{ display: 'flex', gap: 4, alignItems: 'baseline' }}>
               <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 14, fontWeight: 600, color: '#00d4ff' }}>{value}</span>
@@ -319,7 +319,7 @@ const CallGraphInner: React.FC = () => {
 
         <Input
           prefix={<SearchOutlined style={{ color: '#3a5a6a', fontSize: 12 }} />}
-          placeholder="Search function..."
+          placeholder="搜索函数..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           style={{
@@ -336,18 +336,18 @@ const CallGraphInner: React.FC = () => {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10, color: '#3a5a6a', letterSpacing: '0.1em', whiteSpace: 'nowrap' }}>
-            DEPTH
+            深度
           </span>
           <Slider
             min={1} max={5} value={depth}
             onChange={setDepth}
             style={{ width: 80 }}
-            tooltip={{ formatter: (v) => `${v} levels` }}
+            tooltip={{ formatter: (v) => `${v} 层` }}
           />
           <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 12, color: '#00f084', minWidth: 12 }}>{depth}</span>
         </div>
 
-        <Tooltip title="Reset view">
+        <Tooltip title="重置视图">
           <Button
             icon={<ReloadOutlined />}
             onClick={handleReset}
@@ -370,7 +370,7 @@ const CallGraphInner: React.FC = () => {
         {!activeRepo && !callGraph.loading && (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Empty
-              description={<span style={{ color: '#3a5a6a', fontFamily: "'IBM Plex Mono'", fontSize: 12 }}>Select a repository to view call graph</span>}
+              description={<span style={{ color: '#3a5a6a', fontFamily: "'IBM Plex Mono'", fontSize: 12 }}>请选择一个仓库以查看调用图</span>}
               image={Empty.PRESENTED_IMAGE_SIMPLE}
             />
           </div>
@@ -439,7 +439,7 @@ const CallGraphInner: React.FC = () => {
           pointerEvents: 'none',
           zIndex: 5,
         }}>
-          Showing {depth}-level call chain · Click node again to reset
+          显示 {depth} 层调用链 · 再次点击节点可重置
         </div>
       )}
     </div>

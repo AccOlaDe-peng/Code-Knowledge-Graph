@@ -8,19 +8,19 @@ import type { GraphNode, GraphEdge } from '../../types/graph'
 // ─── Node type filter config ──────────────────────────────────────────────────
 
 const NODE_FILTERS = [
-  { type: 'all',           label: 'ALL',       color: '#6e7a99' },
-  { type: 'Module',        label: 'MODULE',    color: '#00d4ff' },
-  { type: 'Component',     label: 'COMPONENT', color: '#00f084' },
-  { type: 'Service',       label: 'SERVICE',   color: '#7ed957' },
-  { type: 'API',           label: 'API',       color: '#ff6b6b' },
-  { type: 'Function',      label: 'FUNCTION',  color: '#ffc145' },
-  { type: 'Class',         label: 'CLASS',     color: '#b08eff' },
+  { type: 'all',           label: '全部',   color: '#6e7a99' },
+  { type: 'Module',        label: '模块',   color: '#00d4ff' },
+  { type: 'Component',     label: '组件',   color: '#00f084' },
+  { type: 'Service',       label: '服务',   color: '#7ed957' },
+  { type: 'API',           label: '接口',   color: '#ff6b6b' },
+  { type: 'Function',      label: '函数',   color: '#ffc145' },
+  { type: 'Class',         label: '类',     color: '#b08eff' },
 ]
 
 const LAYOUTS: { name: LayoutName; label: string; icon: string }[] = [
-  { name: 'force',  label: 'Force',  icon: '⊛' },
-  { name: 'dagre',  label: 'Dagre',  icon: '⇣' },
-  { name: 'grid',   label: 'Grid',   icon: '⊞' },
+  { name: 'force',  label: '力导向', icon: '⊛' },
+  { name: 'dagre',  label: '层级',   icon: '⇣' },
+  { name: 'grid',   label: '网格',   icon: '⊞' },
 ]
 
 // ─── Filter Chip ──────────────────────────────────────────────────────────────
@@ -202,7 +202,7 @@ const Architecture: React.FC = () => {
             letterSpacing: '0.15em',
             marginBottom:  4,
           }}>
-            SYS / ARCHITECTURE
+            系统 / 架构图
           </div>
           <h2 style={{
             margin:        0,
@@ -212,7 +212,7 @@ const Architecture: React.FC = () => {
             fontFamily:    'var(--font-ui)',
             letterSpacing: '-0.01em',
           }}>
-            Architecture View
+            架构视图
           </h2>
         </div>
 
@@ -220,8 +220,8 @@ const Architecture: React.FC = () => {
         {graph.data && (
           <div style={{ display: 'flex', gap: 8 }}>
             {[
-              { label: 'nodes', value: filteredNodes.length, total: allNodes.length, color: 'var(--t-cyan)' },
-              { label: 'edges', value: filteredEdges.length, total: allEdges.length, color: 'var(--t-green)' },
+              { label: '节点', value: filteredNodes.length, total: allNodes.length, color: 'var(--t-cyan)' },
+              { label: '边', value: filteredEdges.length, total: allEdges.length, color: 'var(--t-green)' },
             ].map(({ label, value, total, color }) => (
               <div key={label} style={{
                 fontFamily:    'var(--font-mono)',
@@ -292,7 +292,7 @@ const Architecture: React.FC = () => {
       {!activeGraphId && (
         <Alert
           type="info"
-          message="Select a repository from the top bar to visualize its architecture graph"
+          message="请从顶栏选择一个仓库以可视化其架构图"
           showIcon
           style={{ borderRadius: 4, flexShrink: 0 }}
         />
@@ -334,7 +334,7 @@ const Architecture: React.FC = () => {
             color:         'var(--t-muted)',
             letterSpacing: '0.1em',
           }}>
-            LOADING GRAPH…
+            图谱加载中…
           </div>
         </div>
       )}
@@ -378,7 +378,7 @@ const Architecture: React.FC = () => {
             color:         'var(--t-muted)',
             letterSpacing: '0.1em',
           }}>
-            NO GRAPH DATA
+            暂无图谱数据
           </div>
         </div>
       )}

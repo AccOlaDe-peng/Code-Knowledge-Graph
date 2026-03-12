@@ -39,10 +39,10 @@ const Header: React.FC = () => {
       {/* Left — repo selector */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <span style={{ fontSize: 10, color: 'var(--t-muted)', fontFamily: 'var(--font-mono)', letterSpacing: '0.1em', whiteSpace: 'nowrap' }}>
-          ACTIVE REPO
+          当前仓库
         </span>
         <Select
-          placeholder="— select repository —"
+          placeholder="— 选择仓库 —"
           style={{ width: 260 }}
           value={activeRepo?.graphId ?? undefined}
           onChange={handleChange}
@@ -54,14 +54,14 @@ const Header: React.FC = () => {
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--t-primary)' }}>
                 {r.repoName}
                 <span style={{ color: 'var(--t-muted)', marginLeft: 8, fontSize: 11 }}>
-                  /{r.graphId.slice(0, 8)}
+                  /{r.graphId?.slice(0, 8) ?? '????????'}
                 </span>
               </span>
             ),
           }))}
           notFoundContent={
             <span style={{ color: 'var(--t-muted)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-              no repos — go to /repository
+              暂无仓库 — 请前往 /repository 添加
             </span>
           }
           styles={{ popup: { root: { minWidth: 320 } } }}
@@ -72,15 +72,15 @@ const Header: React.FC = () => {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         {activeRepo ? (
           <>
-            <Chip label="NODES" value={activeRepo.nodeCount.toLocaleString()} color="#00d4ff" />
-            <Chip label="EDGES" value={activeRepo.edgeCount.toLocaleString()} color="#00f084" />
+            <Chip label="节点" value={activeRepo.nodeCount.toLocaleString()} color="#00d4ff" />
+            <Chip label="边" value={activeRepo.edgeCount.toLocaleString()} color="#00f084" />
             {activeRepo.gitCommit && (
               <Chip label="SHA" value={activeRepo.gitCommit.slice(0, 7)} color="#ffc145" />
             )}
           </>
         ) : (
           <span style={{ fontSize: 11, color: 'var(--t-muted)', fontFamily: 'var(--font-mono)', letterSpacing: '0.06em' }}>
-            NO REPO SELECTED
+            未选择仓库
           </span>
         )}
       </div>

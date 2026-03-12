@@ -15,9 +15,9 @@ type StatusBadgeProps = { status: 'completed' | 'pending' | 'analyzing' }
 
 const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
   const config = {
-    completed: { label: 'COMPLETED', color: '#00f084', bg: 'rgba(0,240,132,0.1)', border: 'rgba(0,240,132,0.3)' },
-    pending:   { label: 'PENDING',   color: '#ffc145', bg: 'rgba(255,193,69,0.1)', border: 'rgba(255,193,69,0.3)' },
-    analyzing: { label: 'ANALYZING', color: '#00d4ff', bg: 'rgba(0,212,255,0.1)', border: 'rgba(0,212,255,0.3)' },
+    completed: { label: '已完成', color: '#00f084', bg: 'rgba(0,240,132,0.1)', border: 'rgba(0,240,132,0.3)' },
+    pending:   { label: '等待中', color: '#ffc145', bg: 'rgba(255,193,69,0.1)', border: 'rgba(255,193,69,0.3)' },
+    analyzing: { label: '分析中', color: '#00d4ff', bg: 'rgba(0,212,255,0.1)', border: 'rgba(0,212,255,0.3)' },
   }[status]
 
   return (
@@ -107,8 +107,8 @@ const Repository: React.FC = () => {
     // In a real app, you'd need to store the original repoPath
     // For now, just show a message
     Modal.info({
-      title: 'Re-analyze Repository',
-      content: `Re-analysis for "${repo.repoName}" would be triggered here. The original repo path needs to be stored for this feature.`,
+      title: '重新分析仓库',
+      content: `将重新触发对 "${repo.repoName}" 的分析。此功能需要存储原始仓库路径。`,
     })
   }
 
@@ -142,7 +142,7 @@ const Repository: React.FC = () => {
             letterSpacing: '0.15em',
             marginBottom:  4,
           }}>
-            SYS / REPOSITORY
+            系统 / 仓库
           </div>
           <h2 style={{
             margin:        0,
@@ -152,7 +152,7 @@ const Repository: React.FC = () => {
             fontFamily:    'var(--font-ui)',
             letterSpacing: '-0.01em',
           }}>
-            Repository Manager
+            仓库管理
           </h2>
         </div>
 
@@ -170,7 +170,7 @@ const Repository: React.FC = () => {
             gap:           8,
           }}
         >
-          ADD REPOSITORY
+          添加仓库
         </Button>
       </div>
 
@@ -196,14 +196,14 @@ const Repository: React.FC = () => {
             letterSpacing: '0.1em',
             textTransform: 'uppercase',
           }}>
-            Repositories
+            仓库列表
           </div>
           <div style={{
             fontFamily: 'var(--font-mono)',
             fontSize:   10,
             color:      'var(--t-muted)',
           }}>
-            {repos.length} total
+            共 {repos.length} 个
           </div>
         </div>
 
@@ -221,7 +221,7 @@ const Repository: React.FC = () => {
               letterSpacing: '0.1em',
               marginBottom:  12,
             }}>
-              NO REPOSITORIES YET
+              暂无仓库
             </div>
             <Button
               type="link"
@@ -232,7 +232,7 @@ const Repository: React.FC = () => {
                 color:      'var(--t-cyan)',
               }}
             >
-              Add your first repository →
+              添加第一个仓库 →
             </Button>
           </div>
         )}
@@ -249,7 +249,7 @@ const Repository: React.FC = () => {
               background:            'var(--s-float)',
               borderBottom:          '1px solid var(--b-faint)',
             }}>
-              {['NAME', 'BRANCH', 'STATUS', 'LAST ANALYSIS', 'ACTIONS'].map(h => (
+              {['名称', '分支', '状态', '最近分析', '操作'].map(h => (
                 <div key={h} style={{
                   fontFamily:    'var(--font-mono)',
                   fontSize:      9,
@@ -328,7 +328,7 @@ const Repository: React.FC = () => {
                 }}>
                   {repo.gitCommit ? (
                     <div>
-                      <div style={{ marginBottom: 2 }}>main</div>
+                      <div style={{ marginBottom: 2 }}>主分支</div>
                       <div style={{
                         fontSize:      9,
                         color:         'var(--t-muted)',
@@ -367,7 +367,7 @@ const Repository: React.FC = () => {
                     fontSize:   9,
                     color:      'var(--t-muted)',
                   }}>
-                    {repo.nodeCount.toLocaleString()} nodes · {repo.edgeCount.toLocaleString()} edges
+                    {repo.nodeCount.toLocaleString()} 节点 · {repo.edgeCount.toLocaleString()} 边
                   </div>
                 </div>
 
@@ -382,7 +382,7 @@ const Repository: React.FC = () => {
                       fontSize:   10,
                     }}
                   >
-                    Analyze
+                    重新分析
                   </Button>
                   <Button
                     size="small"
@@ -394,14 +394,14 @@ const Repository: React.FC = () => {
                       fontSize:   10,
                     }}
                   >
-                    View
+                    查看
                   </Button>
                   <Popconfirm
-                    title="Delete Repository"
-                    description="Are you sure you want to delete this repository?"
+                    title="删除仓库"
+                    description="确定要删除此仓库吗？"
                     onConfirm={() => handleDelete(repo.graphId)}
-                    okText="Delete"
-                    cancelText="Cancel"
+                    okText="删除"
+                    cancelText="取消"
                     okButtonProps={{ danger: true }}
                   >
                     <Button
@@ -449,7 +449,7 @@ const Repository: React.FC = () => {
             letterSpacing: '0.1em',
             textTransform: 'uppercase',
           }}>
-            ⬡ Add Repository
+            ⬡ 添加仓库
           </div>
         }
       >
@@ -461,35 +461,35 @@ const Repository: React.FC = () => {
         >
           <Form.Item
             name="repoPath"
-            label="REPO PATH"
-            rules={[{ required: true, message: 'Path is required' }]}
+            label="仓库路径"
+            rules={[{ required: true, message: '路径不能为空' }]}
             style={{ marginBottom: 16 }}
           >
             <Input
-              placeholder="/path/to/your/repository"
+              placeholder="/path/to/your/repo"
               style={{ fontFamily: 'var(--font-mono)' }}
             />
           </Form.Item>
 
           <Form.Item
             name="repoName"
-            label="REPO NAME (optional)"
+            label="仓库名称（可选）"
             style={{ marginBottom: 16 }}
           >
             <Input
-              placeholder="auto-detect from path"
+              placeholder="从路径自动检测"
               style={{ fontFamily: 'var(--font-mono)' }}
             />
           </Form.Item>
 
           <Form.Item
             name="languages"
-            label="LANGUAGES (optional)"
+            label="编程语言（可选）"
             style={{ marginBottom: 24 }}
           >
             <Select
               mode="multiple"
-              placeholder="auto-detect all languages"
+              placeholder="自动检测所有语言"
               options={LANGS.map(l => ({ value: l, label: l }))}
               style={{ fontFamily: 'var(--font-mono)' }}
             />
@@ -517,7 +517,7 @@ const Repository: React.FC = () => {
                       fontFamily: 'var(--font-ui)',
                       fontWeight: 500,
                     }}>
-                      AI Semantic Analysis
+                      AI 语义分析
                     </span>
                     <span style={{
                       fontSize:      9,
@@ -529,7 +529,7 @@ const Repository: React.FC = () => {
                       color:         'rgb(176,142,255)',
                       border:        '1px solid rgba(176,142,255,0.3)',
                     }}>
-                      OPTIONAL
+                      可选
                     </span>
                   </div>
                   <div style={{
@@ -538,7 +538,7 @@ const Repository: React.FC = () => {
                     fontFamily: 'var(--font-mono)',
                     marginTop:  2,
                   }}>
-                    Requires ANTHROPIC_API_KEY
+                    需要 ANTHROPIC_API_KEY
                   </div>
                 </div>
               </div>
@@ -555,7 +555,7 @@ const Repository: React.FC = () => {
                       fontFamily: 'var(--font-ui)',
                       fontWeight: 500,
                     }}>
-                      Vector Retrieval (RAG)
+                      向量检索（RAG）
                     </span>
                     <span style={{
                       fontSize:      9,
@@ -567,7 +567,7 @@ const Repository: React.FC = () => {
                       color:         'rgb(255,193,69)',
                       border:        '1px solid rgba(255,193,69,0.3)',
                     }}>
-                      OPTIONAL
+                      可选
                     </span>
                   </div>
                   <div style={{
@@ -576,7 +576,7 @@ const Repository: React.FC = () => {
                     fontFamily: 'var(--font-mono)',
                     marginTop:  2,
                   }}>
-                    Requires ChromaDB
+                    需要 ChromaDB
                   </div>
                 </div>
               </div>
@@ -596,7 +596,7 @@ const Repository: React.FC = () => {
               letterSpacing: '0.08em',
             }}
           >
-            {analyzing ? 'ANALYZING...' : '⚡ RUN ANALYSIS'}
+            {analyzing ? '分析中...' : '⚡ 开始分析'}
           </Button>
 
           {analyzing && (
@@ -609,7 +609,7 @@ const Repository: React.FC = () => {
                 color:         'var(--t-muted)',
                 letterSpacing: '0.06em',
               }}>
-                parsing AST → building graph → computing metrics...
+                解析 AST → 构建图谱 → 计算指标...
               </div>
             </div>
           )}
@@ -617,7 +617,7 @@ const Repository: React.FC = () => {
           {error && (
             <Alert
               type="error"
-              message="Analysis Failed"
+              message="分析失败"
               description={
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>
                   {error}
@@ -633,12 +633,12 @@ const Repository: React.FC = () => {
           {result && (
             <Alert
               type="success"
-              message="Analysis Complete"
+              message="分析完成"
               description={
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-                  <div>Graph ID: {result.graphId}</div>
-                  <div>Nodes: {result.nodeCount.toLocaleString()} · Edges: {result.edgeCount.toLocaleString()}</div>
-                  <div>Duration: {result.duration.toFixed(2)}s</div>
+                  <div>图谱 ID：{result.graphId}</div>
+                  <div>节点：{result.nodeCount.toLocaleString()} · 边：{result.edgeCount.toLocaleString()}</div>
+                  <div>耗时：{result.duration.toFixed(2)}s</div>
                 </div>
               }
               showIcon

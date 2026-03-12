@@ -8,14 +8,14 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { path: '/',              icon: '◈', label: 'OVERVIEW'     },
-  { path: '/repository',   icon: '⬡', label: 'REPOSITORY'   },
-  { path: '/architecture', icon: '⌥', label: 'ARCHITECTURE' },
-  { path: '/callgraph',    icon: '⇢', label: 'CALL GRAPH'   },
-  { path: '/lineage',      icon: '⊞', label: 'DATA LINEAGE' },
-  { path: '/eventflow',    icon: '⚡', label: 'EVENT FLOW'   },
-  { path: '/query',        icon: '✦', label: 'AI QUERY'     },
-  { path: '/impact',       icon: '◎', label: 'IMPACT'       },
+  { path: '/',              icon: '◈', label: '概览'     },
+  { path: '/repository',   icon: '⬡', label: '仓库'     },
+  { path: '/architecture', icon: '⌥', label: '架构图'   },
+  { path: '/callgraph',    icon: '⇢', label: '调用图'   },
+  { path: '/lineage',      icon: '⊞', label: '数据血缘' },
+  { path: '/eventflow',    icon: '⚡', label: '事件流'   },
+  { path: '/query',        icon: '✦', label: 'AI 查询'  },
+  { path: '/impact',       icon: '◎', label: '影响分析' },
 ];
 
 const Sidebar: React.FC = () => {
@@ -56,10 +56,10 @@ const Sidebar: React.FC = () => {
         {!collapsed && (
           <div style={{ overflow: 'hidden' }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: '#d0d5e8', letterSpacing: '0.06em', lineHeight: 1.25, fontFamily: 'var(--font-ui)', whiteSpace: 'nowrap' }}>
-              CODE GRAPH
+              代码图谱
             </div>
             <div style={{ fontSize: 9, color: 'var(--t-muted)', fontFamily: 'var(--font-mono)', letterSpacing: '0.1em', whiteSpace: 'nowrap', marginTop: 1 }}>
-              KNOWLEDGE SYSTEM
+              知识系统
             </div>
           </div>
         )}
@@ -124,7 +124,7 @@ const Sidebar: React.FC = () => {
               display: 'inline-block', flexShrink: 0,
             }} />
             <span style={{ fontSize: 10, color: 'var(--t-muted)', fontFamily: 'var(--font-mono)', letterSpacing: '0.08em' }}>
-              API CONNECTED
+              API 已连接
             </span>
           </div>
         )}

@@ -40,8 +40,19 @@ export const graphApi = {
    * No graphId → returns list of analyzed repos.
    * With graphId → returns full graph (nodes + edges + metrics).
    */
-  listGraphs(): Promise<GraphListResponse> {
-    return httpClient.get('/graph')
+  async listGraphs(): Promise<GraphListResponse> {
+    const raw: { graphs: Record<string, unknown>[] } = await httpClient.get('/graph')
+    return {
+      graphs: (raw.graphs ?? []).map((g) => ({
+        graphId:   g.graph_id   as string,
+        repoName:  g.repo_name  as string,
+        language:  (g.languages ?? g.language ?? []) as string[],
+        createdAt: g.created_at as string,
+        nodeCount: g.node_count as number,
+        edgeCount: g.edge_count as number,
+        gitCommit: g.git_commit as string | undefined,
+      })),
+    }
   },
 
   getGraph(graphId: string): Promise<GraphDetailResponse> {

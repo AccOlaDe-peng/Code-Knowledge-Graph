@@ -296,14 +296,14 @@ const DataLineageInner: React.FC = () => {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginRight: 8 }}>
           <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#b08eff', boxShadow: '0 0 8px #b08eff' }} />
           <span style={{ fontFamily: "'Syne', sans-serif", fontSize: 13, fontWeight: 700, color: '#b08eff', letterSpacing: '0.08em' }}>
-            DATA LINEAGE
+            数据血缘
           </span>
         </div>
 
         <div style={{ display: 'flex', gap: 12, marginRight: 'auto' }}>
           {[
-            { label: 'NODES', value: nodeCount },
-            { label: 'EDGES', value: edgeCount },
+            { label: '节点', value: nodeCount },
+            { label: '边', value: edgeCount },
           ].map(({ label, value }) => (
             <div key={label} style={{ display: 'flex', gap: 4, alignItems: 'baseline' }}>
               <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 14, fontWeight: 600, color: '#b08eff' }}>{value}</span>
@@ -314,7 +314,7 @@ const DataLineageInner: React.FC = () => {
 
         <Input
           prefix={<SearchOutlined style={{ color: '#3a5a6a', fontSize: 12 }} />}
-          placeholder="Search..."
+          placeholder="搜索..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           style={{
@@ -350,7 +350,7 @@ const DataLineageInner: React.FC = () => {
           ))}
         </div>
 
-        <Tooltip title="Reset view">
+        <Tooltip title="重置视图">
           <Button
             icon={<ReloadOutlined />}
             onClick={handleReset}
@@ -373,7 +373,7 @@ const DataLineageInner: React.FC = () => {
         {!activeRepo && !lineageGraph.loading && (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Empty
-              description={<span style={{ color: '#3a5a6a', fontFamily: "'IBM Plex Mono'", fontSize: 12 }}>Select a repository to view data lineage</span>}
+              description={<span style={{ color: '#3a5a6a', fontFamily: "'IBM Plex Mono'", fontSize: 12 }}>请选择一个仓库以查看数据血缘</span>}
               image={Empty.PRESENTED_IMAGE_SIMPLE}
             />
           </div>

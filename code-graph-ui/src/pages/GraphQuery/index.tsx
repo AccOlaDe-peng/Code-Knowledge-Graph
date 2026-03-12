@@ -74,14 +74,14 @@ const GraphQuery: React.FC = () => {
     <div style={{ maxWidth: 820 }}>
       {/* Heading */}
       <div style={{ marginBottom: 28 }}>
-        <div style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--t-muted)', letterSpacing: '0.15em', marginBottom: 4 }}>SYS / AI QUERY</div>
+        <div style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--t-muted)', letterSpacing: '0.15em', marginBottom: 4 }}>系统 / AI 查询</div>
         <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--t-primary)', fontFamily: 'var(--font-ui)' }}>
-          AI Code Q&amp;A
+          AI 代码问答
         </h2>
       </div>
 
       {!activeGraphId && (
-        <Alert type="info" message="Select a repository from the top bar to start querying"
+        <Alert type="info" message="请从顶栏选择一个仓库后开始查询"
           style={{ marginBottom: 20, borderRadius: 4 }} showIcon />
       )}
 
@@ -113,7 +113,7 @@ const GraphQuery: React.FC = () => {
             value={question}
             onChange={e => setQuestion(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleQuery(); } }}
-            placeholder="Ask anything about your codebase..."
+            placeholder="输入关于代码库的任何问题..."
             disabled={!activeGraphId || loading}
             rows={3}
             style={{
@@ -157,7 +157,7 @@ const GraphQuery: React.FC = () => {
               transition: 'all 0.15s', flexShrink: 0,
             }}
           >
-            {loading ? '...' : 'SEND ⏎'}
+            {loading ? '...' : '发送 ⏎'}
           </button>
         </div>
       </div>
@@ -172,10 +172,10 @@ const GraphQuery: React.FC = () => {
           <span style={{ fontSize: 20, animation: 'spin 1s linear infinite', display: 'inline-block' }}>◈</span>
           <div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--t-primary)', marginBottom: 4 }}>
-              Querying knowledge graph...
+              正在查询知识图谱...
             </div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--t-muted)' }}>
-              vector search → graph expand → LLM synthesis
+              向量检索 → 图谱展开 → LLM 综合
             </div>
           </div>
         </div>
@@ -214,7 +214,7 @@ const GraphQuery: React.FC = () => {
           <div style={{ padding: '14px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
               <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--t-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>
-                Confidence
+                置信度
               </div>
               <ConfBar value={result.confidence} />
             </div>
@@ -222,13 +222,13 @@ const GraphQuery: React.FC = () => {
             {result.nodes?.length > 0 && (
               <div>
                 <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--t-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
-                  Related Nodes · {result.nodes.length}
+                  相关节点 · {result.nodes.length}
                 </div>
                 <div>
                   {result.nodes.slice(0, 12).map(n => <NodeChip key={n.id} label={n.label} type={n.type} />)}
                   {result.nodes.length > 12 && (
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--t-muted)' }}>
-                      +{result.nodes.length - 12} more
+                      +{result.nodes.length - 12} 更多
                     </span>
                   )}
                 </div>
@@ -238,7 +238,7 @@ const GraphQuery: React.FC = () => {
             {result.sources?.length > 0 && (
               <div>
                 <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--t-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>
-                  Source Files · {result.sources.length}
+                  源文件 · {result.sources.length}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   {result.sources.map((file, i) => (
@@ -260,7 +260,7 @@ const GraphQuery: React.FC = () => {
             <div style={{ borderTop: '1px solid var(--b-faint)' }}>
               <div style={{ padding: '10px 20px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--t-muted)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-                  Graph · {result.nodes.length} nodes · {result.edges?.length ?? 0} edges
+                  图谱 · {result.nodes.length} 节点 · {result.edges?.length ?? 0} 边
                 </div>
               </div>
               <GraphViewer

@@ -169,8 +169,8 @@ const ImpactAnalysis: React.FC = () => {
       <div style={{ padding: 24 }}>
         <Alert
           type="warning"
-          message="No repository selected"
-          description="Please select a repository from the Repository page first."
+          message="未选择仓库"
+          description="请先在仓库页面选择一个仓库。"
         />
       </div>
     );
@@ -181,7 +181,7 @@ const ImpactAnalysis: React.FC = () => {
       <div style={{ padding: 24, display: 'flex', alignItems: 'center', gap: 12 }}>
         <div style={{ width: 16, height: 16, border: '2px solid var(--a-cyan)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--t-secondary)' }}>
-          Loading graph data...
+          图谱加载中...
         </span>
       </div>
     );
@@ -190,7 +190,7 @@ const ImpactAnalysis: React.FC = () => {
   if (graph.error) {
     return (
       <div style={{ padding: 24 }}>
-        <Alert type="error" message="Failed to load graph" description={graph.error} />
+        <Alert type="error" message="图谱加载失败" description={graph.error} />
       </div>
     );
   }
@@ -200,13 +200,13 @@ const ImpactAnalysis: React.FC = () => {
       {/* Header */}
       <div>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--t-muted)', letterSpacing: '0.15em', marginBottom: 6 }}>
-          IMPACT ANALYSIS
+          影响分析
         </div>
         <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 600, color: 'var(--t-primary)', margin: 0 }}>
-          Blast Radius Computation
+          影响半径计算
         </h1>
         <p style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--t-secondary)', marginTop: 8, marginBottom: 0 }}>
-          Select a node to analyze downstream impact and identify all affected components.
+          选择一个节点，分析其下游影响并识别所有受影响的组件。
         </p>
       </div>
 
@@ -216,11 +216,11 @@ const ImpactAnalysis: React.FC = () => {
         borderRadius: 'var(--radius-m)', padding: 20,
       }}>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--t-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 12 }}>
-          Select Target Node
+          选择目标节点
         </div>
         <Select
           showSearch
-          placeholder="Search by name or type..."
+          placeholder="按名称或类型搜索..."
           style={{ width: '100%' }}
           value={selectedNodeId}
           onChange={setSelectedNodeId}
@@ -241,7 +241,7 @@ const ImpactAnalysis: React.FC = () => {
           borderRadius: 'var(--radius-m)', padding: 20,
         }}>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--t-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 16 }}>
-            Impact Summary
+            影响摘要
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 16 }}>
@@ -251,7 +251,7 @@ const ImpactAnalysis: React.FC = () => {
               borderRadius: 6, padding: 12,
             }}>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--t-muted)', letterSpacing: '0.08em', marginBottom: 6 }}>
-                TOTAL IMPACT
+                总影响
               </div>
               <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 600, color: '#ff4568' }}>
                 {impactStats.total}
@@ -264,7 +264,7 @@ const ImpactAnalysis: React.FC = () => {
               borderRadius: 6, padding: 12,
             }}>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--t-muted)', letterSpacing: '0.08em', marginBottom: 6 }}>
-                MAX DEPTH
+                最大深度
               </div>
               <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 600, color: '#ffc145' }}>
                 {impactStats.maxDepth}
@@ -299,7 +299,7 @@ const ImpactAnalysis: React.FC = () => {
           borderRadius: 'var(--radius-m)', padding: 20, flex: 1, minHeight: 500,
         }}>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--t-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 16 }}>
-            Impact Graph · {impactGraph.nodes.length} nodes · {impactGraph.edges.length} edges
+            影响图 · {impactGraph.nodes.length} 节点 · {impactGraph.edges.length} 边
           </div>
           <GraphViewer
             nodes={impactGraph.nodes}
@@ -317,14 +317,14 @@ const ImpactAnalysis: React.FC = () => {
           borderRadius: 'var(--radius-m)', padding: 16,
         }}>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--t-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 12 }}>
-            Impact Depth Legend
+            影响深度图例
           </div>
           <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
             {[
-              { depth: 0, label: 'Source Node', color: '#ff4568' },
-              { depth: 1, label: 'Direct Impact (Depth 1)', color: '#ff8844' },
-              { depth: 2, label: 'Secondary Impact (Depth 2)', color: '#ffc145' },
-              { depth: 3, label: 'Tertiary+ Impact (Depth 3+)', color: '#00d4ff' },
+              { depth: 0, label: '源节点', color: '#ff4568' },
+              { depth: 1, label: '直接影响（深度 1）', color: '#ff8844' },
+              { depth: 2, label: '二级影响（深度 2）', color: '#ffc145' },
+              { depth: 3, label: '三级及以上影响（深度 3+）', color: '#00d4ff' },
             ].map(({ depth, label, color }) => (
               <div key={depth} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div style={{ width: 12, height: 12, borderRadius: 2, background: color, border: `1px solid ${color}` }} />

@@ -9,17 +9,17 @@ import type { GraphNode } from '../../types/graph'
 // ─── Node type filter config ──────────────────────────────────────────────────
 
 const NODE_FILTERS = [
-  { type: 'all',      label: 'ALL',      color: '#6e7a99' },
-  { type: 'Producer', label: 'PRODUCER', color: '#ffc145' },
-  { type: 'Event',    label: 'EVENT',    color: '#00d4ff' },
-  { type: 'Topic',    label: 'TOPIC',    color: '#b08eff' },
-  { type: 'Consumer', label: 'CONSUMER', color: '#00f084' },
+  { type: 'all',      label: '全部',  color: '#6e7a99' },
+  { type: 'Producer', label: '生产者', color: '#ffc145' },
+  { type: 'Event',    label: '事件',  color: '#00d4ff' },
+  { type: 'Topic',    label: '主题',  color: '#b08eff' },
+  { type: 'Consumer', label: '消费者', color: '#00f084' },
 ]
 
 const LAYOUTS: { name: LayoutName; label: string; icon: string }[] = [
-  { name: 'force',  label: 'Force',  icon: '⊛' },
-  { name: 'dagre',  label: 'Dagre',  icon: '⇣' },
-  { name: 'grid',   label: 'Grid',   icon: '⊞' },
+  { name: 'force',  label: '力导向', icon: '⊛' },
+  { name: 'dagre',  label: '层级',   icon: '⇣' },
+  { name: 'grid',   label: '网格',   icon: '⊞' },
 ]
 
 // ─── Filter Chip ──────────────────────────────────────────────────────────────
@@ -200,7 +200,7 @@ const EventFlow: React.FC = () => {
             letterSpacing: '0.15em',
             marginBottom:  4,
           }}>
-            SYS / EVENT FLOW
+            系统 / 事件流
           </div>
           <h2 style={{
             margin:        0,
@@ -210,15 +210,15 @@ const EventFlow: React.FC = () => {
             fontFamily:    'var(--font-ui)',
             letterSpacing: '-0.01em',
           }}>
-            Event Flow
+            事件流
           </h2>
         </div>
 
         {eventGraph.data && (
           <div style={{ display: 'flex', gap: 8 }}>
             {[
-              { label: 'nodes', value: filteredNodes.length, total: allNodes.length, color: '#ffc145' },
-              { label: 'edges', value: filteredEdges.length, total: allEdges.length, color: '#00f084' },
+              { label: '节点', value: filteredNodes.length, total: allNodes.length, color: '#ffc145' },
+              { label: '边', value: filteredEdges.length, total: allEdges.length, color: '#00f084' },
             ].map(({ label, value, total, color }) => (
               <div key={label} style={{
                 fontFamily:    'var(--font-mono)',
@@ -287,7 +287,7 @@ const EventFlow: React.FC = () => {
       {!activeRepo && (
         <Alert
           type="info"
-          message="Select a repository from the top bar to visualize event flow"
+          message="请从顶栏选择一个仓库以可视化事件流"
           showIcon
           style={{ borderRadius: 4, flexShrink: 0 }}
         />
@@ -329,7 +329,7 @@ const EventFlow: React.FC = () => {
             color:         'var(--t-muted)',
             letterSpacing: '0.1em',
           }}>
-            LOADING EVENT GRAPH…
+            事件图谱加载中…
           </div>
         </div>
       )}
@@ -373,7 +373,7 @@ const EventFlow: React.FC = () => {
             color:         'var(--t-muted)',
             letterSpacing: '0.1em',
           }}>
-            NO EVENT DATA
+            暂无事件数据
           </div>
         </div>
       )}
