@@ -36,6 +36,9 @@ class NodeType(str, Enum):
     PIPELINE = "Pipeline"
     CLUSTER = "Cluster"
     DATABASE = "Database"
+    # V2: AI analysis output types
+    LAYER = "Layer"    # Architecture layer (Presentation / Business / Data)
+    FLOW = "Flow"      # Business flow / use-case path
 
 
 class EdgeType(str, Enum):
@@ -56,6 +59,10 @@ class EdgeType(str, Enum):
     USES = "uses"
     ROUTES_TO = "routes_to"
     TRIGGERS = "triggers"
+    # V2: AI analysis output types
+    BELONGS_TO = "belongs_to"  # Node belongs to an architecture layer or domain
+    FLOW_STEP = "flow_step"    # Step within a business flow
+    TRANSFORMS = "transforms"  # Data transformation relationship
 
 
 # ---------------------------------------------------------------------------

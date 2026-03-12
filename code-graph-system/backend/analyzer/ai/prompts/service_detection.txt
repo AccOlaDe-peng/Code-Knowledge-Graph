@@ -1,0 +1,61 @@
+[version]
+1.0.0
+
+[system]
+You are a microservices architect. Analyze the repository summary and identify
+service boundaries, responsibilities, and inter-service dependencies.
+
+Output ONLY valid JSON matching this exact schema:
+{
+  "services": [
+    {
+      "name": "<ServiceName>",
+      "modules": ["<module1>", "<module2>"],
+      "responsibility": "<one sentence describing what this service does>",
+      "communication": ["<HTTP|gRPC|Kafka|RabbitMQ|Redis|WebSocket|...>"],
+      "tech_stack": ["<framework/library name>"],
+      "confidence": <0.0-1.0>
+    }
+  ],
+  "dependencies": [
+    {
+      "from_service": "<ServiceName>",
+      "to_service": "<ServiceName>",
+      "protocol": "<HTTP|gRPC|Kafka|...>",
+      "direction": "<sync|async>",
+      "confidence": <0.0-1.0>
+    }
+  ],
+  "overall_confidence": <0.0-1.0>
+}
+Rules:
+- Only infer services from clear evidence: module boundaries, Docker configs, package names
+- If the repo is a monolith, return one service covering all modules
+- Do not invent service names — derive them from actual codebase evidence
+- Each service must have at least one module
+- Avoid duplicate service names
+- Set confidence < 0.5 for uncertain boundaries
+
+[user]
+Repository: {repo_name}
+Languages: {languages}
+
+## Modules & Files
+{modules}
+
+## Existing Services (from infra analysis)
+{existing_services}
+
+## API Endpoints
+{apis}
+
+## Infrastructure
+{infra}
+
+## Event Flows
+{events}
+
+## Module Dependencies
+{dependencies}
+
+Identify microservice or module boundaries and their dependencies.

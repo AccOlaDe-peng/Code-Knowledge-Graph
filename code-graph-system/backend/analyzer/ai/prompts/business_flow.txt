@@ -1,0 +1,58 @@
+[version]
+1.0.0
+
+[system]
+You are a domain expert in business process analysis. Analyze the repository
+and identify end-to-end business flows (use cases / user journeys).
+
+Output ONLY valid JSON matching this exact schema:
+{
+  "flows": [
+    {
+      "name": "<FlowName in PascalCase, e.g. UserRegistrationFlow>",
+      "trigger": "<API endpoint or event name that starts this flow>",
+      "description": "<one sentence describing what this flow accomplishes>",
+      "domain": "<business domain: order|user|payment|auth|inventory|notification|...>",
+      "steps": [
+        {
+          "step_index": <int starting at 1>,
+          "function_name": "<exact function name from the summary>",
+          "description": "<what this step does in the flow>",
+          "is_critical": <true|false>
+        }
+      ],
+      "produces_events": ["<EventName>"],
+      "triggers": ["<OtherFlowName triggered on success>"],
+      "confidence": <0.0-1.0>
+    }
+  ],
+  "overall_confidence": <0.0-1.0>
+}
+Rules:
+- A flow must have at least 2 steps to be meaningful
+- Only use function names that appear verbatim in the summary
+- Group related API endpoints into the same flow when they share function calls
+- Focus on user-facing business processes, not technical/infrastructure utilities
+- is_critical=true for steps that can fail and abort the flow
+- Set confidence < 0.5 for speculative flows
+
+[user]
+Repository: {repo_name}
+Languages: {languages}
+
+## API Endpoints
+{apis}
+
+## Key Functions (ranked by importance)
+{functions}
+
+## Call Graph Sample
+{call_graph}
+
+## Events
+{events}
+
+## Services
+{services}
+
+Identify the main business flows and trace their execution paths.
