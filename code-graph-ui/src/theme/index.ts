@@ -10,81 +10,81 @@ import { theme } from 'antd';
 export const NodeTypeColors = {
   Module: {
     primary: '#00d4ff',    // 蓝 - Cyan
-    bg: '#0d1f2d',
+    bg: '#0f2838',
     border: '#00d4ff',
-    text: '#00d4ff',
+    text: '#33dcff',
     dim: 'rgba(0,212,255,0.1)',
   },
   Service: {
     primary: '#00f084',    // 绿 - Green
-    bg: '#0d2118',
+    bg: '#0f2a1d',
     border: '#00f084',
-    text: '#00f084',
+    text: '#33f59a',
     dim: 'rgba(0,240,132,0.1)',
   },
   API: {
     primary: '#44aaff',    // 青 - Light Blue
-    bg: '#0d1a2a',
+    bg: '#0f2235',
     border: '#44aaff',
-    text: '#44aaff',
+    text: '#66bbff',
     dim: 'rgba(68,170,255,0.1)',
   },
   Function: {
-    primary: '#8c92a8',    // 灰 - Gray
-    bg: '#1a1c24',
-    border: '#8c92a8',
-    text: '#8c92a8',
-    dim: 'rgba(140,146,168,0.1)',
+    primary: '#a8b0c8',    // 灰 - Gray
+    bg: '#1e2028',
+    border: '#a8b0c8',
+    text: '#c0c6dc',
+    dim: 'rgba(168,176,200,0.1)',
   },
   Table: {
     primary: '#b08eff',    // 紫 - Purple
-    bg: '#1a1428',
+    bg: '#1f1830',
     border: '#b08eff',
-    text: '#b08eff',
+    text: '#c8a8ff',
     dim: 'rgba(176,142,255,0.1)',
   },
   Event: {
     primary: '#ffc145',    // 橙 - Amber/Orange
-    bg: '#1d1a0d',
+    bg: '#282010',
     border: '#ffc145',
-    text: '#ffc145',
+    text: '#ffd166',
     dim: 'rgba(255,193,69,0.1)',
   },
   // Additional types
   Component: {
     primary: '#00f084',
-    bg: '#0d2118',
+    bg: '#0f2a1d',
     border: '#00f084',
-    text: '#00f084',
+    text: '#33f59a',
     dim: 'rgba(0,240,132,0.1)',
   },
   Class: {
     primary: '#b08eff',
-    bg: '#1a1428',
+    bg: '#1f1830',
     border: '#b08eff',
-    text: '#b08eff',
+    text: '#c8a8ff',
     dim: 'rgba(176,142,255,0.1)',
   },
   Database: {
     primary: '#9d7dff',
-    bg: '#1a1228',
+    bg: '#1d1630',
     border: '#9d7dff',
-    text: '#9d7dff',
+    text: '#b899ff',
     dim: 'rgba(157,125,255,0.1)',
   },
   Cluster: {
     primary: '#44aaff',
-    bg: '#0d1a2a',
+    bg: '#0f2235',
     border: '#44aaff',
-    text: '#44aaff',
+    text: '#66bbff',
     dim: 'rgba(68,170,255,0.1)',
   },
   Infrastructure: {
-    primary: '#888899',
-    bg: '#1a1a1a',
-    border: '#888899',
-    text: '#888899',
-    dim: 'rgba(136,136,153,0.1)',
+    primary: '#a0a8b8',
+    bg: '#1d1e22',
+    border: '#a0a8b8',
+    text: '#b8c0d0',
+    dim: 'rgba(160,168,184,0.1)',
   },
 } as const;
 
@@ -95,27 +95,27 @@ export type NodeTypeName = keyof typeof NodeTypeColors;
  */
 export function getNodeTypeColor(type: string) {
   return NodeTypeColors[type as NodeTypeName] ?? {
-    primary: '#6e7a99',
-    bg: '#13161e',
-    border: '#4a5068',
-    text: '#6e7a99',
-    dim: 'rgba(110,122,153,0.1)',
+    primary: '#9ba8c8',
+    bg: '#1a1d26',
+    border: '#6b7a9d',
+    text: '#b0bcd8',
+    dim: 'rgba(155,168,200,0.1)',
   };
 }
 
 // ─── Edge Type Colors ─────────────────────────────────────────────────────────
 
 export const EdgeTypeColors = {
-  calls: '#00f084',       // Green - function calls
-  depends_on: '#00d4ff',  // Cyan - module dependencies
-  imports: '#b08eff',     // Purple - imports
-  contains: '#4a5068',    // Gray - containment
-  reads: '#ffc145',       // Amber - data reads
-  writes: '#ff6b6b',      // Red - data writes
-  produces: '#ffcc44',    // Yellow - event production
-  consumes: '#ff9955',    // Orange - event consumption
-  publishes: '#44aaff',   // Light blue - message publishing
-  subscribes: '#7ed957',  // Light green - message subscription
+  calls: '#33f59a',       // Green - function calls (提亮)
+  depends_on: '#33dcff',  // Cyan - module dependencies (提亮)
+  imports: '#c8a8ff',     // Purple - imports (提亮)
+  contains: '#6b7a9d',    // Gray - containment (提亮)
+  reads: '#ffd166',       // Amber - data reads (提亮)
+  writes: '#ff8888',      // Red - data writes (提亮)
+  produces: '#ffe066',    // Yellow - event production (提亮)
+  consumes: '#ffaa66',    // Orange - event consumption (提亮)
+  publishes: '#66bbff',   // Light blue - message publishing (提亮)
+  subscribes: '#99e877',  // Light green - message subscription (提亮)
 } as const;
 
 export type EdgeTypeName = keyof typeof EdgeTypeColors;
@@ -124,7 +124,7 @@ export type EdgeTypeName = keyof typeof EdgeTypeColors;
  * Get color for an edge type.
  */
 export function getEdgeTypeColor(type: string): string {
-  return EdgeTypeColors[type as EdgeTypeName] ?? '#3d4460';
+  return EdgeTypeColors[type as EdgeTypeName] ?? '#6b7a9d';
 }
 
 // ─── Ant Design Theme Configuration ───────────────────────────────────────────
@@ -154,9 +154,9 @@ export const antdTheme: ThemeConfig = {
     colorBorderSecondary: 'rgba(255,255,255,0.06)',
 
     // ── Text ────────────────────────────────────────────────────────────────────
-    colorText: '#d0d5e8',             // --t-primary
-    colorTextSecondary: '#6e7a99',    // --t-secondary
-    colorTextTertiary: '#3d4460',     // --t-muted
+    colorText: '#e8ecf8',             // --t-primary
+    colorTextSecondary: '#9ba8c8',    // --t-secondary
+    colorTextTertiary: '#6b7a9d',     // --t-muted
 
     // ── Typography ──────────────────────────────────────────────────────────────
     fontFamily: "'Syne', -apple-system, sans-serif",
@@ -200,17 +200,17 @@ export const antdTheme: ThemeConfig = {
       darkSubMenuItemBg: '#0a0d13',
       darkItemSelectedBg: 'rgba(0,212,255,0.1)',
       darkItemHoverBg: 'rgba(255,255,255,0.04)',
-      darkItemColor: '#6e7a99',
+      darkItemColor: '#9ba8c8',
       darkItemSelectedColor: '#00d4ff',
-      darkItemHoverColor: '#d0d5e8',
+      darkItemHoverColor: '#e8ecf8',
     },
 
     // ── Table ─────────────────────────────────────────────────────────────────
     Table: {
       rowHoverBg: '#171b28',
-      borderColor: 'rgba(255,255,255,0.05)',
+      borderColor: 'rgba(255,255,255,0.08)',
       headerBg: '#171b28',
-      headerColor: '#6e7a99',
+      headerColor: '#9ba8c8',
       bodySortBg: '#111520',
     },
 
@@ -228,8 +228,8 @@ export const antdTheme: ThemeConfig = {
       primaryColor: '#07090d',
       primaryShadow: '0 0 18px rgba(0,212,255,0.22)',
       defaultBg: '#171b28',
-      defaultBorderColor: 'rgba(255,255,255,0.14)',
-      defaultColor: '#d0d5e8',
+      defaultBorderColor: 'rgba(255,255,255,0.20)',
+      defaultColor: '#e8ecf8',
       defaultHoverBg: '#1e2234',
       defaultHoverBorderColor: '#00d4ff',
       defaultHoverColor: '#00d4ff',
@@ -238,9 +238,9 @@ export const antdTheme: ThemeConfig = {
     // ── Input ─────────────────────────────────────────────────────────────────
     Input: {
       colorBgContainer: '#171b28',
-      colorBorder: 'rgba(255,255,255,0.08)',
-      colorText: '#d0d5e8',
-      colorTextPlaceholder: '#3d4460',
+      colorBorder: 'rgba(255,255,255,0.12)',
+      colorText: '#e8ecf8',
+      colorTextPlaceholder: '#6b7a9d',
       activeBorderColor: '#00d4ff',
       activeShadow: '0 0 0 2px rgba(0,212,255,0.12)',
       hoverBorderColor: 'rgba(0,212,255,0.5)',
@@ -250,9 +250,9 @@ export const antdTheme: ThemeConfig = {
     Select: {
       colorBgContainer: '#171b28',
       colorBgElevated: '#1e2234',
-      colorBorder: 'rgba(255,255,255,0.08)',
-      colorText: '#d0d5e8',
-      colorTextPlaceholder: '#3d4460',
+      colorBorder: 'rgba(255,255,255,0.12)',
+      colorText: '#e8ecf8',
+      colorTextPlaceholder: '#6b7a9d',
       optionActiveBg: '#171b28',
       optionSelectedBg: 'rgba(0,212,255,0.1)',
       optionSelectedColor: '#00d4ff',
@@ -260,8 +260,8 @@ export const antdTheme: ThemeConfig = {
 
     // ── Tag ───────────────────────────────────────────────────────────────────
     Tag: {
-      defaultBg: 'rgba(110,122,153,0.1)',
-      defaultColor: '#6e7a99',
+      defaultBg: 'rgba(155,168,200,0.1)',
+      defaultColor: '#9ba8c8',
     },
 
     // ── Alert ─────────────────────────────────────────────────────────────────
@@ -299,14 +299,14 @@ export const antdTheme: ThemeConfig = {
     // ── Tooltip ───────────────────────────────────────────────────────────────
     Tooltip: {
       colorBgSpotlight: '#1e2234',
-      colorTextLightSolid: '#d0d5e8',
+      colorTextLightSolid: '#e8ecf8',
     },
 
     // ── Modal ─────────────────────────────────────────────────────────────────
     Modal: {
       contentBg: '#111520',
       headerBg: '#111520',
-      titleColor: '#d0d5e8',
+      titleColor: '#e8ecf8',
     },
 
     // ── Drawer ────────────────────────────────────────────────────────────────

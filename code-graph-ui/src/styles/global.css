@@ -10,15 +10,15 @@
   --s-overlay: #1e2234;
 
   /* Borders */
-  --b-faint:   rgba(255,255,255,0.045);
-  --b-subtle:  rgba(255,255,255,0.08);
-  --b-visible: rgba(255,255,255,0.14);
+  --b-faint:   rgba(255,255,255,0.08);
+  --b-subtle:  rgba(255,255,255,0.12);
+  --b-visible: rgba(255,255,255,0.20);
   --b-cyan:    rgba(0,212,255,0.45);
 
   /* Text */
-  --t-primary:   #d0d5e8;
-  --t-secondary: #6e7a99;
-  --t-muted:     #3d4460;
+  --t-primary:   #e8ecf8;
+  --t-secondary: #9ba8c8;
+  --t-muted:     #6b7a9d;
   --t-cyan:      #00d4ff;
   --t-green:     #00f084;
   --t-amber:     #ffc145;

@@ -55,7 +55,7 @@ const Sidebar: React.FC = () => {
         }}>KG</span>
         {!collapsed && (
           <div style={{ overflow: 'hidden' }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#d0d5e8', letterSpacing: '0.06em', lineHeight: 1.25, fontFamily: 'var(--font-ui)', whiteSpace: 'nowrap' }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#e8ecf8', letterSpacing: '0.06em', lineHeight: 1.25, fontFamily: 'var(--font-ui)', whiteSpace: 'nowrap' }}>
               代码图谱
             </div>
             <div style={{ fontSize: 9, color: 'var(--t-muted)', fontFamily: 'var(--font-mono)', letterSpacing: '0.1em', whiteSpace: 'nowrap', marginTop: 1 }}>
@@ -79,13 +79,13 @@ const Sidebar: React.FC = () => {
                 height: 40, display: 'flex', alignItems: 'center',
                 padding: collapsed ? '0 0 0 20px' : '0 20px',
                 gap: 12, cursor: 'pointer', position: 'relative',
-                color: active ? '#00d4ff' : '#6e7a99',
+                color: active ? '#00d4ff' : '#9ba8c8',
                 background: active ? 'rgba(0,212,255,0.07)' : 'transparent',
                 borderLeft: active ? '2px solid #00d4ff' : '2px solid transparent',
                 transition: 'background 0.12s, color 0.12s',
               }}
-              onMouseEnter={e => { if (!active) { const el = e.currentTarget as HTMLDivElement; el.style.background='rgba(255,255,255,0.03)'; el.style.color='#9ba6c0'; }}}
-              onMouseLeave={e => { if (!active) { const el = e.currentTarget as HTMLDivElement; el.style.background='transparent'; el.style.color='#6e7a99'; }}}
+              onMouseEnter={e => { if (!active) { const el = e.currentTarget as HTMLDivElement; el.style.background='rgba(255,255,255,0.03)'; el.style.color='#c8d4e8'; }}}
+              onMouseLeave={e => { if (!active) { const el = e.currentTarget as HTMLDivElement; el.style.background='transparent'; el.style.color='#9ba8c8'; }}}
             >
               {active && (
                 <span style={{

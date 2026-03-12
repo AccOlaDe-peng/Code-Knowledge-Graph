@@ -56,7 +56,9 @@ const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
 
 const Repository: React.FC = () => {
   const navigate = useNavigate()
-  const { repos, addRepo, removeRepo } = useRepoStore()
+  const repos = useRepoStore(s => s.repos ?? [])
+  const addRepo = useRepoStore(s => s.addRepo)
+  const removeRepo = useRepoStore(s => s.removeRepo)
   const { setActiveGraphId } = useGraphStore()
 
   const [modalOpen, setModalOpen] = useState(false)
@@ -339,13 +341,13 @@ const Repository: React.FC = () => {
                         {lang}
                       </Tag>
                     ))}
-                    {repo.language.length > 3 && (
+                    {(repo.language ?? []).length > 3 && (
                       <span style={{
                         fontSize:   9,
                         fontFamily: 'var(--font-mono)',
                         color:      'var(--t-muted)',
                       }}>
-                        +{repo.language.length - 3}
+                        +{(repo.language ?? []).length - 3}
                       </span>
                     )}
                   </div>

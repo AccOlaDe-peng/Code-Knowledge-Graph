@@ -34,7 +34,7 @@ const NODE_COLORS: Record<string, { bg: string; border: string; text: string }> 
   Event:          { bg: NodeTypeColors.Event.bg,          border: NodeTypeColors.Event.primary,          text: NodeTypeColors.Event.text },
   Cluster:        { bg: NodeTypeColors.Cluster.bg,        border: NodeTypeColors.Cluster.primary,        text: NodeTypeColors.Cluster.text },
   Infrastructure: { bg: NodeTypeColors.Infrastructure.bg, border: NodeTypeColors.Infrastructure.primary, text: NodeTypeColors.Infrastructure.text },
-  default:        { bg: '#13161e', border: '#4a5068', text: '#6e7a99' },
+  default:        { bg: '#1a1d26', border: '#6b7a9d', text: '#b0bcd8' },
 }
 
 const EDGE_COLORS: Record<string, string> = {
@@ -48,7 +48,7 @@ const EDGE_COLORS: Record<string, string> = {
   consumes:    EdgeTypeColors.consumes,
   publishes:   EdgeTypeColors.publishes,
   subscribes:  EdgeTypeColors.subscribes,
-  default:     '#3d4460',
+  default:     '#6b7a9d',
 }
 
 function getNodeColor(type: string) {
@@ -103,21 +103,21 @@ function buildStylesheet(): cytoscape.StylesheetStyle[] {
     {
       selector: 'node',
       style: {
-        'width': 44,
-        'height': 44,
+        'width': 48,
+        'height': 48,
         'shape': 'round-rectangle',
         'background-color': 'data(bg)',
-        'border-width': 1.5,
+        'border-width': 2,
         'border-color': 'data(borderColor)',
         'label': 'data(label)',
         'color': 'data(textColor)',
-        'font-size': 10,
+        'font-size': 11,
         'font-family': '"IBM Plex Mono", monospace',
         'font-weight': 500,
         'text-valign': 'bottom',
         'text-halign': 'center',
-        'text-margin-y': 6,
-        'text-max-width': '100px',
+        'text-margin-y': 7,
+        'text-max-width': '110px',
         'text-overflow-wrap': 'whitespace',
         'text-wrap': 'ellipsis',
         'overlay-opacity': 0,
@@ -128,7 +128,7 @@ function buildStylesheet(): cytoscape.StylesheetStyle[] {
     {
       selector: 'node:selected',
       style: {
-        'border-width': 2.5,
+        'border-width': 3,
         'border-color': '#00d4ff',
         'background-color': 'data(bgSelected)',
       },
@@ -140,7 +140,7 @@ function buildStylesheet(): cytoscape.StylesheetStyle[] {
     {
       selector: 'node.highlighted',
       style: {
-        'border-width': 2,
+        'border-width': 2.5,
         'border-color': '#00d4ff',
         'background-color': 'data(bgSelected)',
       },
@@ -152,15 +152,15 @@ function buildStylesheet(): cytoscape.StylesheetStyle[] {
     {
       selector: 'edge',
       style: {
-        'width': 1,
+        'width': 1.5,
         'line-color': 'data(edgeColor)',
         'target-arrow-color': 'data(edgeColor)',
         'target-arrow-shape': 'triangle',
-        'arrow-scale': 0.9,
+        'arrow-scale': 1,
         'curve-style': 'bezier',
-        'opacity': 0.55,
+        'opacity': 0.75,
         'label': 'data(edgeLabel)',
-        'font-size': 8,
+        'font-size': 9,
         'font-family': '"IBM Plex Mono", monospace',
         'color': 'data(edgeColor)',
         'text-rotation': 'autorotate',
@@ -176,7 +176,7 @@ function buildStylesheet(): cytoscape.StylesheetStyle[] {
     },
     {
       selector: 'edge.faded',
-      style: { 'opacity': 0.06 },
+      style: { 'opacity': 0.12 },
     },
   ]
 }
@@ -213,7 +213,7 @@ const GraphViewer: React.FC<GraphViewerProps> = ({
       return {
         data: {
           id:         n.id,
-          label:      n.label.length > 18 ? n.label.slice(0, 16) + '…' : n.label,
+          label:      (n.label ?? n.name ?? n.id ?? '').length > 18 ? (n.label ?? n.name ?? n.id ?? '').slice(0, 16) + '…' : (n.label ?? n.name ?? n.id ?? ''),
           fullLabel:  n.label,
           nodeType:   n.type,
           bg:         c.bg,

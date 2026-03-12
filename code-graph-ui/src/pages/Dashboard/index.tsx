@@ -172,7 +172,7 @@ const Dashboard: React.FC = () => {
 
     return {
       backgroundColor: 'transparent',
-      tooltip: { trigger: 'item', backgroundColor: '#1e2234', borderColor: '#00d4ff', textStyle: { color: '#d0d5e8', fontFamily: 'IBM Plex Mono' } },
+      tooltip: { trigger: 'item', backgroundColor: '#1e2234', borderColor: '#00d4ff', textStyle: { color: '#e8ecf8', fontFamily: 'IBM Plex Mono' } },
       legend: { show: false },
       series: [{
         type: 'pie',
@@ -183,11 +183,11 @@ const Dashboard: React.FC = () => {
           show: true,
           position: 'outside',
           formatter: '{b}\n{c}',
-          color: '#6e7a99',
+          color: '#9ba8c8',
           fontFamily: 'IBM Plex Mono',
           fontSize: 10,
         },
-        labelLine: { show: true, lineStyle: { color: '#3d4460' } },
+        labelLine: { show: true, lineStyle: { color: '#6b7a9d' } },
         emphasis: { itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0,212,255,0.3)' } },
         data,
         color: ['#00d4ff', '#00f084', '#ffc145', '#b08eff', '#ff6b6b', '#7ed957', '#ffcc44', '#44aaff'],
@@ -204,19 +204,19 @@ const Dashboard: React.FC = () => {
 
     return {
       backgroundColor: 'transparent',
-      tooltip: { trigger: 'axis', backgroundColor: '#1e2234', borderColor: '#00f084', textStyle: { color: '#d0d5e8', fontFamily: 'IBM Plex Mono' } },
+      tooltip: { trigger: 'axis', backgroundColor: '#1e2234', borderColor: '#00f084', textStyle: { color: '#e8ecf8', fontFamily: 'IBM Plex Mono' } },
       grid: { left: 50, right: 20, top: 20, bottom: 40 },
       xAxis: {
         type: 'category',
         data: xData,
-        axisLine: { lineStyle: { color: '#3d4460' } },
+        axisLine: { lineStyle: { color: '#6b7a9d' } },
         axisLabel: { color: '#6e7a99', fontFamily: 'IBM Plex Mono', fontSize: 10, rotate: 20 },
       },
       yAxis: {
         type: 'value',
         axisLine: { show: false },
         axisTick: { show: false },
-        splitLine: { lineStyle: { color: '#3d4460', type: 'dashed' } },
+        splitLine: { lineStyle: { color: '#6b7a9d', type: 'dashed' } },
         axisLabel: { color: '#6e7a99', fontFamily: 'IBM Plex Mono', fontSize: 10 },
       },
       series: [{
