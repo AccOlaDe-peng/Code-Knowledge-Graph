@@ -1,11 +1,14 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Modal, Form, Input, Button, Switch, Select, Alert, Progress, Popconfirm, Tag } from 'antd'
-import { PlusOutlined, ReloadOutlined, EyeOutlined, DeleteOutlined } from '@ant-design/icons'
+import { Modal, Form, Input, Button, Switch, Select, Alert, Progress, Popconfirm, Tag, Upload, message } from 'antd'
+import { PlusOutlined, ReloadOutlined, EyeOutlined, DeleteOutlined, GithubOutlined, FolderOutlined, UploadOutlined } from '@ant-design/icons'
+import type { UploadFile } from 'antd'
 import { repoApi } from '../../api/repoApi'
 import { useRepoStore } from '../../store/repoStore'
 import { useGraphStore } from '../../store/graphStore'
-import type { AnalyzeRepoRequest, AnalyzeRepoResponse, RepoInfo } from '../../types/api'
+import type { AnalyzeRepoResponse, RepoInfo } from '../../types/api'
+
+type SourceMode = 'local' | 'git' | 'zip'
 
 const LANGS = ['python', 'typescript', 'javascript', 'java', 'go', 'rust', 'cpp', 'csharp']
 
@@ -57,45 +60,73 @@ const Repository: React.FC = () => {
   const { setActiveGraphId } = useGraphStore()
 
   const [modalOpen, setModalOpen] = useState(false)
+  const [sourceMode, setSourceMode] = useState<SourceMode>('git')
   const [form] = Form.useForm()
   const [analyzing, setAnalyzing] = useState(false)
   const [result, setResult] = useState<AnalyzeRepoResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [zipFileList, setZipFileList] = useState<UploadFile[]>([])
+
+  const handleCloseModal = () => {
+    setModalOpen(false)
+    form.resetFields()
+    setResult(null)
+    setError(null)
+    setZipFileList([])
+  }
+
+  const onAnalyzeSuccess = (res: AnalyzeRepoResponse, languages?: string[]) => {
+    setResult(res)
+    addRepo({
+      graphId:   res.graphId,
+      repoName:  res.repoName,
+      language:  languages || [],
+      createdAt: new Date().toISOString(),
+      nodeCount: res.nodeCount,
+      edgeCount: res.edgeCount,
+    })
+    setTimeout(handleCloseModal, 2000)
+  }
 
   // ── Handle add repository ─────────────────────────────────────────────────
 
-  const handleSubmit = async (values: AnalyzeRepoRequest & { repoPath: string }) => {
+  const handleSubmit = async (values: {
+    repoPath?: string
+    gitUrl?: string
+    branch?: string
+    repoName?: string
+    languages?: string[]
+    enableAi?: boolean
+    enableRag?: boolean
+  }) => {
     setAnalyzing(true)
     setError(null)
     setResult(null)
 
     try {
-      const res = await repoApi.analyzeRepository({
-        repoPath:  values.repoPath,
-        repoName:  values.repoName,
-        languages: values.languages,
-        enableAi:  values.enableAi ?? false,
-        enableRag: values.enableRag ?? false,
-      })
-
-      setResult(res)
-      addRepo({
-        graphId:   res.graphId,
-        repoName:  res.repoName,
-        language:  values.languages || [],
-        createdAt: new Date().toISOString(),
-        nodeCount: res.nodeCount,
-        edgeCount: res.edgeCount,
-      })
-
-      // Auto-close modal after 2s
-      setTimeout(() => {
-        setModalOpen(false)
-        form.resetFields()
-        setResult(null)
-      }, 2000)
+      if (sourceMode === 'zip') {
+        const rawFile = zipFileList[0]?.originFileObj
+        if (!rawFile) { message.error('请先选择 ZIP 文件'); return }
+        const res = await repoApi.analyzeZip(rawFile, {
+          repoName:  values.repoName,
+          languages: values.languages,
+          enableAi:  values.enableAi ?? false,
+          enableRag: values.enableRag ?? false,
+        })
+        onAnalyzeSuccess(res, values.languages)
+      } else {
+        const res = await repoApi.analyzeRepository({
+          repoPath:  sourceMode === 'git' ? (values.gitUrl ?? '') : (values.repoPath ?? ''),
+          repoName:  values.repoName,
+          branch:    values.branch,
+          languages: values.languages,
+          enableAi:  values.enableAi ?? false,
+          enableRag: values.enableRag ?? false,
+        })
+        onAnalyzeSuccess(res, values.languages)
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Analysis failed')
+      setError(e instanceof Error ? e.message : '分析失败')
     } finally {
       setAnalyzing(false)
     }
@@ -292,7 +323,7 @@ const Repository: React.FC = () => {
                     gap:       4,
                     flexWrap:  'wrap',
                   }}>
-                    {repo.language.slice(0, 3).map(lang => (
+                    {(repo.language ?? []).slice(0, 3).map(lang => (
                       <Tag
                         key={lang}
                         style={{
@@ -424,22 +455,12 @@ const Repository: React.FC = () => {
       {/* ── Add Repository Modal ──────────────────────────────────────────── */}
       <Modal
         open={modalOpen}
-        onCancel={() => {
-          setModalOpen(false)
-          form.resetFields()
-          setResult(null)
-          setError(null)
-        }}
+        onCancel={handleCloseModal}
         footer={null}
-        width={560}
+        width={580}
         styles={{
-          body: {
-            background: 'var(--s-raised)',
-          },
-          header: {
-            background:   'var(--s-float)',
-            borderBottom: '1px solid var(--b-faint)',
-          },
+          body:   { background: 'var(--s-raised)' },
+          header: { background: 'var(--s-float)', borderBottom: '1px solid var(--b-faint)' },
         }}
         title={
           <div style={{
@@ -453,23 +474,110 @@ const Repository: React.FC = () => {
           </div>
         }
       >
+        {/* ── Source mode selector ── */}
+        <div style={{
+          display:       'flex',
+          gap:           4,
+          marginBottom:  20,
+          padding:       4,
+          background:    'var(--s-float)',
+          borderRadius:  'var(--radius-s)',
+          border:        '1px solid var(--b-faint)',
+        }}>
+          {([
+            { key: 'git',   label: 'Git 仓库',  icon: <GithubOutlined /> },
+            { key: 'local', label: '本地路径',   icon: <FolderOutlined /> },
+            { key: 'zip',   label: 'ZIP 上传',   icon: <UploadOutlined /> },
+          ] as { key: SourceMode; label: string; icon: React.ReactNode }[]).map(item => (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => { setSourceMode(item.key); form.resetFields() }}
+              style={{
+                flex:          1,
+                display:       'flex',
+                alignItems:    'center',
+                justifyContent:'center',
+                gap:           6,
+                padding:       '8px 0',
+                border:        'none',
+                borderRadius:  'calc(var(--radius-s) - 2px)',
+                cursor:        'pointer',
+                fontFamily:    'var(--font-mono)',
+                fontSize:      12,
+                transition:    'all 0.15s',
+                background:    sourceMode === item.key ? 'var(--a-cyan)' : 'transparent',
+                color:         sourceMode === item.key ? '#000' : 'var(--t-secondary)',
+                fontWeight:    sourceMode === item.key ? 600 : 400,
+              }}
+            >
+              {item.icon} {item.label}
+            </button>
+          ))}
+        </div>
+
         <Form
           form={form}
           layout="vertical"
           onFinish={handleSubmit}
           requiredMark={false}
         >
-          <Form.Item
-            name="repoPath"
-            label="仓库路径"
-            rules={[{ required: true, message: '路径不能为空' }]}
-            style={{ marginBottom: 16 }}
-          >
-            <Input
-              placeholder="/path/to/your/repo"
-              style={{ fontFamily: 'var(--font-mono)' }}
-            />
-          </Form.Item>
+          {/* ── Git URL mode ── */}
+          {sourceMode === 'git' && (<>
+            <Form.Item
+              name="gitUrl"
+              label="Git 仓库地址"
+              rules={[{ required: true, message: 'Git URL 不能为空' }]}
+              style={{ marginBottom: 16 }}
+            >
+              <Input
+                placeholder="git@github.com:org/repo.git 或 https://github.com/org/repo.git"
+                style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
+              />
+            </Form.Item>
+            <Form.Item
+              name="branch"
+              label="分支（可选，默认 HEAD）"
+              style={{ marginBottom: 16 }}
+            >
+              <Input
+                placeholder="main / master / feature/xxx"
+                style={{ fontFamily: 'var(--font-mono)' }}
+              />
+            </Form.Item>
+          </>)}
+
+          {/* ── Local path mode ── */}
+          {sourceMode === 'local' && (
+            <Form.Item
+              name="repoPath"
+              label="本地仓库路径"
+              rules={[{ required: true, message: '路径不能为空' }]}
+              style={{ marginBottom: 16 }}
+            >
+              <Input
+                placeholder="/path/to/your/repo"
+                style={{ fontFamily: 'var(--font-mono)' }}
+              />
+            </Form.Item>
+          )}
+
+          {/* ── ZIP upload mode ── */}
+          {sourceMode === 'zip' && (
+            <Form.Item label="ZIP 压缩包" style={{ marginBottom: 16 }}>
+              <Upload
+                accept=".zip"
+                maxCount={1}
+                fileList={zipFileList}
+                beforeUpload={() => false}
+                onChange={({ fileList }) => setZipFileList(fileList)}
+              >
+                <Button icon={<UploadOutlined />} style={{ fontFamily: 'var(--font-mono)' }}>
+                  选择 ZIP 文件
+                </Button>
+              </Upload>
+            </Form.Item>
+          )}
 
           <Form.Item
             name="repoName"
@@ -477,7 +585,7 @@ const Repository: React.FC = () => {
             style={{ marginBottom: 16 }}
           >
             <Input
-              placeholder="从路径自动检测"
+              placeholder="自动从 URL / 路径 / 文件名检测"
               style={{ fontFamily: 'var(--font-mono)' }}
             />
           </Form.Item>

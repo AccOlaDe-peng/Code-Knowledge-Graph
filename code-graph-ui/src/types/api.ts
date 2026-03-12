@@ -45,6 +45,7 @@ export type ServicesGraphResponse = Graph & { graphId: string }
 export type AnalyzeRepoRequest = {
   repoPath: string
   repoName?: string
+  branch?: string
   languages?: string[]
   enableAi?: boolean
   enableRag?: boolean
