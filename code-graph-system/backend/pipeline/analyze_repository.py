@@ -1,21 +1,27 @@
 """
 代码仓库分析流水线。
 
-按顺序编排 13 个步骤，将代码仓库转换为结构化知识图谱：
+按顺序编排 16 个步骤，将代码仓库转换为结构化知识图谱：
 
-    1  RepoScanner        — 扫描仓库文件，识别语言和 Git 信息
-    2  CodeParser         — Tree-sitter AST 解析，提取类/函数/调用
-    3  ModuleDetector     — 目录级模块节点 + File 节点 + contains 边
-    4  ComponentDetector  — 组件 / 类 / 函数节点 + implements / contains 边
-    5  DependencyAnalyzer — 模块依赖 / 服务依赖 + 循环依赖检测
-    6  CallGraphBuilder   — 函数调用图（Function→Function / Service→Service / API→Service）
-    7  DataLineageAnalyzer — 数据血缘（依赖旧 schema，当前版本跳过）
-    8  EventAnalyzer      — 事件发布/订阅（Kafka / RabbitMQ / EventBus）
-    9  InfraAnalyzer      — Dockerfile / Kubernetes / Terraform 基础设施
-    10 SemanticAnalyzer   — LLM 语义标注 Component/Service/Domain/API（可选）
-    11 GraphBuilder       — 合并所有分析器输出，计算 PageRank / 度指标
-    12 GraphRepository    — 持久化为 JSON（可选 Neo4j 双写）
-    13 GraphRAGEngine     — 向量化 Function/Component/API 节点到 ChromaDB（可选）
+    1  RepoScanner           — 扫描仓库文件，识别语言和 Git 信息
+    2  CodeParser            — Tree-sitter AST 解析，提取类/函数/调用
+    3  ModuleDetector        — 目录级模块节点 + File 节点 + contains 边
+    4  ComponentDetector     — 组件 / 类 / 函数节点 + implements / contains 边
+    5  DependencyAnalyzer    — 模块依赖 / 服务依赖 + 循环依赖检测
+    6  CallGraphBuilder      — 函数调用图（Function→Function / Service→Service）
+    7  EventAnalyzer         — 事件发布/订阅（Kafka / RabbitMQ / EventBus）
+    8  InfraAnalyzer         — Dockerfile / Kubernetes / Terraform 基础设施
+    9  RepoSummaryBuilder    — 构建 AI 分析所需的仓库摘要（静态图谱快照）
+    10 AIArchitectureAnalyzer — LLM 识别架构模式，生成 Layer 节点（可选）
+    11 AIServiceDetector     — LLM 识别微服务边界，补全 Service 节点（可选）
+    12 AIBusinessFlowAnalyzer — LLM 识别业务流程，生成 Flow 节点（可选）
+    13 AIDataLineageAnalyzer  — LLM 追踪数据血缘，生成 reads/writes/transforms 边（可选）
+    14 GraphBuilder           — 合并所有分析器输出，计算 PageRank / 度指标
+    15 GraphRepository        — 持久化为 JSON（可选 Neo4j 双写）
+    16 GraphRAGEngine         — 向量化 Function/Component/API 节点到 ChromaDB（可选）
+
+步骤 10–13 仅在 ``enable_ai=True`` 时运行；任意步骤失败只记录警告，
+不中断整体流水线。
 
 输出：
     AnalysisResult — 含 graph_id / BuiltGraph / 每步统计 / 循环依赖 / 耗时 / 警告
@@ -25,8 +31,8 @@
     pipeline = AnalysisPipeline()
     result = pipeline.analyze(
         "/path/to/repo",
-        enable_ai=True,     # 启用 SemanticAnalyzer（需 LLM API Key）
-        enable_rag=True,    # 启用向量化（需安装 chromadb）
+        enable_ai=True,     # 启用 AI 分析（步骤 10–13，需 LLM API Key）
+        enable_rag=True,    # 启用向量化（步骤 16，需安装 chromadb）
     )
     print(result.summary())
 """
@@ -122,9 +128,7 @@ class AnalysisResult:
 
 class AnalysisPipeline:
     """
-    代码仓库分析流水线。
-
-    协调 13 个步骤，将代码仓库转换为结构化知识图谱。
+    代码仓库分析流水线（16 步）。
 
     示例::
 
@@ -133,7 +137,7 @@ class AnalysisPipeline:
         # 基础分析（仅静态代码分析，无 LLM）
         result = pipeline.analyze("/path/to/repo")
 
-        # 完整分析（含 LLM 语义标注 + 向量索引）
+        # 完整分析（含 AI 语义分析 + 向量索引）
         result = pipeline.analyze(
             "/path/to/repo",
             enable_ai=True,
@@ -183,9 +187,10 @@ class AnalysisPipeline:
             repo_name:  图谱名称前缀；空字符串时使用目录名。
             languages:  限定分析语言，例如 ``["python", "typescript"]``；
                         None 表示自动探测所有支持语言。
-            enable_ai:  启用 SemanticAnalyzer（步骤 10），需配置
-                        ``ANTHROPIC_API_KEY`` 或其他 LLM 环境变量。
-            enable_rag: 启用 GraphRAGEngine.embed_nodes()（步骤 13），
+            enable_ai:  启用 AI 分析器（步骤 10–13），需配置 LLM API Key
+                        （``ANTHROPIC_API_KEY`` / ``OPENAI_API_KEY`` 等）。
+                        未配置 Key 时 AI 步骤自动降级为关键词规则。
+            enable_rag: 启用 GraphRAGEngine.embed_nodes()（步骤 16），
                         需安装 ``chromadb``。
 
         Returns:
@@ -208,7 +213,7 @@ class AnalysisPipeline:
         logger.info("=" * 60)
 
         # ── Step 1: RepoScanner ────────────────────────────────────────
-        logger.info("[1/13] RepoScanner: 扫描仓库文件...")
+        logger.info("[1/16] RepoScanner: 扫描仓库文件...")
         scan_result = RepoScanner().scan(path, languages=languages)
         step_stats["1_scan"] = {
             "files":     scan_result.total_files,
@@ -223,7 +228,7 @@ class AnalysisPipeline:
             )
 
         # ── Step 2: CodeParser ─────────────────────────────────────────
-        logger.info("[2/13] CodeParser: AST 解析...")
+        logger.info("[2/16] CodeParser: AST 解析...")
         parsed_result: ParseResult = CodeParser().scan_repository(
             path, languages=languages
         )
@@ -234,13 +239,12 @@ class AnalysisPipeline:
             len(parsed_result.functions), len(parsed_result.calls),
         )
 
-        # 构建 path→ParsedFile 映射（供 ComponentDetector 等使用）
         parsed_files: dict[str, Any] = {
             pf.file_path: pf for pf in parsed_result.files
         }
 
         # ── Step 3: ModuleDetector ─────────────────────────────────────
-        logger.info("[3/13] ModuleDetector: 识别模块/文件节点...")
+        logger.info("[3/16] ModuleDetector: 识别模块/文件节点...")
         module_graph = ModuleDetector(path).detect(scan_result)
         step_stats["3_module"] = module_graph.stats
         logger.info(
@@ -250,7 +254,7 @@ class AnalysisPipeline:
         )
 
         # ── Step 4: ComponentDetector ──────────────────────────────────
-        logger.info("[4/13] ComponentDetector: 识别组件/类/函数节点...")
+        logger.info("[4/16] ComponentDetector: 识别组件/类/函数节点...")
         component_graph = ComponentDetector().detect(parsed_files)
         step_stats["4_component"] = component_graph.stats
         logger.info(
@@ -260,7 +264,7 @@ class AnalysisPipeline:
         )
 
         # ── Step 5: DependencyAnalyzer ─────────────────────────────────
-        logger.info("[5/13] DependencyAnalyzer: 分析模块/服务依赖...")
+        logger.info("[5/16] DependencyAnalyzer: 分析模块/服务依赖...")
         dep_graph = DependencyAnalyzer(path).analyze(
             module_graph, component_graph, parsed_result
         )
@@ -274,24 +278,15 @@ class AnalysisPipeline:
         )
 
         # ── Step 6: CallGraphBuilder ───────────────────────────────────
-        logger.info("[6/13] CallGraphBuilder: 构建函数调用图...")
+        logger.info("[6/16] CallGraphBuilder: 构建函数调用图...")
         call_graph = CallGraphBuilder().build(component_graph, parsed_result)
         step_stats["6_callgraph"] = call_graph.stats
         logger.info("  → %d 条调用边", len(call_graph.edges))
 
-        # ── Step 7: DataLineageAnalyzer ────────────────────────────────
-        # DataLineageAnalyzer 当前依赖旧 schema（backend.graph.schema），
-        # 待迁移到新 schema（backend.graph.graph_schema）后启用。
-        logger.info("[7/13] DataLineageAnalyzer: 跳过（schema 迁移中）")
-        warnings.append(
-            "DataLineageAnalyzer 依赖旧 schema（backend.graph.schema），待升级后启用"
-        )
-        step_stats["7_lineage"] = {"skipped": True}
-
-        # ── Step 8: EventAnalyzer ──────────────────────────────────────
-        logger.info("[8/13] EventAnalyzer: 分析事件流...")
+        # ── Step 7: EventAnalyzer ──────────────────────────────────────
+        logger.info("[7/16] EventAnalyzer: 分析事件流...")
         event_graph = EventAnalyzer().analyze(parsed_result, component_graph)
-        step_stats["8_event"] = {
+        step_stats["7_event"] = {
             "events": len(event_graph.events),
             "topics": len(event_graph.topics),
             "edges":  len(event_graph.edges),
@@ -302,100 +297,178 @@ class AnalysisPipeline:
             len(event_graph.edges),
         )
 
-        # ── Step 9: InfraAnalyzer ──────────────────────────────────────
-        logger.info("[9/13] InfraAnalyzer: 分析基础设施配置...")
+        # ── Step 8: InfraAnalyzer ──────────────────────────────────────
+        logger.info("[8/16] InfraAnalyzer: 分析基础设施配置...")
         infra_graph = InfraAnalyzer().analyze(path)
-        step_stats["9_infra"] = infra_graph.stats
+        step_stats["8_infra"] = infra_graph.stats
         logger.info(
             "  → 服务 %d / 集群 %d / 数据库 %d / 容器 %d",
             len(infra_graph.services), len(infra_graph.clusters),
             len(infra_graph.databases), len(infra_graph.containers),
         )
 
-        # ── Step 10: SemanticAnalyzer (optional) ──────────────────────
-        semantic_graph = None
-        if enable_ai:
-            logger.info("[10/13] SemanticAnalyzer: LLM 语义标注...")
+        # ── Step 9: RepoSummaryBuilder ─────────────────────────────────
+        # Build a preliminary graph from static analyzers only, then feed it
+        # to RepoSummaryBuilder to produce the AI-consumable summary.
+        # The final graph (step 14) will include AI analyzer results on top.
+        summary = None
+        logger.info("[9/16] RepoSummaryBuilder: 构建 AI 分析摘要...")
+        try:
+            from backend.pipeline.repo_summary_builder import RepoSummaryBuilder
+
+            pre_builder = GraphBuilder()
+            pre_builder.add_node(module_graph.repository)
+            pre_builder.merge_graph(module_graph)
+            pre_builder.merge_graph(component_graph)
+            pre_builder.merge_graph(dep_graph)
+            pre_builder.merge_graph(call_graph)
+            pre_builder.merge_graph(event_graph)
+            pre_builder.merge_graph(infra_graph)
+            pre_built = pre_builder.build()
+
+            summary = RepoSummaryBuilder().build_summary(pre_built)
+            step_stats["9_summary"] = {
+                "token_estimate": summary.token_estimate,
+                "functions":      len(summary.functions),
+                "modules":        len(summary.modules),
+                "apis":           len(summary.apis),
+                "databases":      len(summary.databases),
+                "events":         len(summary.events),
+                "truncated":      summary.truncated,
+            }
+            logger.info(
+                "  → %d 函数 / %d 模块 / %d API / %d 数据库 / token 估算=%d%s",
+                len(summary.functions), len(summary.modules),
+                len(summary.apis), len(summary.databases),
+                summary.token_estimate,
+                " [截断]" if summary.truncated else "",
+            )
+        except Exception:
+            logger.warning("[9/16] RepoSummaryBuilder 失败，AI 步骤将跳过", exc_info=True)
+            warnings.append("RepoSummaryBuilder 失败，AI 分析（步骤 10–13）已跳过")
+            step_stats["9_summary"] = {"skipped": True}
+
+        # ── Steps 10–13: AI Analyzers (optional) ──────────────────────
+        # Each analyzer is guarded independently; one failure does not
+        # prevent the others from running.
+        ai_graphs = []
+
+        _ai_steps: list[tuple[str, str, str]] = [
+            ("10_arch",    "10", "AIArchitectureAnalyzer"),
+            ("11_service", "11", "AIServiceDetector"),
+            ("12_flow",    "12", "AIBusinessFlowAnalyzer"),
+            ("13_lineage", "13", "AIDataLineageAnalyzer"),
+        ]
+
+        if enable_ai and summary is not None:
             try:
-                from backend.ai.semantic_analyzer import SemanticAnalyzer
+                from backend.analyzer.ai import (
+                    AIArchitectureAnalyzer,
+                    AIBusinessFlowAnalyzer,
+                    AIDataLineageAnalyzer,
+                    AIServiceDetector,
+                )
+                _analyzer_classes = {
+                    "AIArchitectureAnalyzer":  AIArchitectureAnalyzer,
+                    "AIServiceDetector":       AIServiceDetector,
+                    "AIBusinessFlowAnalyzer":  AIBusinessFlowAnalyzer,
+                    "AIDataLineageAnalyzer":   AIDataLineageAnalyzer,
+                }
+            except ImportError:
+                logger.warning("AI 分析器模块导入失败，步骤 10–13 跳过", exc_info=True)
+                warnings.append("AI 分析器导入失败，步骤 10–13 已跳过")
+                _analyzer_classes = {}
 
-                semantic_graph = SemanticAnalyzer().analyze(
-                    parsed_result, component_graph
-                )
-                step_stats["10_semantic"] = semantic_graph.stats
-                logger.info(
-                    "  → 组件 %d / 服务 %d / 域 %d / API %d",
-                    len(semantic_graph.components), len(semantic_graph.services),
-                    len(semantic_graph.domains), len(semantic_graph.apis),
-                )
-            except Exception:
-                logger.warning(
-                    "[10/13] SemanticAnalyzer 失败，跳过", exc_info=True
-                )
-                warnings.append(
-                    "SemanticAnalyzer 失败（LLM 不可用或 API Key 未配置），已跳过"
-                )
-                step_stats["10_semantic"] = {"skipped": True}
+            for stat_key, step_num, cls_name in _ai_steps:
+                if cls_name not in _analyzer_classes:
+                    step_stats[stat_key] = {"skipped": True}
+                    continue
+
+                logger.info("[%s/16] %s: 运行中...", step_num, cls_name)
+                try:
+                    analyzer_cls = _analyzer_classes[cls_name]
+                    ai_graph = analyzer_cls().analyze(summary)
+                    ai_graphs.append(ai_graph)
+                    step_stats[stat_key] = ai_graph.stats
+                    logger.info(
+                        "  → %d 节点 / %d 边 / 置信度=%.2f%s",
+                        len(ai_graph.nodes), len(ai_graph.edges),
+                        ai_graph.confidence,
+                        " [fallback]" if ai_graph.metadata.get("fallback") else "",
+                    )
+                except Exception:
+                    logger.warning(
+                        "[%s/16] %s 失败，跳过", step_num, cls_name, exc_info=True
+                    )
+                    warnings.append(f"{cls_name} 分析失败，已跳过")
+                    step_stats[stat_key] = {"skipped": True}
+
         else:
-            logger.info("[10/13] SemanticAnalyzer: 跳过（enable_ai=False）")
-            step_stats["10_semantic"] = {"skipped": True}
+            reason = "enable_ai=False" if not enable_ai else "RepoSummaryBuilder 失败"
+            for stat_key, step_num, cls_name in _ai_steps:
+                logger.info("[%s/16] %s: 跳过（%s）", step_num, cls_name, reason)
+                step_stats[stat_key] = {"skipped": True}
 
-        # ── Step 11: GraphBuilder ──────────────────────────────────────
-        logger.info("[11/13] GraphBuilder: 合并所有图谱，计算图论指标...")
+        # ── Step 14: GraphBuilder ──────────────────────────────────────
+        logger.info("[14/16] GraphBuilder: 合并所有图谱，计算图论指标...")
         builder = GraphBuilder()
 
-        # 仓库根节点（Repository 类型）
+        # Repository root node
         builder.add_node(module_graph.repository)
 
-        # 按分析顺序逐一 merge：后 merge 的同 ID 节点覆盖前者
-        builder.merge_graph(module_graph)       # Module / File  + contains
-        builder.merge_graph(component_graph)    # Component / Class / Function + impl/contains
-        builder.merge_graph(dep_graph)          # module/service depends_on
-        builder.merge_graph(call_graph)         # calls
-        builder.merge_graph(event_graph)        # Event / Topic + publishes/routes_to/consumes
-        builder.merge_graph(infra_graph)        # Service / Cluster / Database + deployed_on/uses
-        if semantic_graph is not None:
-            builder.merge_graph(semantic_graph) # semantic Component/Service/API/Domain + contains
+        # Static analysis layers (later merges override same-ID nodes)
+        builder.merge_graph(module_graph)
+        builder.merge_graph(component_graph)
+        builder.merge_graph(dep_graph)
+        builder.merge_graph(call_graph)
+        builder.merge_graph(event_graph)
+        builder.merge_graph(infra_graph)
+
+        # AI analysis layers (merged last so AI enrichments win on conflicts)
+        for ai_graph in ai_graphs:
+            builder.merge_graph(ai_graph)
 
         built = builder.build()
-        step_stats["11_builder"] = {
+        step_stats["14_builder"] = {
             "nodes":             built.node_count,
             "edges":             built.edge_count,
             "node_types":        built.meta.get("node_type_counts", {}),
             "edge_types":        built.meta.get("edge_type_counts", {}),
             "metrics_available": built.meta.get("metrics_available", False),
+            "ai_nodes":          sum(len(g.nodes) for g in ai_graphs),
+            "ai_edges":          sum(len(g.edges) for g in ai_graphs),
         }
         logger.info(
-            "  → %d 节点 / %d 边  指标:%s",
+            "  → %d 节点 / %d 边  (AI贡献: %d节点/%d边)  指标:%s",
             built.node_count, built.edge_count,
+            step_stats["14_builder"]["ai_nodes"],
+            step_stats["14_builder"]["ai_edges"],
             "✓" if built.meta.get("metrics_available") else "✗（需安装 networkx）",
         )
 
-        # ── Step 12: GraphRepository ───────────────────────────────────
-        logger.info("[12/13] GraphRepository: 持久化图谱...")
+        # ── Step 15: GraphRepository ───────────────────────────────────
+        logger.info("[15/16] GraphRepository: 持久化图谱...")
         graph_id: str = self._repo.save(built, repo_name=name)
-        step_stats["12_repository"] = {"graph_id": graph_id}
+        step_stats["15_repository"] = {"graph_id": graph_id}
         logger.info("  → 图谱 ID: %s", graph_id)
 
-        # ── Step 13: GraphRAGEngine (optional) ────────────────────────
+        # ── Step 16: GraphRAGEngine (optional) ────────────────────────
         if enable_rag:
-            logger.info("[13/13] GraphRAGEngine: 向量化 Function/Component/API 节点...")
+            logger.info("[16/16] GraphRAGEngine: 向量化 Function/Component/API 节点...")
             try:
                 rag = self._rag_engine or self._build_rag_engine()
                 count: int = rag.embed_nodes(graph_id, built.nodes)
-                step_stats["13_rag"] = {"embedded_nodes": count}
+                step_stats["16_rag"] = {"embedded_nodes": count}
                 logger.info("  → 向量化完成: %d 个节点", count)
             except Exception:
-                logger.warning(
-                    "[13/13] GraphRAGEngine 失败，跳过", exc_info=True
-                )
+                logger.warning("[16/16] GraphRAGEngine 失败，跳过", exc_info=True)
                 warnings.append(
                     "GraphRAGEngine.embed_nodes() 失败（chromadb 未安装或初始化失败），已跳过"
                 )
-                step_stats["13_rag"] = {"skipped": True}
+                step_stats["16_rag"] = {"skipped": True}
         else:
-            logger.info("[13/13] GraphRAGEngine: 跳过（enable_rag=False）")
-            step_stats["13_rag"] = {"skipped": True}
+            logger.info("[16/16] GraphRAGEngine: 跳过（enable_rag=False）")
+            step_stats["16_rag"] = {"skipped": True}
 
         duration = round(time.time() - t0, 3)
         logger.info("=" * 60)
@@ -466,11 +539,11 @@ if __name__ == "__main__":
     )
     ap.add_argument(
         "--enable-ai", action="store_true",
-        help="启用 SemanticAnalyzer（需配置 ANTHROPIC_API_KEY）",
+        help="启用 AI 分析器（步骤 10–13，需配置 LLM API Key）",
     )
     ap.add_argument(
         "--enable-rag", action="store_true",
-        help="启用向量化索引（需安装 chromadb）",
+        help="启用向量化索引（步骤 16，需安装 chromadb）",
     )
     ap.add_argument(
         "--json", action="store_true",
