@@ -154,8 +154,14 @@ const Repository: React.FC = () => {
 
   // ── Handle delete ─────────────────────────────────────────────────────────
 
-  const handleDelete = (graphId: string) => {
-    removeRepo(graphId)
+  const handleDelete = async (graphId: string) => {
+    try {
+      await repoApi.deleteRepository(graphId)
+      removeRepo(graphId)
+      message.success('仓库已删除')
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '删除失败')
+    }
   }
 
   return (

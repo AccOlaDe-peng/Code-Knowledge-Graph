@@ -58,4 +58,12 @@ export const repoApi = {
     )
     return toRepoResponse(raw)
   },
+
+  /**
+   * DELETE /graph/{graph_id}
+   * 删除指定图谱。
+   */
+  async deleteRepository(graphId: string): Promise<void> {
+    await httpClient.delete(`/graph/${graphId}`)
+  },
 }

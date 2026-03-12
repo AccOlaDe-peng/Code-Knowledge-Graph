@@ -2,12 +2,13 @@
 FastAPI 服务器主模块。
 
 API 端点：
-    POST /analyze/repository  — 提交代码仓库分析任务
-    GET  /graph               — 列出所有图谱 / 获取指定图谱
-    GET  /callgraph           — 获取函数调用图（Function 节点 + calls 边）
-    GET  /lineage             — 获取依赖血缘图（Module/Service 节点 + depends_on 边）
-    GET  /services            — 获取基础设施图（Service/Cluster/Database 节点）
-    POST /query               — GraphRAG 自然语言查询
+    POST   /analyze/repository  — 提交代码仓库分析任务
+    GET    /graph               — 列出所有图谱 / 获取指定图谱
+    DELETE /graph/{graph_id}    — 删除指定图谱
+    GET    /callgraph           — 获取函数调用图（Function 节点 + calls 边）
+    GET    /lineage             — 获取依赖血缘图（Module/Service 节点 + depends_on 边）
+    GET    /services            — 获取基础设施图（Service/Cluster/Database 节点）
+    POST   /query               — GraphRAG 自然语言查询
 
 辅助端点：
     GET  /health              — 健康检查
@@ -163,12 +164,13 @@ def root():
         "version": "1.0.0",
         "docs":    "/docs",
         "endpoints": [
-            "POST /analyze/repository",
-            "GET  /graph",
-            "GET  /callgraph",
-            "GET  /lineage",
-            "GET  /services",
-            "POST /query",
+            "POST   /analyze/repository",
+            "GET    /graph",
+            "DELETE /graph/{graph_id}",
+            "GET    /callgraph",
+            "GET    /lineage",
+            "GET    /services",
+            "POST   /query",
         ],
     }
 
@@ -608,6 +610,42 @@ def rag_query(req: QueryRequest):
         sources=result["sources"],
         confidence=result["confidence"],
     )
+
+
+# ---------------------------------------------------------------------------
+# DELETE /graph/{graph_id}
+# ---------------------------------------------------------------------------
+
+
+@app.delete("/graph/{graph_id}", tags=["图谱"])
+def delete_graph(graph_id: str):
+    """
+    删除指定图谱。
+
+    删除本地 JSON 文件、索引条目，以及 Neo4j 中的数据（如果已配置）。
+    """
+    logger.info("DELETE /graph/%s", graph_id)
+
+    # 检查图谱是否存在
+    built = _graph_repo.load(graph_id)
+    if built is None:
+        raise HTTPException(status_code=404, detail=f"图谱不存在: {graph_id}")
+
+    # 删除图谱
+    try:
+        deleted = _graph_repo.delete(graph_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"图谱不存在: {graph_id}")
+
+        logger.info("图谱已删除: %s", graph_id)
+        return {
+            "success": True,
+            "graph_id": graph_id,
+            "message": "图谱已成功删除"
+        }
+    except Exception as e:
+        logger.exception("删除图谱失败")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ---------------------------------------------------------------------------
