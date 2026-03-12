@@ -34,18 +34,24 @@ type NodeData = {
   originalNode: GraphNode
 }
 
-const EDGE_COLORS = {
-  produces: '#00f084',
-  reads:    '#00d4ff',
-  writes:   '#ffc145',
-} as const
+const EDGE_COLORS: Record<string, string> = {
+  produces:   '#00f084',
+  reads:      '#00d4ff',
+  writes:     '#ffc145',
+  depends_on: '#b08eff',
+  consumes:   '#ff7a7a',
+}
 
-const NODE_SHAPES = {
-  API:        { width: 160, height: 44, shape: 'rounded' },
-  Service:    { width: 140, height: 52, shape: 'hexagon' },
-  Table:      { width: 150, height: 40, shape: 'rect' },
-  DataObject: { width: 120, height: 120, shape: 'circle' },
-} as const
+const NODE_SHAPES: Record<string, { width: number; height: number }> = {
+  API:        { width: 160, height: 44 },
+  Service:    { width: 140, height: 52 },
+  Table:      { width: 150, height: 40 },
+  DataObject: { width: 120, height: 120 },
+  Module:     { width: 150, height: 44 },
+  Function:   { width: 160, height: 40 },
+  Component:  { width: 150, height: 44 },
+  _default:   { width: 150, height: 44 },
+}
 
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
@@ -54,133 +60,64 @@ function applyDagreLayout(nodes: Node[], edges: Edge[]): Node[] {
   g.setDefaultEdgeLabel(() => ({}))
   g.setGraph({ rankdir: 'LR', nodesep: 50, ranksep: 100, marginx: 30, marginy: 30 })
   nodes.forEach((n) => {
-    const shape = NODE_SHAPES[n.data.nodeType as keyof typeof NODE_SHAPES] || NODE_SHAPES.DataObject
+    const shape = NODE_SHAPES[n.data.nodeType] ?? NODE_SHAPES._default
     g.setNode(n.id, { width: shape.width, height: shape.height })
   })
   edges.forEach((e) => g.setEdge(e.source, e.target))
   dagre.layout(g)
   return nodes.map((n) => {
     const pos = g.node(n.id)
-    const shape = NODE_SHAPES[n.data.nodeType as keyof typeof NODE_SHAPES] || NODE_SHAPES.DataObject
+    const shape = NODE_SHAPES[n.data.nodeType] ?? NODE_SHAPES._default
     return { ...n, position: { x: pos.x - shape.width / 2, y: pos.y - shape.height / 2 } }
   })
 }
 
 // ─── Node Colors ──────────────────────────────────────────────────────────────
 
-const NODE_COLORS = {
+const NODE_COLORS: Record<string, { accent: string; bg: string; border: string }> = {
   API:        { accent: '#00d4ff', bg: 'rgba(0,212,255,0.06)', border: 'rgba(0,212,255,0.3)' },
   Service:    { accent: '#b08eff', bg: 'rgba(176,142,255,0.06)', border: 'rgba(176,142,255,0.3)' },
   Table:      { accent: '#ffc145', bg: 'rgba(255,193,69,0.06)', border: 'rgba(255,193,69,0.3)' },
   DataObject: { accent: '#00f084', bg: 'rgba(0,240,132,0.06)', border: 'rgba(0,240,132,0.3)' },
-} as const
+  Module:     { accent: '#00d4ff', bg: 'rgba(0,212,255,0.06)', border: 'rgba(0,212,255,0.3)' },
+  Function:   { accent: '#00f084', bg: 'rgba(0,240,132,0.06)', border: 'rgba(0,240,132,0.3)' },
+  Component:  { accent: '#b08eff', bg: 'rgba(176,142,255,0.06)', border: 'rgba(176,142,255,0.3)' },
+  _default:   { accent: '#3a5a6a', bg: 'rgba(58,90,106,0.06)', border: 'rgba(58,90,106,0.3)' },
+}
 
-// ─── API Node ─────────────────────────────────────────────────────────────────
+function nodeColor(type: string) {
+  return NODE_COLORS[type] ?? NODE_COLORS._default
+}
 
-const ApiNode: React.FC<{ data: NodeData }> = ({ data }) => {
-  const c = NODE_COLORS.API
+// ─── Generic Node (handles all node types) ────────────────────────────────────
+
+const GenericNode: React.FC<{ data: NodeData }> = ({ data }) => {
+  const c = nodeColor(data.nodeType)
+  const shape = NODE_SHAPES[data.nodeType] ?? NODE_SHAPES._default
   return (
     <div style={{
-      width: 160, height: 44,
+      width: shape.width, height: shape.height,
       background: data.isHighlighted ? c.bg : data.isDimmed ? 'rgba(7,9,13,0.3)' : 'rgba(7,9,13,0.9)',
       border: `1px solid ${data.isHighlighted ? c.accent : data.isDimmed ? '#111820' : c.border}`,
-      borderRadius: 22,
-      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+      borderRadius: 6,
+      display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 3,
       opacity: data.isDimmed ? 0.25 : 1,
       boxShadow: data.isHighlighted ? `0 0 20px ${c.accent}33` : 'none',
-      transition: 'all 0.2s ease', cursor: 'pointer', position: 'relative',
+      transition: 'all 0.2s ease', cursor: 'pointer', position: 'relative', padding: '0 10px',
     }}>
-      <span style={{ fontSize: 10, color: c.accent, fontFamily: "'IBM Plex Mono'", letterSpacing: '0.05em' }}>API</span>
-      <span style={{ fontSize: 11, color: data.isDimmed ? '#2a3a4a' : '#8ab4c8', fontFamily: "'IBM Plex Mono'", overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 100 }}>{data.label}</span>
+      <span style={{ fontSize: 9, color: c.accent, fontFamily: "'IBM Plex Mono'", letterSpacing: '0.08em', textTransform: 'uppercase' }}>{data.nodeType}</span>
+      <span style={{ fontSize: 11, color: data.isDimmed ? '#2a3a4a' : '#8ab4c8', fontFamily: "'IBM Plex Mono'", overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: shape.width - 20, textAlign: 'center' }}>{data.label}</span>
       <Handle type="target" position={Position.Left} style={{ background: c.accent, width: 6, height: 6, border: 'none' }} />
       <Handle type="source" position={Position.Right} style={{ background: c.accent, width: 6, height: 6, border: 'none' }} />
     </div>
   )
 }
 
-// ─── Service Node ─────────────────────────────────────────────────────────────
-
-const ServiceNode: React.FC<{ data: NodeData }> = ({ data }) => {
-  const c = NODE_COLORS.Service
-  return (
-    <div style={{
-      width: 140, height: 52,
-      background: data.isHighlighted ? c.bg : data.isDimmed ? 'rgba(7,9,13,0.3)' : 'rgba(7,9,13,0.9)',
-      border: `1px solid ${data.isHighlighted ? c.accent : data.isDimmed ? '#111820' : c.border}`,
-      borderRadius: 8,
-      clipPath: 'polygon(12px 0%, calc(100% - 12px) 0%, 100% 50%, calc(100% - 12px) 100%, 12px 100%, 0% 50%)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 2,
-      opacity: data.isDimmed ? 0.25 : 1,
-      boxShadow: data.isHighlighted ? `0 0 20px ${c.accent}33` : 'none',
-      transition: 'all 0.2s ease', cursor: 'pointer',
-    }}>
-      <span style={{ fontSize: 9, color: c.accent, fontFamily: "'IBM Plex Mono'", letterSpacing: '0.08em' }}>SVC</span>
-      <span style={{ fontSize: 11, color: data.isDimmed ? '#2a3a4a' : '#c8b4e8', fontFamily: "'IBM Plex Mono'", overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 100 }}>{data.label}</span>
-      <Handle type="target" position={Position.Left} style={{ background: c.accent, width: 6, height: 6, border: 'none', left: -3 }} />
-      <Handle type="source" position={Position.Right} style={{ background: c.accent, width: 6, height: 6, border: 'none', right: -3 }} />
-    </div>
-  )
-}
-
-// ─── Table Node ───────────────────────────────────────────────────────────────
-
-const TableNode: React.FC<{ data: NodeData }> = ({ data }) => {
-  const c = NODE_COLORS.Table
-  return (
-    <div style={{
-      width: 150, height: 40,
-      background: data.isHighlighted ? c.bg : data.isDimmed ? 'rgba(7,9,13,0.3)' : 'rgba(7,9,13,0.9)',
-      border: `1px solid ${data.isHighlighted ? c.accent : data.isDimmed ? '#111820' : c.border}`,
-      borderRadius: 3,
-      display: 'flex', alignItems: 'center', gap: 8, padding: '0 10px',
-      opacity: data.isDimmed ? 0.25 : 1,
-      boxShadow: data.isHighlighted ? `0 0 20px ${c.accent}33` : 'none',
-      transition: 'all 0.2s ease', cursor: 'pointer', position: 'relative',
-    }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
-        {[0,1,2].map(i => <div key={i} style={{ width: 14, height: 2, background: data.isDimmed ? '#1a2a3a' : c.accent + '88', borderRadius: 1 }} />)}
-      </div>
-      <span style={{ fontSize: 11, color: data.isDimmed ? '#2a3a4a' : '#e8c88a', fontFamily: "'IBM Plex Mono'", overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{data.label}</span>
-      <Handle type="target" position={Position.Left} style={{ background: c.accent, width: 6, height: 6, border: 'none' }} />
-      <Handle type="source" position={Position.Right} style={{ background: c.accent, width: 6, height: 6, border: 'none' }} />
-    </div>
-  )
-}
-
-// ─── DataObject Node ──────────────────────────────────────────────────────────
-
-const DataObjectNode: React.FC<{ data: NodeData }> = ({ data }) => {
-  const c = NODE_COLORS.DataObject
-  return (
-    <div style={{
-      width: 120, height: 120,
-      background: data.isHighlighted ? c.bg : data.isDimmed ? 'rgba(7,9,13,0.3)' : 'rgba(7,9,13,0.9)',
-      border: `1px solid ${data.isHighlighted ? c.accent : data.isDimmed ? '#111820' : c.border}`,
-      borderRadius: '50%',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 4,
-      opacity: data.isDimmed ? 0.25 : 1,
-      boxShadow: data.isHighlighted ? `0 0 24px ${c.accent}33, 0 0 8px ${c.accent}22` : 'none',
-      transition: 'all 0.2s ease', cursor: 'pointer',
-    }}>
-      <span style={{ fontSize: 9, color: c.accent, fontFamily: "'IBM Plex Mono'", letterSpacing: '0.1em' }}>DATA</span>
-      <span style={{ fontSize: 11, color: data.isDimmed ? '#2a3a4a' : '#8ae8b4', fontFamily: "'IBM Plex Mono'", textAlign: 'center', padding: '0 12px', lineHeight: 1.3, wordBreak: 'break-word' }}>{data.label}</span>
-      <Handle type="target" position={Position.Left} style={{ background: c.accent, width: 6, height: 6, border: 'none' }} />
-      <Handle type="source" position={Position.Right} style={{ background: c.accent, width: 6, height: 6, border: 'none' }} />
-    </div>
-  )
-}
-
-const nodeTypes: NodeTypes = {
-  API:        ApiNode,
-  Service:    ServiceNode,
-  Table:      TableNode,
-  DataObject: DataObjectNode,
-}
+// ReactFlow nodeTypes — 用动态类型时，在 rfNodes 中不设置 type 字段则用默认节点
+// 这里注册已知类型，未知类型通过 rfNodes 映射到 'generic'
+const nodeTypes: NodeTypes = { generic: GenericNode }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
-
-const ALL_NODE_TYPES = ['API', 'Service', 'Table', 'DataObject'] as const
-const ALL_EDGE_TYPES = ['produces', 'reads', 'writes'] as const
 
 const DataLineageInner: React.FC = () => {
   const { lineageGraph, loadLineage, setSelectedNode } = useGraphStore()
@@ -190,9 +127,11 @@ const DataLineageInner: React.FC = () => {
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
   const [searchQuery, setSearchQuery] = useState('')
-  const [visibleNodeTypes, setVisibleNodeTypes] = useState<Set<string>>(new Set(ALL_NODE_TYPES))
-  const [visibleEdgeTypes, setVisibleEdgeTypes] = useState<Set<string>>(new Set(ALL_EDGE_TYPES))
+  const [visibleNodeTypes, setVisibleNodeTypes] = useState<Set<string>>(new Set())
+  const [visibleEdgeTypes, setVisibleEdgeTypes] = useState<Set<string>>(new Set())
   const [panelNode, setPanelNode] = useState<GraphNode | null>(null)
+  const [availableNodeTypes, setAvailableNodeTypes] = useState<string[]>([])
+  const [availableEdgeTypes, setAvailableEdgeTypes] = useState<string[]>([])
 
   useEffect(() => {
     if (activeRepo?.graphId) {
@@ -201,6 +140,19 @@ const DataLineageInner: React.FC = () => {
   }, [activeRepo?.graphId])
 
   const rawData = lineageGraph.data
+
+  // 初始化可见类型（从实际数据推断）
+  useEffect(() => {
+    if (!rawData) return
+
+    const nodeTypes = Array.from(new Set(rawData.nodes.map(n => n.type)))
+    const edgeTypes = Array.from(new Set(rawData.edges.map(e => e.type)))
+
+    setAvailableNodeTypes(nodeTypes)
+    setAvailableEdgeTypes(edgeTypes)
+    setVisibleNodeTypes(new Set(nodeTypes))
+    setVisibleEdgeTypes(new Set(edgeTypes))
+  }, [rawData])
 
   useEffect(() => {
     if (!rawData) return
@@ -219,7 +171,7 @@ const DataLineageInner: React.FC = () => {
 
     const rfNodes: Node<NodeData>[] = filteredNodes.map((n) => ({
       id: n.id,
-      type: n.type,
+      type: 'generic',
       position: { x: 0, y: 0 },
       data: {
         label: n.label,
@@ -231,7 +183,7 @@ const DataLineageInner: React.FC = () => {
     }))
 
     const rfEdges: Edge[] = filteredEdges.map((e) => {
-      const color = EDGE_COLORS[e.type as keyof typeof EDGE_COLORS] ?? '#3a5a6a'
+      const color = EDGE_COLORS[e.type] ?? '#3a5a6a'
       return {
         id: `${e.source}-${e.type}-${e.target}`,
         source: e.source,
@@ -256,7 +208,7 @@ const DataLineageInner: React.FC = () => {
     const orig = node.data.originalNode
     setPanelNode(orig)
     setSelectedNode(orig)
-  }, [])
+  }, [setSelectedNode])
 
   const toggleNodeType = (t: string) => {
     setVisibleNodeTypes((prev) => {
@@ -276,8 +228,8 @@ const DataLineageInner: React.FC = () => {
 
   const handleReset = () => {
     setSearchQuery('')
-    setVisibleNodeTypes(new Set(ALL_NODE_TYPES))
-    setVisibleEdgeTypes(new Set(ALL_EDGE_TYPES))
+    setVisibleNodeTypes(new Set(availableNodeTypes))
+    setVisibleEdgeTypes(new Set(availableEdgeTypes))
     setPanelNode(null)
     setSelectedNode(null)
     setTimeout(() => fitView({ padding: 0.12, duration: 400 }), 50)
@@ -325,12 +277,12 @@ const DataLineageInner: React.FC = () => {
         />
 
         <div style={{ display: 'flex', gap: 8, padding: '0 8px', borderLeft: '1px solid #1e2d3d' }}>
-          {ALL_NODE_TYPES.map((t) => (
+          {availableNodeTypes.map((t) => (
             <Checkbox
               key={t}
               checked={visibleNodeTypes.has(t)}
               onChange={() => toggleNodeType(t)}
-              style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10, color: NODE_COLORS[t as keyof typeof NODE_COLORS].accent }}
+              style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10, color: nodeColor(t).accent }}
             >
               {t}
             </Checkbox>
@@ -338,12 +290,12 @@ const DataLineageInner: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: 8, padding: '0 8px', borderLeft: '1px solid #1e2d3d' }}>
-          {ALL_EDGE_TYPES.map((t) => (
+          {availableEdgeTypes.map((t) => (
             <Checkbox
               key={t}
               checked={visibleEdgeTypes.has(t)}
               onChange={() => toggleEdgeType(t)}
-              style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10, color: EDGE_COLORS[t as keyof typeof EDGE_COLORS] }}
+              style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10, color: EDGE_COLORS[t] ?? '#3a5a6a' }}
             >
               {t}
             </Checkbox>
@@ -398,7 +350,7 @@ const DataLineageInner: React.FC = () => {
               style={{ background: '#07090d', border: '1px solid #1e2d3d' }}
               nodeColor={(n) => {
                 const d = n.data as NodeData
-                return NODE_COLORS[d.nodeType as keyof typeof NODE_COLORS]?.accent ?? '#3a5a6a'
+                return nodeColor(d.nodeType).accent
               }}
               maskColor="rgba(7,9,13,0.8)"
             />

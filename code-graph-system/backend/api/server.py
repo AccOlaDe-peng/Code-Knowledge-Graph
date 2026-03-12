@@ -587,7 +587,8 @@ def rag_query(req: QueryRequest):
 
     Pipeline: 向量检索 → 图展开 → LLM 生成回答。
 
-    **注意**: 需要先调用 `POST /analyze/repository?enable_rag=true` 建立向量索引。
+    **注意**: 首次查询时，如果向量索引不存在，系统会自动建立索引（可能需要几秒钟）。
+    也可以在分析时通过 `POST /analyze/repository?enable_rag=true` 提前建立索引。
     """
     logger.info("POST /query  graph=%s  question=%s", req.graph_id, req.question[:60])
     try:

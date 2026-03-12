@@ -293,12 +293,37 @@ class GraphRAGEngine:
             graph_id, question, limit=search_limit, node_types=node_types
         )
 
+        # 如果向量存储为空，尝试自动建立索引
+        if not vector_hits:
+            logger.warning(
+                "rag_query: graph=%s 向量存储为空，尝试自动建立索引", graph_id
+            )
+            try:
+                # 加载图谱节点
+                built = self.graph_repo.load(graph_id)
+                if built:
+                    # 自动向量化节点
+                    count = self.embed_nodes(graph_id, built.nodes)
+                    logger.info(
+                        "rag_query: graph=%s 自动建立索引完成，写入 %d 节点",
+                        graph_id, count
+                    )
+                    # 重新尝试向量检索
+                    vector_hits = self.vector_search(
+                        graph_id, question, limit=search_limit, node_types=node_types
+                    )
+            except Exception as e:
+                logger.error("rag_query: 自动建立索引失败: %s", e)
+
+        # 如果仍然没有结果，返回提示
         if not vector_hits:
             return {
                 "question":   question,
                 "answer":     (
-                    "未在向量存储中找到相关节点，"
-                    "请先调用 embed_nodes() 建立索引。"
+                    "未在向量存储中找到相关节点。可能原因：\n"
+                    "1. 图谱中没有可向量化的节点（Function/Component/API）\n"
+                    "2. 向量化失败，请检查日志\n"
+                    "3. 问题与代码库内容不相关"
                 ),
                 "nodes":      [],
                 "edges":      [],
