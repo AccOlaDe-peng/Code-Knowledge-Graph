@@ -61,23 +61,28 @@ celery -A backend.scheduler.celery_app worker --beat --loglevel=info  # Worker +
 
 ### 分析流水线（`backend/pipeline/analyze_repository.py`）
 
-`AnalysisPipeline.analyze(repo_path, *, repo_name, languages, enable_ai, enable_rag)` 按顺序执行 13 步，返回 `AnalysisResult`：
+`AnalysisPipeline.analyze(repo_path, *, repo_name, languages, enable_ai, enable_rag)` 按顺序执行 16 步，返回 `AnalysisResult`：
 
 | 步骤 | 类 | 说明 |
 |------|----|------|
 | 1 | `RepoScanner` | 扫描文件，识别语言 |
 | 2 | `CodeParser` | AST 解析，提取类/函数/调用 |
-| 3 | `ModuleDetector` | 目录级模块节点 + contains 边 |
-| 4 | `ComponentDetector` | 组件/类/函数节点 |
+| 3 | `ModuleDetector` | 目录级模块节点 + File 节点 + contains 边 |
+| 4 | `ComponentDetector` | 组件/类/函数节点 + implements/contains 边 |
 | 5 | `DependencyAnalyzer` | 模块/服务依赖 + 循环依赖检测 |
 | 6 | `CallGraphBuilder` | 函数调用图（calls 边） |
-| 7 | ~~DataLineageAnalyzer~~ | **跳过**（依赖旧 schema，待迁移） |
-| 8 | `EventAnalyzer` | Kafka/RabbitMQ 事件发布/订阅 |
-| 9 | `InfraAnalyzer` | Dockerfile/K8s/Terraform 基础设施 |
-| 10 | `SemanticAnalyzer` | LLM 语义标注（`enable_ai=True` 时运行） |
-| 11 | `GraphBuilder` | 合并所有图谱，计算图论指标 |
-| 12 | `GraphRepository` | 持久化 JSON / Neo4j |
-| 13 | `GraphRAGEngine` | 向量化节点到 ChromaDB（`enable_rag=True` 时运行） |
+| 7 | `EventAnalyzer` | Kafka/RabbitMQ 事件发布/订阅 |
+| 8 | `InfraAnalyzer` | Dockerfile/K8s/Terraform 基础设施 |
+| 9 | `RepoSummaryBuilder` | 构建静态图谱快照，供 AI 步骤使用 |
+| 10 | `AIArchitectureAnalyzer` | LLM 识别架构模式，生成 Layer 节点（可选） |
+| 11 | `AIServiceDetector` | LLM 识别微服务边界，补全 Service 节点（可选） |
+| 12 | `AIBusinessFlowAnalyzer` | LLM 识别业务流程，生成 BusinessFlow 节点（可选） |
+| 13 | `AIDataLineageAnalyzer` | LLM 追踪数据血缘，生成 reads/writes/transforms 边（可选） |
+| 14 | `GraphBuilder` | 合并所有图谱，计算 PageRank / 度指标 |
+| 15 | `GraphRepository` | 持久化 JSON / Neo4j |
+| 16 | `GraphRAGEngine` | 向量化节点到 ChromaDB（`enable_rag=True` 时运行） |
+
+步骤 10–13 仅在 `enable_ai=True` 时运行，位于 `backend/analyzer/ai/`。任意步骤失败只记录警告，不中断整体流水线。
 
 ### 数据模型（双 schema 并存）
 
@@ -86,6 +91,10 @@ celery -A backend.scheduler.celery_app worker --beat --loglevel=info  # Worker +
 - `GraphEdge(from_, to, type, properties)` — 通用边（`from_` 是 Python 属性名，序列化为 `"from"`）
 - `NodeType` / `EdgeType` — 枚举定义所有合法类型
 - `GraphSchema.validate_graph()` — 三层验证（节点/边/引用完整性）
+
+静态分析节点类型：`Repository`, `Module`, `File`, `Class`, `Function`, `Component`, `Service`, `API`, `DataObject`, `Table`, `Event`, `Topic`, `Pipeline`, `Cluster`, `Database`
+
+AI 分析节点类型（步骤 10–13，`enable_ai=True`）：`Layer`, `Flow`, `BusinessFlow`, `Domain`, `BoundedContext`, `DomainEntity`
 
 **旧 schema**（`backend/graph/schema.py`）— 仅 `test_basic.py` 和 `scripts/run_analysis.py` 仍在使用，**不要在新代码中引入**：
 - `NodeBase` 及其子类：`FunctionNode`、`ModuleNode`、`ComponentNode` 等
@@ -129,8 +138,10 @@ engine.rag_query(graph_id, "登录如何实现？")
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/analyze/repository` | 全量分析，返回 graph_id + 统计 |
+| POST | `/analyze/repository` | 全量分析（本地路径或 Git URL），返回 graph_id + 统计 |
+| POST | `/analyze/upload-zip` | 上传 ZIP 文件分析，返回 graph_id + 统计 |
 | GET  | `/graph` | 无 `graph_id` 返回列表；有则返回节点+边 |
+| DELETE | `/graph/{graph_id}` | 删除指定图谱（JSON + ChromaDB） |
 | GET  | `/callgraph` | Function/API 节点 + calls 边 |
 | GET  | `/lineage` | depends_on / reads / writes / produces / consumes 边 |
 | GET  | `/services` | Service / Cluster / Database 节点 |
@@ -160,12 +171,15 @@ incremental_update.delay("my-svc", "/path/to/repo")
 | `data/graphs/` | 图谱 JSON 文件（已加入 .gitignore） |
 | `data/graphs/index.json` | 所有图谱摘要索引 |
 | `data/chroma/` | ChromaDB 向量索引（已加入 .gitignore） |
+| `data/ai_analysis/` | AI 分析结果缓存，按 `(repo_name, commit_sha)` 命中（已加入 .gitignore） |
+
+AI 分析缓存（`backend/ai/cache/`）：commit SHA 不变则跳过 LLM 调用，直接返回上次结果。非 Git 仓库（SHA 为空）不写缓存。`cache.invalidate("repo-name")` 清除整个仓库缓存。
 
 ## 环境变量
 
 | 变量 | 说明 |
 |------|------|
-| `ANTHROPIC_API_KEY` | 启用 SemanticAnalyzer 时必须 |
+| `ANTHROPIC_API_KEY` | 启用 AI 分析步骤（步骤 10–13）时必须 |
 | `LLM_PROVIDER` | `anthropic`（默认）/ `openai` / `ollama` |
 | `NEO4J_URI` | 可选，如 `bolt://localhost:7687` |
 | `CELERY_BROKER_URL` | 默认 `redis://localhost:6379/0` |
@@ -223,12 +237,10 @@ src/
 │       └── ChartCard/     # 图表容器
 │
 ├── features/               # Feature 模块（新架构）
-│   └── architecture/      # 架构探索器
-│       ├── components/    # Feature 专属组件
-│       ├── hooks/         # Feature 专属 Hooks
-│       └── index.tsx      # Feature 入口
+│   └── architecture/      # 架构探索器（其余页面仍在 pages/）
 │
-├── pages/                  # 旧页面（待迁移到 features）
+├── pages/                  # 页面：Dashboard, Repository, CallGraph, DataLineage,
+│                           #        EventFlow, GraphQuery, ImpactAnalysis, Architecture
 ├── layouts/                # 布局组件（MainLayout, Sidebar, Header）
 ├── store/                  # 全局状态（Zustand）
 ├── types/                  # 全局类型定义
