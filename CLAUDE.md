@@ -185,39 +185,74 @@ incremental_update.delay("my-svc", "/path/to/repo")
 
 ### 技术栈
 
-React 18 + TypeScript + Vite 7 + Ant Design 5 + React Router v6 + Zustand + Axios + Cytoscape.js（含 cytoscape-dagre、cytoscape-cose-bilkent）
+React 19 + TypeScript 5.9 + Vite 7 + Ant Design 6 + React Router v7 + Zustand 5 + Axios + Cytoscape.js（含 cytoscape-dagre、cytoscape-cose-bilkent）+ ECharts
 
-### 启动
+### 常用命令
 
 ```bash
 cd code-graph-ui
-npm run dev   # http://localhost:5173
-npm run build
+
+# 开发
+npm run dev      # 启动开发服务器 http://localhost:5173
+npm run build    # 构建生产版本
+npm run preview  # 预览生产构建
+npm run lint     # 运行 ESLint
 ```
 
-### 架构
+### 架构（已升级为企业级模块化架构）
+
+**新架构**（推荐使用）：
 
 ```
 src/
-  App.tsx              路由根（懒加载所有页面）
-  main.tsx             入口
-  theme/index.ts       设计系统：NodeTypeColors、EdgeTypeColors、antdTheme
-  styles/global.css    CSS 变量定义（--s-void、--a-cyan 等）
-  layouts/             MainLayout（Sidebar + Header）
-  pages/               Dashboard / Repository / Architecture / CallGraph /
-                       DataLineage / EventFlow / GraphQuery / ImpactAnalysis
-  components/
-    GraphViewer/       Cytoscape.js 图形渲染组件（支持 grid/dagre/force 布局）
-    ComingSoon/        未完成页面占位组件
-  api/graphApi.ts      Axios 封装（baseURL 来自 VITE_API_BASE_URL）
-  store/               graphStore.ts + repoStore.ts（Zustand）
-  types/               graph.ts（GraphNode/GraphEdge/GraphData）+ api.ts
+├── core/                   # 核心基础设施
+│   ├── api/               # 统一 API 层
+│   │   ├── client.ts      # Axios 客户端（带拦截器）
+│   │   └── endpoints/     # API 端点模块（graph.ts, rag.ts）
+│   └── hooks/             # 通用 Hooks（useAsync, useDebounce）
+│
+├── components/             # 共享组件库
+│   ├── graph/             # 图形组件
+│   │   ├── GraphViewer/   # Cytoscape.js 图形渲染（支持 grid/dagre/force）
+│   │   ├── NodeDetailPanel/  # 节点详情抽屉
+│   │   └── GraphToolbar/  # 图形工具栏
+│   └── ui/                # UI 组件
+│       ├── SearchBar/     # 节点搜索（支持类型过滤）
+│       ├── FilterPanel/   # 高级过滤面板
+│       ├── StatCard/      # 统计卡片
+│       └── ChartCard/     # 图表容器
+│
+├── features/               # Feature 模块（新架构）
+│   └── architecture/      # 架构探索器
+│       ├── components/    # Feature 专属组件
+│       ├── hooks/         # Feature 专属 Hooks
+│       └── index.tsx      # Feature 入口
+│
+├── pages/                  # 旧页面（待迁移到 features）
+├── layouts/                # 布局组件（MainLayout, Sidebar, Header）
+├── store/                  # 全局状态（Zustand）
+├── types/                  # 全局类型定义
+└── theme/                  # 设计系统
+```
+
+**使用新架构的组件：**
+
+```tsx
+// 导入共享组件
+import { GraphViewer, NodeDetailPanel, GraphToolbar, SearchBar } from '@/components'
+
+// 导入 API
+import { graphEndpoints, ragEndpoints } from '@/core/api'
+
+// 导入 Hooks
+import { useAsync, useDebounce } from '@/core/hooks'
 ```
 
 ### TypeScript 限制
 
 - `tsconfig.app.json` 开启了 `erasableSyntaxOnly: true`，**禁止使用 TypeScript `enum`**，改用 `const` 对象 + `as const`
 - Ant Design `Card` 组件无 `icon` prop
+- `GraphNode` 类型只有 `id`, `type`, `label`, `properties`，**没有 `name` 属性**
 
 ### 设计系统（Mission Control Dark）
 
@@ -235,10 +270,13 @@ src/
 
 Ant Design 使用 `theme.darkAlgorithm` + 自定义 token，完整配置见 `src/theme/index.ts`。
 
-### GraphViewer 组件
+### 添加新 Feature 模块
 
-`src/components/GraphViewer/index.tsx` — 封装 Cytoscape.js，支持：
-- `layout` prop：`'grid' | 'dagre' | 'force'`（默认 `force`/cose-bilkent）
-- 节点点击高亮邻居，点击背景重置
-- 内置布局切换工具栏、缩放控件、节点类型图例
-- 节点/边颜色从 `src/theme/index.ts` 统一引入
+1. 在 `src/features/` 创建新目录
+2. 使用 `src/components/` 中的共享组件
+3. 使用 `src/core/api/` 中的 API 端点
+4. 在 `src/App.tsx` 中添加路由
+5. 参考 `src/features/architecture/` 作为模板
+
+详细架构文档见 `code-graph-ui/ARCHITECTURE.md`。
+
