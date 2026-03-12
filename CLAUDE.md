@@ -178,3 +178,67 @@ incremental_update.delay("my-svc", "/path/to/repo")
 3. 将统计写入 `step_stats[f"{N}_<name>"]`
 
 `GraphBuilder.merge_graph()` 通过 duck typing 自动提取 `GraphNode` / `GraphEdge`；后 merge 的同 ID 节点覆盖前者。
+
+---
+
+## 前端（code-graph-ui）
+
+### 技术栈
+
+React 18 + TypeScript + Vite 7 + Ant Design 5 + React Router v6 + Zustand + Axios + Cytoscape.js（含 cytoscape-dagre、cytoscape-cose-bilkent）
+
+### 启动
+
+```bash
+cd code-graph-ui
+npm run dev   # http://localhost:5173
+npm run build
+```
+
+### 架构
+
+```
+src/
+  App.tsx              路由根（懒加载所有页面）
+  main.tsx             入口
+  theme/index.ts       设计系统：NodeTypeColors、EdgeTypeColors、antdTheme
+  styles/global.css    CSS 变量定义（--s-void、--a-cyan 等）
+  layouts/             MainLayout（Sidebar + Header）
+  pages/               Dashboard / Repository / Architecture / CallGraph /
+                       DataLineage / EventFlow / GraphQuery / ImpactAnalysis
+  components/
+    GraphViewer/       Cytoscape.js 图形渲染组件（支持 grid/dagre/force 布局）
+    ComingSoon/        未完成页面占位组件
+  api/graphApi.ts      Axios 封装（baseURL 来自 VITE_API_BASE_URL）
+  store/               graphStore.ts + repoStore.ts（Zustand）
+  types/               graph.ts（GraphNode/GraphEdge/GraphData）+ api.ts
+```
+
+### TypeScript 限制
+
+- `tsconfig.app.json` 开启了 `erasableSyntaxOnly: true`，**禁止使用 TypeScript `enum`**，改用 `const` 对象 + `as const`
+- Ant Design `Card` 组件无 `icon` prop
+
+### 设计系统（Mission Control Dark）
+
+颜色 token 定义在 `src/theme/index.ts`，CSS 变量在 `src/styles/global.css`：
+
+| CSS 变量 | 用途 |
+|----------|------|
+| `--s-void #07090d` | 最深背景 |
+| `--a-cyan #00d4ff` | 主强调色 |
+| `--a-green #00f084` | 成功/Service |
+| `--a-amber #ffc145` | 警告/Event |
+| `--a-purple #b08eff` | Class/Database |
+
+字体：Syne（UI/标题）+ IBM Plex Mono（数据/代码），通过 Google Fonts CDN 引入。
+
+Ant Design 使用 `theme.darkAlgorithm` + 自定义 token，完整配置见 `src/theme/index.ts`。
+
+### GraphViewer 组件
+
+`src/components/GraphViewer/index.tsx` — 封装 Cytoscape.js，支持：
+- `layout` prop：`'grid' | 'dagre' | 'force'`（默认 `force`/cose-bilkent）
+- 节点点击高亮邻居，点击背景重置
+- 内置布局切换工具栏、缩放控件、节点类型图例
+- 节点/边颜色从 `src/theme/index.ts` 统一引入
