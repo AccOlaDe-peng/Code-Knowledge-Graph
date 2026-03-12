@@ -541,29 +541,39 @@ def get_events(
     """
     获取事件流图。
 
-    返回 `Event`、`Topic` 节点及其 `produces`、`consumes` 关系。
+    返回 `Event`、`Topic` 节点及其 `publishes`、`routes_to`、`consumes` 关系。
+    同时返回相关的 `Component` 节点（Producer/Consumer）。
     """
     _EVENT_NODE_TYPES = {"Event", "Topic"}
-    _EVENT_EDGE_TYPES = {"produces", "consumes", "publishes", "subscribes"}
+    _EVENT_EDGE_TYPES = {"publishes", "routes_to", "consumes", "produces", "subscribes"}
 
     built = _load_or_404(graph_id)
 
-    event_nodes = [
-        n.model_dump()
-        for n in built.nodes
-        if n.type in _EVENT_NODE_TYPES
-    ]
-    event_node_ids = {n["id"] for n in event_nodes}
-
+    # 收集所有事件相关的边
+    event_edges = []
     if include_edges:
         event_edges = [
             e.model_dump(by_alias=True)
             for e in built.edges
             if e.type in _EVENT_EDGE_TYPES
-            and (e.from_ in event_node_ids or e.to in event_node_ids)
         ]
-    else:
-        event_edges = []
+
+    # 收集所有涉及的节点 ID
+    involved_node_ids = set()
+    for e in built.edges:
+        if e.type in _EVENT_EDGE_TYPES:
+            involved_node_ids.add(e.from_)
+            involved_node_ids.add(e.to)
+
+    # 收集节点：Event/Topic 节点 + 相关的 Component 节点
+    node_map = {n.id: n for n in built.nodes}
+    event_nodes = []
+    for node_id in involved_node_ids:
+        if node_id in node_map:
+            node = node_map[node_id]
+            # 包含 Event/Topic 节点，以及参与事件流的 Component 节点
+            if node.type in _EVENT_NODE_TYPES or node.type == "Component":
+                event_nodes.append(node.model_dump())
 
     # 统计：按 node.type 分组
     type_counts: dict[str, int] = {}
