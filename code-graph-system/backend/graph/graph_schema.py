@@ -37,8 +37,9 @@ class NodeType(str, Enum):
     CLUSTER = "Cluster"
     DATABASE = "Database"
     # V2: AI analysis output types
-    LAYER = "Layer"    # Architecture layer (Presentation / Business / Data)
-    FLOW = "Flow"      # Business flow / use-case path
+    LAYER = "Layer"          # Architecture layer (Presentation / Business / Data)
+    FLOW = "Flow"            # Business flow / use-case path
+    DOMAIN_ENTITY = "DomainEntity"  # DDD domain entity / aggregate root / value object
 
 
 class EdgeType(str, Enum):
@@ -63,6 +64,7 @@ class EdgeType(str, Enum):
     BELONGS_TO = "belongs_to"  # Node belongs to an architecture layer or domain
     FLOW_STEP = "flow_step"    # Step within a business flow
     TRANSFORMS = "transforms"  # Data transformation relationship
+    PART_OF = "part_of"        # Entity is part of an aggregate or bounded context
 
 
 # ---------------------------------------------------------------------------
