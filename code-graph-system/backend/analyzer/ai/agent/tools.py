@@ -2,6 +2,7 @@
 Agent tools for autonomous repository exploration.
 """
 
+import re
 from pathlib import Path
 from typing import Any, Optional
 
@@ -10,6 +11,7 @@ class AgentTools:
     """Tools available to AIGraphAgent for exploring repositories."""
 
     MAX_FILE_LINES = 200
+    MAX_SEARCH_RESULTS = 50
 
     def __init__(self, repo_path: str, static_graph: Any):
         """
@@ -153,6 +155,73 @@ class AgentTools:
             return {
                 "success": True,
                 "entries": entries,
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+            }
+
+    def search_code(
+        self,
+        pattern: str,
+        file_glob: str = "**/*",
+    ) -> dict[str, Any]:
+        """
+        Search for pattern in repository files.
+
+        Args:
+            pattern: Search pattern (regex)
+            file_glob: File glob pattern (default: all files)
+
+        Returns:
+            {
+                "success": bool,
+                "matches": [{"file": str, "line": int, "content": str}],
+                "truncated": bool,
+                "error": str (if success=False)
+            }
+        """
+        try:
+            regex = re.compile(pattern, re.IGNORECASE)
+            matches = []
+
+            # Simple recursive search (not using ripgrep for simplicity)
+            for file_path in self.repo_path.rglob("*"):
+                if not file_path.is_file():
+                    continue
+
+                # Skip binary files and common ignore patterns
+                if file_path.suffix in {".pyc", ".so", ".dll", ".exe"}:
+                    continue
+                if any(part.startswith(".") for part in file_path.parts):
+                    continue
+
+                try:
+                    with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+                        for line_num, line in enumerate(f, start=1):
+                            if regex.search(line):
+                                rel_path = file_path.relative_to(self.repo_path)
+                                matches.append({
+                                    "file": str(rel_path),
+                                    "line": line_num,
+                                    "content": line.rstrip(),
+                                })
+
+                                if len(matches) >= self.MAX_SEARCH_RESULTS:
+                                    return {
+                                        "success": True,
+                                        "matches": matches,
+                                        "truncated": True,
+                                    }
+                except (UnicodeDecodeError, PermissionError):
+                    continue
+
+            return {
+                "success": True,
+                "matches": matches,
+                "truncated": False,
             }
 
         except Exception as e:

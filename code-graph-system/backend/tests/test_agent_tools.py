@@ -124,3 +124,21 @@ def test_list_directory_blocks_path_traversal(tmp_path):
     # Verify we can still list directories inside repo
     result = tools.list_directory("subdir")
     assert result["success"] is True
+
+
+def test_search_code_basic(tmp_path):
+    """Test code search with pattern."""
+    (tmp_path / "file1.py").write_text("def authenticate():\n    pass\n")
+    (tmp_path / "file2.py").write_text("def login():\n    authenticate()\n")
+
+    tools = AgentTools(repo_path=str(tmp_path), static_graph=None)
+    result = tools.search_code("authenticate")
+
+    assert result["success"] is True
+    assert len(result["matches"]) == 2
+
+    # Check match structure
+    match = result["matches"][0]
+    assert "file" in match
+    assert "line" in match
+    assert "content" in match
