@@ -132,8 +132,8 @@ async function analyzeRepository(
             chunk.code
           );
 
-          merger.addNodes(graphResponse.nodes);
-          merger.addEdges(graphResponse.edges);
+          merger.addNodes(graphResponse.nodes as any);
+          merger.addEdges(graphResponse.edges as any);
         } catch (error) {
           console.error(`Failed to analyze ${chunk.path}:`, error);
         }
@@ -146,7 +146,7 @@ async function analyzeRepository(
         merger.addNodes([
           {
             id: `file:${chunk.path}`,
-            type: NodeType.File,
+            type: NodeType.File as NodeType,
             name: chunk.path.split('/').pop() || chunk.path,
             properties: {
               path: chunk.path,

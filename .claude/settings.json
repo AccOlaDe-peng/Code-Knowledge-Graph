@@ -40,7 +40,10 @@
       "Bash(npm init:*)",
       "Bash(chmod +x /Users/wayne/Documents/code/code-knowledge-graph/code-graph-system-v2/scripts/start-backend.sh)",
       "Bash(chmod +x /Users/wayne/Documents/code/code-knowledge-graph/code-graph-system-v2/scripts/start-frontend.sh)",
-      "Bash(chmod +x /Users/wayne/Documents/code/code-knowledge-graph/code-graph-system-v2/scripts/test-workflow.sh)"
+      "Bash(chmod +x /Users/wayne/Documents/code/code-knowledge-graph/code-graph-system-v2/scripts/test-workflow.sh)",
+      "Bash(npm install:*)",
+      "Bash(curl -s http://localhost:3000/health)",
+      "Bash(ps -p 90078 -o pid,command)"
     ],
     "additionalDirectories": [
       "/tmp",

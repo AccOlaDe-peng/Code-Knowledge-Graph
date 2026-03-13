@@ -55,9 +55,12 @@ export class TaskQueue {
       enableReadyCheck: false,
     });
 
-    // Create queue with options
+    // Create queue with options (use connection string instead of Redis instance)
     const queueOptions: QueueOptions = {
-      connection: this.redis,
+      connection: {
+        host: 'localhost',
+        port: 6379,
+      },
       defaultJobOptions: {
         attempts: 3,
         backoff: {
@@ -149,7 +152,27 @@ export class TaskQueue {
       throw new Error(`Job not found: ${jobId}`);
     }
 
-    return job.waitUntilFinished(this.queue.events, timeout);
+    // Wait for job completion
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        reject(new Error('Job timeout'));
+      }, timeout);
+
+      const checkJob = async () => {
+        const state = await job.getState();
+        if (state === 'completed') {
+          clearTimeout(timeoutId);
+          resolve(job.returnvalue);
+        } else if (state === 'failed') {
+          clearTimeout(timeoutId);
+          reject(new Error(job.failedReason || 'Job failed'));
+        } else {
+          setTimeout(checkJob, 1000);
+        }
+      };
+
+      checkJob();
+    });
   }
 
   /**
