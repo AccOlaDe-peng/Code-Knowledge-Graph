@@ -285,3 +285,66 @@ class AgentTools:
                 "success": False,
                 "error": str(e),
             }
+
+    def get_call_graph(
+        self,
+        node_id: str,
+        depth: int = 1,
+    ) -> dict[str, Any]:
+        """
+        Get call graph edges starting from a node.
+
+        Args:
+            node_id: Starting node ID
+            depth: Traversal depth (default: 1)
+
+        Returns:
+            {
+                "success": bool,
+                "edges": [{"from": str, "to": str, "type": str}],
+                "error": str (if success=False)
+            }
+        """
+        try:
+            if self.static_graph is None:
+                return {
+                    "success": False,
+                    "error": "Static graph not available",
+                }
+
+            # BFS to collect edges up to depth (with cycle detection)
+            visited = set()
+            current_level = {node_id}
+            all_edges = []
+            seen_edges = set()  # Track edges to avoid duplicates in cycles
+
+            for _ in range(depth):
+                next_level = set()
+                for edge in self.static_graph.edges:
+                    edge_key = (edge.from_, edge.to)
+                    if edge.from_ in current_level and edge_key not in seen_edges:
+                        all_edges.append({
+                            "from": edge.from_,
+                            "to": edge.to,
+                            "type": edge.type,
+                        })
+                        seen_edges.add(edge_key)
+                        if edge.to not in visited:
+                            next_level.add(edge.to)
+
+                visited.update(current_level)
+                current_level = next_level
+
+                if not current_level:
+                    break
+
+            return {
+                "success": True,
+                "edges": all_edges,
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+            }

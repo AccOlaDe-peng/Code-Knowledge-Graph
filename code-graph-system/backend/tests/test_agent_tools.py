@@ -270,3 +270,28 @@ def test_get_ast_nodes_no_static_graph(tmp_path):
     result = tools.get_ast_nodes("test.py")
     assert result["success"] is False
     assert "not available" in result["error"]
+
+
+def test_get_call_graph_depth_1(tmp_path):
+    """Test retrieving call graph for a node."""
+    from backend.graph.graph_schema import GraphNode, GraphEdge, NodeType, EdgeType
+
+    class MockGraph:
+        def __init__(self):
+            self.nodes = [
+                GraphNode(id="func1", type=NodeType.FUNCTION, name="main", properties={}),
+                GraphNode(id="func2", type=NodeType.FUNCTION, name="helper", properties={}),
+                GraphNode(id="func3", type=NodeType.FUNCTION, name="util", properties={}),
+            ]
+            self.edges = [
+                GraphEdge(from_="func1", to="func2", type=EdgeType.CALLS, properties={}),
+                GraphEdge(from_="func2", to="func3", type=EdgeType.CALLS, properties={}),
+            ]
+
+    tools = AgentTools(repo_path=str(tmp_path), static_graph=MockGraph())
+    result = tools.get_call_graph("func1", depth=1)
+
+    assert result["success"] is True
+    assert len(result["edges"]) == 1
+    assert result["edges"][0]["from"] == "func1"
+    assert result["edges"][0]["to"] == "func2"
