@@ -65,7 +65,7 @@ class EdgeType(str, Enum):
     """边（关系）类型。
 
     静态分析产生的关系（步骤 1–8）：
-        contains, defines, calls, depends_on, implements,
+        contains, imports, defines, calls, depends_on, implements,
         reads, writes, produces, consumes, publishes, subscribes,
         deployed_on, uses, routes_to, triggers
 
@@ -80,6 +80,7 @@ class EdgeType(str, Enum):
 
     # ── 静态分析关系 ──────────────────────────────────────────────────
     CONTAINS = "contains"
+    IMPORTS = "imports"
     DEFINES = "defines"
     CALLS = "calls"
     DEPENDS_ON = "depends_on"

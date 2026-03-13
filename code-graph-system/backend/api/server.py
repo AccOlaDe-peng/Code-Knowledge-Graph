@@ -35,8 +35,10 @@ from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from backend.graph.code_graph import CodeGraph
 from backend.graph.graph_repository import GraphRepository
 from backend.pipeline.analyze_repository import AnalysisPipeline
+from backend.pipeline.graph_pipeline import GraphPipeline
 from backend.rag.graph_rag_engine import GraphRAGEngine
 from backend.rag.vector_store import VectorStore
 
@@ -50,22 +52,24 @@ logger = logging.getLogger(__name__)
 # 全局单例
 # ---------------------------------------------------------------------------
 
-_graph_repo: GraphRepository
-_vector_store: VectorStore
-_pipeline: AnalysisPipeline
-_rag_engine: GraphRAGEngine
+_graph_repo:    GraphRepository
+_vector_store:  VectorStore
+_pipeline:      AnalysisPipeline
+_rag_engine:    GraphRAGEngine
+_graph_pipeline: GraphPipeline
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期：启动时初始化全局单例，关闭时释放 Neo4j 连接。"""
-    global _graph_repo, _vector_store, _pipeline, _rag_engine
+    global _graph_repo, _vector_store, _pipeline, _rag_engine, _graph_pipeline
 
     logger.info("初始化服务组件...")
-    _graph_repo   = GraphRepository()
-    _vector_store = VectorStore()
-    _pipeline     = AnalysisPipeline(_graph_repo, _vector_store)
-    _rag_engine   = GraphRAGEngine(_graph_repo, _vector_store)
+    _graph_repo     = GraphRepository()
+    _vector_store   = VectorStore()
+    _pipeline       = AnalysisPipeline(_graph_repo, _vector_store)
+    _rag_engine     = GraphRAGEngine(_graph_repo, _vector_store)
+    _graph_pipeline = GraphPipeline()
     logger.info("服务启动完成")
 
     yield
@@ -124,6 +128,26 @@ class AnalyzeResponse(BaseModel):
     step_stats:       dict[str, Any]
 
 
+class GraphPipelineRequest(BaseModel):
+    """POST /analyze/graph 请求体（新版 GraphPipeline）。"""
+    repo_path:  str                  = Field(description="仓库根目录（本地绝对路径）")
+    repo_name:  str                  = Field(default="", description="图谱名称（空字符串则用目录名）")
+    languages:  Optional[list[str]]  = Field(default=None, description="限定分析语言，如 ['python', 'typescript']")
+    enable_ai:  bool                 = Field(default=False, description="启用 AI 逐文件分析（需配置 LLM API Key）")
+
+
+class GraphPipelineResponse(BaseModel):
+    """POST /analyze/graph 响应体。"""
+    graph_id:         str
+    output_path:      str
+    node_count:       int
+    edge_count:       int
+    duration_seconds: float
+    step_stats:       dict[str, Any]
+    warnings:         list[str]
+    graph:            dict[str, Any]
+
+
 class QueryRequest(BaseModel):
     """POST /query 请求体。"""
     graph_id:     str  = Field(description="图谱 ID")
@@ -169,8 +193,10 @@ def root():
         "version": "1.0.0",
         "docs":    "/docs",
         "endpoints": [
-            "POST   /analyze/repository",
+            "POST   /analyze/repository  (旧版流水线)",
+            "POST   /analyze/graph       (新版 GraphPipeline)",
             "GET    /graph",
+            "GET    /graph/export",
             "DELETE /graph/{graph_id}",
             "GET    /callgraph",
             "GET    /lineage",
@@ -354,6 +380,50 @@ def analyze_upload_zip(
 
 
 # ---------------------------------------------------------------------------
+# POST /analyze/graph  (GraphPipeline — 新版流水线)
+# ---------------------------------------------------------------------------
+
+
+@app.post("/analyze/graph", response_model=GraphPipelineResponse, tags=["分析"])
+def analyze_graph(req: GraphPipelineRequest):
+    """
+    新版分析流水线：scan → parse → AI analyze (per file) → build graph → export graph.json
+
+    与 ``POST /analyze/repository`` 的区别：
+    - AI 分析以**文件为单位**逐一调用 LLM，每个文件独立返回 JSON Graph 片段
+    - 输出直接为标准 ``{"nodes": [], "edges": []}`` 格式，无需二次转换
+    - 不依赖 NetworkX / ChromaDB，可在最小依赖环境下运行
+
+    **repo_path** 必须是本地绝对路径（不支持 Git URL）。
+    """
+    logger.info("POST /analyze/graph  path=%s  enable_ai=%s", req.repo_path, req.enable_ai)
+
+    try:
+        result = _graph_pipeline.run(
+            req.repo_path,
+            repo_name=req.repo_name,
+            languages=req.languages,
+            enable_ai=req.enable_ai,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("GraphPipeline 分析失败")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return GraphPipelineResponse(
+        graph_id=result.graph_id,
+        output_path=result.output_path,
+        node_count=result.node_count,
+        edge_count=result.edge_count,
+        duration_seconds=result.duration_seconds,
+        step_stats=result.step_stats,
+        warnings=result.warnings,
+        graph=result.graph,
+    )
+
+
+# ---------------------------------------------------------------------------
 # GET /graph
 # ---------------------------------------------------------------------------
 
@@ -402,6 +472,55 @@ def get_graph(
         "nodes":      node_list,
         "edges":      edge_list,
     }
+
+
+# ---------------------------------------------------------------------------
+# GET /graph/export
+# ---------------------------------------------------------------------------
+
+
+@app.get("/graph/export", tags=["图谱"])
+def export_graph(
+    graph_id: str = Query(description="图谱 ID"),
+):
+    """
+    导出标准 JSON Graph，供前端直接消费。
+
+    使用 ``CodeGraph`` schema，只包含核心节点类型和边类型。
+
+    节点类型：``repository / module / file / class / function / api / database / table``
+
+    边类型：``contains / imports / calls / reads / writes``
+
+    返回格式：
+    ```json
+    {
+      "graph_version": "1.0",
+      "repo": {"name": "...", "path": "...", "language": "...", "commit": "..."},
+      "nodes": [
+        {"id": "...", "type": "...", "name": "...",
+         "file": "...", "line": 1, "module": "...", "language": "..."}
+      ],
+      "edges": [
+        {"from": "...", "to": "...", "type": "..."}
+      ]
+    }
+    ```
+    """
+    built = _load_or_404(graph_id)
+
+    meta      = built.meta or {}
+    repo_name = meta.get("repo_name", graph_id)
+    repo_path = meta.get("repo_path", "")
+    commit    = meta.get("git_commit", "")
+
+    code_graph = CodeGraph.from_built(
+        built,
+        repo_name=repo_name,
+        repo_path=repo_path,
+        commit=commit,
+    )
+    return code_graph.to_dict()
 
 
 # ---------------------------------------------------------------------------

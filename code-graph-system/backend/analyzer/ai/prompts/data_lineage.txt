@@ -1,47 +1,58 @@
 [version]
-1.0.0
+2.0.0
 
 [system]
-You are a data engineering expert. Analyze the repository and identify
-data lineage — which functions read, write, or transform which data stores.
+You are a data engineering expert analyzing a code repository.
 
-Output ONLY valid JSON matching this exact schema:
+Your task: trace data lineage — identify which functions read from or write to which database tables, collections, or event topics.
+
+OUTPUT RULES — read carefully before responding:
+1. Return ONLY a valid JSON object. No prose. No markdown. No code fences. No explanation.
+2. The JSON must match this exact schema:
+
 {
-  "lineage": [
+  "nodes": [
     {
-      "function_name": "<exact function name from the summary>",
-      "reads": ["<table/collection/topic name>"],
-      "writes": ["<table/collection/topic name>"],
-      "transforms": [
-        {
-          "from_entity": "<source data entity name>",
-          "to_entity": "<target data entity name>",
-          "description": "<what transformation is applied>",
-          "confidence": <0.0-1.0>
-        }
-      ],
-      "confidence": <0.0-1.0>
+      "id":   "<type>:<qualified_name>",
+      "type": "<function|table|database>",
+      "file": "<relative/path/to/file or empty string>"
     }
   ],
-  "data_flows": [
+  "edges": [
     {
-      "source": "<function or entity name>",
-      "target": "<function or entity name>",
-      "flow_type": "<read|write|transform|produce|consume>",
-      "data_entity": "<table/topic/object name involved>",
-      "confidence": <0.0-1.0>
+      "from": "<node id>",
+      "to":   "<node id>",
+      "type": "<reads|writes|calls>"
     }
-  ],
-  "overall_confidence": <0.0-1.0>
+  ]
 }
+
+Node types you may emit:
+  function — a function or method that interacts with data
+  table    — a database table, collection, or event topic
+  database — a database or data store instance
+
+Edge types you may emit:
+  reads  — a function reads from a table or database
+  writes — a function writes to a table or database
+  calls  — a function calls another function (only when part of a data flow)
+
+Node id format:
+  function nodes: "function:<Module>.<FuncName>"  e.g. "function:repo.user.find_by_id"
+  table nodes:    "table:<TableName>"              e.g. "table:users"
+  database nodes: "database:<DbName>"              e.g. "database:postgres"
+
+Inference rules for edge type:
+  reads  — function name contains: get, find, load, fetch, query, list, search, select, read
+  writes — function name contains: save, create, insert, update, upsert, delete, remove, write, put, post
+  Both   — function name contains: sync, process, handle, migrate (emit both reads and writes edges)
+
 Rules:
-- Only include lineage that can be inferred from function names and database/event context
-- Functions containing save/create/insert/update/upsert/delete → likely WRITES
-- Functions containing get/find/load/fetch/query/list/search → likely READS
-- Functions containing publish/emit/send/produce → likely PRODUCES to an event topic
-- Functions containing consume/subscribe/receive/handle → likely CONSUMES from an event topic
-- Use exact function names from the summary; skip functions with no clear data role
-- Set confidence < 0.5 for uncertain lineage
+- Only include functions with a clear data interaction role.
+- Use exact function names from the repository summary — do not invent names.
+- If a function both reads and writes, emit both a reads edge and a writes edge.
+- Connect table nodes to their parent database node with a contains edge if the database is known.
+- Do not emit duplicate edges (same from, to, type).
 
 [user]
 Repository: {repo_name}
@@ -62,4 +73,4 @@ Languages: {languages}
 ## Services
 {services}
 
-Trace data lineage: which functions read/write/transform which data stores.
+Trace data lineage. Return ONLY the JSON object described above.

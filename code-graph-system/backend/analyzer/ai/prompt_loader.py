@@ -144,34 +144,40 @@ def _register_builtin(tpl: PromptTemplate) -> PromptTemplate:
 
 _ARCHITECTURE_BUILTIN = _register_builtin(PromptTemplate(
     name="architecture",
-    version="1.0.0",
+    version="2.0.0",
     system=(
-        "You are a senior software architect. Analyze the provided repository summary "
-        "and identify the architecture pattern and layers.\n\n"
-        "Output ONLY valid JSON matching this exact schema — no prose, no markdown fences:\n"
+        "You are a senior software architect analyzing a code repository.\n\n"
+        "Your task: identify architecture layers and assign every significant node to a layer.\n\n"
+        "OUTPUT RULES — read carefully before responding:\n"
+        "1. Return ONLY a valid JSON object. No prose. No markdown. No code fences. No explanation.\n"
+        "2. The JSON must match this exact schema:\n\n"
         '{\n'
-        '  "pattern": "<mvc|layered|hexagonal|clean|unknown>",\n'
-        '  "layers": [\n'
+        '  "nodes": [\n'
         '    {\n'
-        '      "name": "<PascalCase layer name>",\n'
-        '      "description": "<one sentence>",\n'
-        '      "layer_index": <int, 0=outermost>,\n'
-        '      "responsibilities": ["<resp1>", "<resp2>"]\n'
+        '      "id":   "<type>:<qualified_name>",\n'
+        '      "type": "<layer|function|class|api|module>",\n'
+        '      "file": "<relative/path/to/file or empty string>"\n'
         '    }\n'
         '  ],\n'
-        '  "assignments": [\n'
+        '  "edges": [\n'
         '    {\n'
-        '      "node_name": "<exact name from summary>",\n'
-        '      "layer": "<layer name from layers above>",\n'
-        '      "confidence": <0.0-1.0>\n'
+        '      "from": "<node id>",\n'
+        '      "to":   "<node id>",\n'
+        '      "type": "<belongs_to|contains|calls>"\n'
         '    }\n'
-        '  ],\n'
-        '  "overall_confidence": <0.0-1.0>\n'
-        '}\n'
+        '  ]\n'
+        '}\n\n'
+        "Node id format:\n"
+        '  layer nodes:    "layer:<LayerName>"            e.g. "layer:Controller"\n'
+        '  function nodes: "function:<Module>.<FuncName>" e.g. "function:api.server.health"\n'
+        '  class nodes:    "class:<Module>.<ClassName>"   e.g. "class:service.UserService"\n'
+        '  api nodes:      "api:<METHOD>:<path>"          e.g. "api:POST:/users"\n'
+        '  module nodes:   "module:<path>"                e.g. "module:backend/api"\n\n'
         "Rules:\n"
-        "- layer_index 0 is the outermost layer (e.g. HTTP controllers)\n"
-        "- Only assign nodes that clearly belong to a layer (confidence >= 0.6)\n"
-        "- Use exact node_name values from the summary"
+        "- Always emit layer nodes first, then assign other nodes via belongs_to edges.\n"
+        "- Only assign nodes with clear evidence (confidence >= 0.6).\n"
+        "- Use exact names from the repository summary — do not invent names.\n"
+        "- Emit at least one layer node."
     ),
     user_template=(
         "Repository: {repo_name}\n"
@@ -180,43 +186,44 @@ _ARCHITECTURE_BUILTIN = _register_builtin(PromptTemplate(
         "## API Endpoints\n{apis}\n\n"
         "## Key Classes/Services\n{services}\n\n"
         "## Key Functions (top by importance)\n{functions}\n\n"
-        "Identify the architecture pattern and assign each significant node to a layer."
+        "Analyze the architecture. Return ONLY the JSON object described above."
     ),
 ))
 
 _SERVICE_DETECTION_BUILTIN = _register_builtin(PromptTemplate(
     name="service_detection",
-    version="1.0.0",
+    version="2.0.0",
     system=(
-        "You are a microservices architect. Analyze the repository summary and identify "
-        "service boundaries, responsibilities, and inter-service dependencies.\n\n"
-        "Output ONLY valid JSON matching this exact schema:\n"
+        "You are a microservices architect analyzing a code repository.\n\n"
+        "Your task: identify service boundaries and the dependencies between them.\n\n"
+        "OUTPUT RULES — read carefully before responding:\n"
+        "1. Return ONLY a valid JSON object. No prose. No markdown. No code fences. No explanation.\n"
+        "2. The JSON must match this exact schema:\n\n"
         '{\n'
-        '  "services": [\n'
+        '  "nodes": [\n'
         '    {\n'
-        '      "name": "<ServiceName>",\n'
-        '      "modules": ["<module1>"],\n'
-        '      "responsibility": "<one sentence>",\n'
-        '      "communication": ["<HTTP|gRPC|Kafka|...>"],\n'
-        '      "tech_stack": ["<framework>"],\n'
-        '      "confidence": <0.0-1.0>\n'
+        '      "id":   "<type>:<qualified_name>",\n'
+        '      "type": "<service|module|api>",\n'
+        '      "file": "<relative/path/to/file or empty string>"\n'
         '    }\n'
         '  ],\n'
-        '  "dependencies": [\n'
+        '  "edges": [\n'
         '    {\n'
-        '      "from_service": "<ServiceName>",\n'
-        '      "to_service": "<ServiceName>",\n'
-        '      "protocol": "<HTTP|gRPC|Kafka|...>",\n'
-        '      "direction": "<sync|async>",\n'
-        '      "confidence": <0.0-1.0>\n'
+        '      "from": "<node id>",\n'
+        '      "to":   "<node id>",\n'
+        '      "type": "<depends_on|contains|calls>"\n'
         '    }\n'
-        '  ],\n'
-        '  "overall_confidence": <0.0-1.0>\n'
-        '}\n'
+        '  ]\n'
+        '}\n\n'
+        "Node id format:\n"
+        '  service nodes: "service:<ServiceName>"  e.g. "service:UserService"\n'
+        '  module nodes:  "module:<path>"          e.g. "module:backend/user"\n'
+        '  api nodes:     "api:<METHOD>:<path>"    e.g. "api:POST:/users"\n\n'
         "Rules:\n"
-        "- Only infer services from clear evidence (module boundaries, Docker configs)\n"
-        "- If the repo is a monolith, return one service covering all modules\n"
-        "- Do not invent service names — derive them from the codebase evidence"
+        "- Only infer services from clear evidence: module boundaries, Docker configs, package names.\n"
+        "- If the repo is a monolith, emit ONE service node covering all modules.\n"
+        "- Do not invent service names — derive them from actual codebase evidence.\n"
+        "- Each service must have at least one contains edge pointing to a module."
     ),
     user_template=(
         "Repository: {repo_name}\n"
@@ -227,42 +234,46 @@ _SERVICE_DETECTION_BUILTIN = _register_builtin(PromptTemplate(
         "## Infrastructure\n{infra}\n\n"
         "## Event Flows\n{events}\n\n"
         "## Module Dependencies\n{dependencies}\n\n"
-        "Identify microservice or module boundaries and their dependencies."
+        "Identify service boundaries and their dependencies. Return ONLY the JSON object described above."
     ),
 ))
 
 _BUSINESS_FLOW_BUILTIN = _register_builtin(PromptTemplate(
     name="business_flow",
-    version="1.0.0",
+    version="2.0.0",
     system=(
-        "You are a domain expert in business process analysis. Analyze the repository "
-        "and identify end-to-end business flows (use cases / user journeys).\n\n"
-        "Output ONLY valid JSON matching this exact schema:\n"
+        "You are a business process analyst analyzing a code repository.\n\n"
+        "Your task: identify end-to-end business flows (use cases / user journeys) "
+        "and trace their execution paths through functions.\n\n"
+        "OUTPUT RULES — read carefully before responding:\n"
+        "1. Return ONLY a valid JSON object. No prose. No markdown. No code fences. No explanation.\n"
+        "2. The JSON must match this exact schema:\n\n"
         '{\n'
-        '  "flows": [\n'
+        '  "nodes": [\n'
         '    {\n'
-        '      "name": "<FlowName in PascalCase>",\n'
-        '      "trigger": "<API endpoint or event that starts this flow>",\n'
-        '      "description": "<one sentence>",\n'
-        '      "domain": "<business domain>",\n'
-        '      "steps": [\n'
-        '        {\n'
-        '          "step_index": <int starting at 1>,\n'
-        '          "function_name": "<exact function name from summary>",\n'
-        '          "description": "<what this step does>",\n'
-        '          "is_critical": <true|false>\n'
-        '        }\n'
-        '      ],\n'
-        '      "produces_events": ["<EventName>"],\n'
-        '      "confidence": <0.0-1.0>\n'
+        '      "id":   "<type>:<qualified_name>",\n'
+        '      "type": "<flow|function|api>",\n'
+        '      "file": "<relative/path/to/file or empty string>"\n'
         '    }\n'
         '  ],\n'
-        '  "overall_confidence": <0.0-1.0>\n'
-        '}\n'
+        '  "edges": [\n'
+        '    {\n'
+        '      "from": "<node id>",\n'
+        '      "to":   "<node id>",\n'
+        '      "type": "<contains|calls>"\n'
+        '    }\n'
+        '  ]\n'
+        '}\n\n'
+        "Node id format:\n"
+        '  flow nodes:     "flow:<FlowName>"               e.g. "flow:UserRegistrationFlow"\n'
+        '  function nodes: "function:<Module>.<FuncName>"  e.g. "function:service.user.create_user"\n'
+        '  api nodes:      "api:<METHOD>:<path>"           e.g. "api:POST:/users/register"\n\n'
         "Rules:\n"
-        "- A flow must have at least 2 steps\n"
-        "- Only use function names that appear in the summary\n"
-        "- Focus on user-facing business processes, not technical utilities"
+        "- A flow must have at least 2 contains edges (at least 2 function steps).\n"
+        "- Only use function names that appear verbatim in the repository summary.\n"
+        "- Focus on user-facing business processes, not technical/infrastructure utilities.\n"
+        "- Emit the api node that triggers the flow and connect it with a calls edge to the entry function.\n"
+        "- Do not invent function names — only use names present in the summary."
     ),
     user_template=(
         "Repository: {repo_name}\n"
@@ -272,49 +283,49 @@ _BUSINESS_FLOW_BUILTIN = _register_builtin(PromptTemplate(
         "## Call Graph Sample\n{call_graph}\n\n"
         "## Events\n{events}\n\n"
         "## Services\n{services}\n\n"
-        "Identify the main business flows and trace their execution paths."
+        "Identify the main business flows and trace their execution paths. "
+        "Return ONLY the JSON object described above."
     ),
 ))
 
 _DATA_LINEAGE_BUILTIN = _register_builtin(PromptTemplate(
     name="data_lineage",
-    version="1.0.0",
+    version="2.0.0",
     system=(
-        "You are a data engineering expert. Analyze the repository and identify "
-        "data lineage — which functions read, write, or transform which data stores.\n\n"
-        "Output ONLY valid JSON matching this exact schema:\n"
+        "You are a data engineering expert analyzing a code repository.\n\n"
+        "Your task: trace data lineage — identify which functions read from or write to "
+        "which database tables, collections, or event topics.\n\n"
+        "OUTPUT RULES — read carefully before responding:\n"
+        "1. Return ONLY a valid JSON object. No prose. No markdown. No code fences. No explanation.\n"
+        "2. The JSON must match this exact schema:\n\n"
         '{\n'
-        '  "lineage": [\n'
+        '  "nodes": [\n'
         '    {\n'
-        '      "function_name": "<exact function name from summary>",\n'
-        '      "reads": ["<table/collection/topic name>"],\n'
-        '      "writes": ["<table/collection/topic name>"],\n'
-        '      "transforms": [\n'
-        '        {\n'
-        '          "from_entity": "<source data entity>",\n'
-        '          "to_entity": "<target data entity>",\n'
-        '          "description": "<transformation description>",\n'
-        '          "confidence": <0.0-1.0>\n'
-        '        }\n'
-        '      ],\n'
-        '      "confidence": <0.0-1.0>\n'
+        '      "id":   "<type>:<qualified_name>",\n'
+        '      "type": "<function|table|database>",\n'
+        '      "file": "<relative/path/to/file or empty string>"\n'
         '    }\n'
         '  ],\n'
-        '  "data_flows": [\n'
+        '  "edges": [\n'
         '    {\n'
-        '      "source": "<function or entity name>",\n'
-        '      "target": "<function or entity name>",\n'
-        '      "flow_type": "<read|write|transform|produce|consume>",\n'
-        '      "data_entity": "<table/topic/object name>",\n'
-        '      "confidence": <0.0-1.0>\n'
+        '      "from": "<node id>",\n'
+        '      "to":   "<node id>",\n'
+        '      "type": "<reads|writes|calls>"\n'
         '    }\n'
-        '  ],\n'
-        '  "overall_confidence": <0.0-1.0>\n'
-        '}\n'
+        '  ]\n'
+        '}\n\n'
+        "Node id format:\n"
+        '  function nodes: "function:<Module>.<FuncName>"  e.g. "function:repo.user.find_by_id"\n'
+        '  table nodes:    "table:<TableName>"             e.g. "table:users"\n'
+        '  database nodes: "database:<DbName>"             e.g. "database:postgres"\n\n'
+        "Inference rules:\n"
+        "  reads  — function name contains: get, find, load, fetch, query, list, search, select\n"
+        "  writes — function name contains: save, create, insert, update, upsert, delete, remove, write\n\n"
         "Rules:\n"
-        "- Only include lineage that can be inferred from provided names and context\n"
-        "- save/create/insert → likely writes; get/find/load → likely reads\n"
-        "- Use exact function names from the summary"
+        "- Only include functions with a clear data interaction role.\n"
+        "- Use exact function names from the repository summary — do not invent names.\n"
+        "- If a function both reads and writes, emit both a reads edge and a writes edge.\n"
+        "- Do not emit duplicate edges (same from, to, type)."
     ),
     user_template=(
         "Repository: {repo_name}\n"
@@ -324,54 +335,46 @@ _DATA_LINEAGE_BUILTIN = _register_builtin(PromptTemplate(
         "## Events & Topics\n{events}\n\n"
         "## Call Graph Sample\n{call_graph}\n\n"
         "## Services\n{services}\n\n"
-        "Trace data lineage: which functions read/write/transform which data stores."
+        "Trace data lineage. Return ONLY the JSON object described above."
     ),
 ))
 
 _DOMAIN_MODEL_BUILTIN = _register_builtin(PromptTemplate(
     name="domain_model",
-    version="1.0.0",
+    version="2.0.0",
     system=(
-        "You are a domain-driven design expert. Analyze the repository and identify "
-        "domain entities, aggregates, value objects, and their relationships.\n\n"
-        "Output ONLY valid JSON matching this exact schema:\n"
+        "You are a domain-driven design expert analyzing a code repository.\n\n"
+        "Your task: identify domain entities, aggregates, value objects, "
+        "and the relationships between them.\n\n"
+        "OUTPUT RULES — read carefully before responding:\n"
+        "1. Return ONLY a valid JSON object. No prose. No markdown. No code fences. No explanation.\n"
+        "2. The JSON must match this exact schema:\n\n"
         '{\n'
-        '  "bounded_contexts": [\n'
+        '  "nodes": [\n'
         '    {\n'
-        '      "name": "<ContextName>",\n'
-        '      "description": "<one sentence>",\n'
-        '      "confidence": <0.0-1.0>\n'
+        '      "id":   "<type>:<qualified_name>",\n'
+        '      "type": "<domain_entity|bounded_context|class>",\n'
+        '      "file": "<relative/path/to/file or empty string>"\n'
         '    }\n'
         '  ],\n'
-        '  "entities": [\n'
+        '  "edges": [\n'
         '    {\n'
-        '      "name": "<EntityName>",\n'
-        '      "entity_type": "<aggregate_root|entity|value_object|domain_service|domain_event>",\n'
-        '      "bounded_context": "<ContextName from above>",\n'
-        '      "attributes": ["<attr1>", "<attr2>"],\n'
-        '      "description": "<one sentence>",\n'
-        '      "source_class": "<exact class name from summary, if applicable>",\n'
-        '      "confidence": <0.0-1.0>\n'
+        '      "from": "<node id>",\n'
+        '      "to":   "<node id>",\n'
+        '      "type": "<contains|calls|reads|writes>"\n'
         '    }\n'
-        '  ],\n'
-        '  "relationships": [\n'
-        '    {\n'
-        '      "from_entity": "<EntityName>",\n'
-        '      "to_entity": "<EntityName>",\n'
-        '      "relation_type": "<contains|references|inherits|implements|associated_with>",\n'
-        '      "multiplicity": "<one_to_one|one_to_many|many_to_many>",\n'
-        '      "description": "<brief description>",\n'
-        '      "confidence": <0.0-1.0>\n'
-        '    }\n'
-        '  ],\n'
-        '  "overall_confidence": <0.0-1.0>\n'
-        '}\n'
+        '  ]\n'
+        '}\n\n'
+        "Node id format:\n"
+        '  domain_entity nodes:   "domain_entity:<EntityName>"    e.g. "domain_entity:Order"\n'
+        '  bounded_context nodes: "bounded_context:<ContextName>" e.g. "bounded_context:OrderManagement"\n'
+        '  class nodes:           "class:<Module>.<ClassName>"    e.g. "class:model.order.Order"\n\n'
         "Rules:\n"
-        "- Aggregate roots own a cluster of related domain objects\n"
-        "- Value objects are immutable and identified by value (e.g. Money, Address)\n"
-        "- Domain services contain logic not belonging to a single entity\n"
-        "- Only include entities with clear business meaning, not technical classes\n"
-        "- Use source_class when you can map a domain entity to a class in the summary"
+        "- Aggregate roots own a cluster of related domain objects.\n"
+        "- Value objects are immutable and identified by value (e.g. Money, Address, Email).\n"
+        "- Domain services contain business logic not belonging to a single entity.\n"
+        "- Only include entities with clear business meaning — skip technical/infrastructure classes.\n"
+        "- Do not invent entity names — derive them from actual class and module names in the summary."
     ),
     user_template=(
         "Repository: {repo_name}\n"
@@ -381,8 +384,7 @@ _DOMAIN_MODEL_BUILTIN = _register_builtin(PromptTemplate(
         "## API Endpoints (for context)\n{apis}\n\n"
         "## Database Schema (tables/collections)\n{databases}\n\n"
         "## Events\n{events}\n\n"
-        "Identify the domain model: bounded contexts, entities, aggregates, "
-        "value objects, and the relationships between them."
+        "Identify the domain model. Return ONLY the JSON object described above."
     ),
 ))
 

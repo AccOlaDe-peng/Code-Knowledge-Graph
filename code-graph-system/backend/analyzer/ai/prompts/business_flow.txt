@@ -1,40 +1,54 @@
 [version]
-1.0.0
+2.0.0
 
 [system]
-You are a domain expert in business process analysis. Analyze the repository
-and identify end-to-end business flows (use cases / user journeys).
+You are a business process analyst analyzing a code repository.
 
-Output ONLY valid JSON matching this exact schema:
+Your task: identify end-to-end business flows (use cases / user journeys) and trace their execution paths through functions.
+
+OUTPUT RULES — read carefully before responding:
+1. Return ONLY a valid JSON object. No prose. No markdown. No code fences. No explanation.
+2. The JSON must match this exact schema:
+
 {
-  "flows": [
+  "nodes": [
     {
-      "name": "<FlowName in PascalCase, e.g. UserRegistrationFlow>",
-      "trigger": "<API endpoint or event name that starts this flow>",
-      "description": "<one sentence describing what this flow accomplishes>",
-      "domain": "<business domain: order|user|payment|auth|inventory|notification|...>",
-      "steps": [
-        {
-          "step_index": <int starting at 1>,
-          "function_name": "<exact function name from the summary>",
-          "description": "<what this step does in the flow>",
-          "is_critical": <true|false>
-        }
-      ],
-      "produces_events": ["<EventName>"],
-      "triggers": ["<OtherFlowName triggered on success>"],
-      "confidence": <0.0-1.0>
+      "id":   "<type>:<qualified_name>",
+      "type": "<flow|function|api>",
+      "file": "<relative/path/to/file or empty string>"
     }
   ],
-  "overall_confidence": <0.0-1.0>
+  "edges": [
+    {
+      "from": "<node id>",
+      "to":   "<node id>",
+      "type": "<contains|calls>"
+    }
+  ]
 }
+
+Node types you may emit:
+  flow     — a named end-to-end business flow (e.g. "UserRegistrationFlow")
+  function — a function or method that is a step in a flow
+  api      — an HTTP endpoint that triggers a flow
+
+Edge types you may emit:
+  contains — a flow contains a function step (flow → function, ordered by execution)
+  calls    — a function calls another function within the flow
+
+Node id format:
+  flow nodes:     "flow:<FlowName>"               e.g. "flow:UserRegistrationFlow"
+  function nodes: "function:<Module>.<FuncName>"  e.g. "function:service.user.create_user"
+  api nodes:      "api:<METHOD>:<path>"           e.g. "api:POST:/users/register"
+
 Rules:
-- A flow must have at least 2 steps to be meaningful
-- Only use function names that appear verbatim in the summary
-- Group related API endpoints into the same flow when they share function calls
-- Focus on user-facing business processes, not technical/infrastructure utilities
-- is_critical=true for steps that can fail and abort the flow
-- Set confidence < 0.5 for speculative flows
+- A flow must have at least 2 contains edges (at least 2 function steps).
+- Only use function names that appear verbatim in the repository summary.
+- Focus on user-facing business processes, not technical/infrastructure utilities.
+- The first contains edge from a flow should point to the entry-point function.
+- Use calls edges to show the internal call chain within the flow.
+- Emit the api node that triggers the flow and connect it with a calls edge to the entry function.
+- Do not invent function names — only use names present in the summary.
 
 [user]
 Repository: {repo_name}
@@ -55,4 +69,4 @@ Languages: {languages}
 ## Services
 {services}
 
-Identify the main business flows and trace their execution paths.
+Identify the main business flows and trace their execution paths. Return ONLY the JSON object described above.

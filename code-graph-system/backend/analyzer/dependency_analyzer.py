@@ -3,8 +3,8 @@
 
 识别两类依赖关系：
 
-1. 模块依赖 (Module depends_on Module)
-   来源：各语言 import 语句 → 解析到内部模块路径 → 建立 depends_on 边
+1. 模块导入 (Module imports Module)
+   来源：各语言 import 语句 → 解析到内部模块路径 → 建立 imports 边
 
 2. 服务依赖 (Service depends_on Service)
    来源：构造函数参数的类型注解（依赖注入模式）
@@ -27,7 +27,7 @@ from typing import Optional
 
 from backend.analyzer.component_detector import ComponentGraph
 from backend.analyzer.module_detector import ModuleGraph
-from backend.graph.graph_schema import EdgeType, GraphEdge, GraphNode
+from backend.graph.graph_schema import EdgeType, GraphEdge, GraphNode, NodeType
 from backend.parser.code_parser import ParsedFile, ParseResult
 
 logger = logging.getLogger(__name__)
@@ -43,8 +43,8 @@ class DependencyGraph:
     """DependencyAnalyzer.analyze() 的完整输出。
 
     Attributes:
-        module_deps:   Module  --depends_on-->  Module
-        service_deps:  Service --depends_on-->  Service
+        module_deps:   Module  --imports-->    Module（来自 import 语句）
+        service_deps:  Service --depends_on--> Service（来自构造函数注入/推断）
         circular_deps: 循环依赖链（各链为 module 名称列表，仅用于报告）
     """
 
@@ -176,8 +176,7 @@ class DependencyAnalyzer:
 
             dep_graph.module_deps.append(_edge(
                 source_mod.id, target_mod.id,
-                EdgeType.DEPENDS_ON.value,
-                source="import",
+                EdgeType.IMPORTS.value,
                 import_module=imp.module,
                 language=pf.language,
                 source_file=pf.file_path,
