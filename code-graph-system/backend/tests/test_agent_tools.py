@@ -73,3 +73,25 @@ def test_read_file_blocks_path_traversal(tmp_path):
     result = tools.read_file(str(repo_file))
     assert result["success"] is True
     assert "allowed content" in result["content"]
+
+
+def test_list_directory_basic(tmp_path):
+    """Test listing directory contents."""
+    (tmp_path / "file1.py").write_text("# file 1")
+    (tmp_path / "file2.py").write_text("# file 2")
+    (tmp_path / "subdir").mkdir()
+    (tmp_path / "subdir" / "nested.py").write_text("# nested")
+
+    tools = AgentTools(repo_path=str(tmp_path), static_graph=None)
+    result = tools.list_directory(".")
+
+    assert result["success"] is True
+    assert len(result["entries"]) == 3
+
+    names = {e["name"] for e in result["entries"]}
+    assert "file1.py" in names
+    assert "file2.py" in names
+    assert "subdir" in names
+
+    # Should not recurse
+    assert "nested.py" not in names

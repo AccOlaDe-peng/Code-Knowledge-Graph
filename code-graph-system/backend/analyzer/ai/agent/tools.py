@@ -98,3 +98,55 @@ class AgentTools:
                 "success": False,
                 "error": str(e),
             }
+
+    def list_directory(self, path: str) -> dict[str, Any]:
+        """
+        List files and subdirectories in a directory (non-recursive).
+
+        Args:
+            path: Directory path (absolute or relative to repo_path)
+
+        Returns:
+            {
+                "success": bool,
+                "entries": [{"name": str, "type": "file"|"dir", "size": int}],
+                "error": str (if success=False)
+            }
+        """
+        try:
+            dir_path = Path(path)
+            if not dir_path.is_absolute():
+                dir_path = self.repo_path / dir_path
+
+            if not dir_path.exists():
+                return {
+                    "success": False,
+                    "error": f"Directory not found: {path}",
+                }
+
+            if not dir_path.is_dir():
+                return {
+                    "success": False,
+                    "error": f"Not a directory: {path}",
+                }
+
+            entries = []
+            for item in sorted(dir_path.iterdir()):
+                entry = {
+                    "name": item.name,
+                    "type": "dir" if item.is_dir() else "file",
+                }
+                if item.is_file():
+                    entry["size"] = item.stat().st_size
+                entries.append(entry)
+
+            return {
+                "success": True,
+                "entries": entries,
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+            }
