@@ -235,3 +235,50 @@ class AgentTools:
                 "success": False,
                 "error": str(e),
             }
+
+    def get_ast_nodes(self, path: str) -> dict[str, Any]:
+        """
+        Get AST nodes (classes, functions) from static analysis for a file.
+
+        Args:
+            path: File path (relative to repo_path)
+
+        Returns:
+            {
+                "success": bool,
+                "nodes": [{"id": str, "type": str, "name": str, "line": int}],
+                "error": str (if success=False)
+            }
+        """
+        try:
+            if self.static_graph is None:
+                return {
+                    "success": False,
+                    "error": "Static graph not available",
+                }
+
+            # Normalize path
+            norm_path = str(Path(path)).replace("\\", "/")
+
+            # Filter nodes by file
+            matching_nodes = []
+            for node in self.static_graph.nodes:
+                node_file = node.properties.get("file", "")
+                if node_file and norm_path in node_file:
+                    matching_nodes.append({
+                        "id": node.id,
+                        "type": node.type,
+                        "name": node.name,
+                        "line": node.properties.get("line", 0),
+                    })
+
+            return {
+                "success": True,
+                "nodes": matching_nodes,
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+            }

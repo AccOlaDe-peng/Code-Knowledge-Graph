@@ -185,3 +185,40 @@ def test_search_code_blocks_symlink_traversal(tmp_path):
     assert len(result["matches"]) == 1
     assert "inside.py" in result["matches"][0]["file"]
     assert "outside.py" not in result["matches"][0]["file"]
+
+
+def test_get_ast_nodes_from_static_graph(tmp_path):
+    """Test retrieving AST nodes from static analysis."""
+    from backend.graph.graph_schema import GraphNode, NodeType
+
+    # Mock static graph with nodes
+    class MockGraph:
+        def __init__(self):
+            self.nodes = [
+                GraphNode(
+                    id="func1",
+                    type=NodeType.FUNCTION,
+                    name="authenticate",
+                    properties={"file": "auth.py", "line": 10}
+                ),
+                GraphNode(
+                    id="func2",
+                    type=NodeType.FUNCTION,
+                    name="login",
+                    properties={"file": "auth.py", "line": 20}
+                ),
+                GraphNode(
+                    id="class1",
+                    type=NodeType.CLASS,
+                    name="User",
+                    properties={"file": "models.py", "line": 5}
+                ),
+            ]
+
+    tools = AgentTools(repo_path=str(tmp_path), static_graph=MockGraph())
+    result = tools.get_ast_nodes("auth.py")
+
+    assert result["success"] is True
+    assert len(result["nodes"]) == 2
+    assert result["nodes"][0]["name"] == "authenticate"
+    assert result["nodes"][1]["name"] == "login"
