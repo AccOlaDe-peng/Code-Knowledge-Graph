@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import ReactFlow, {
   Background,
   BackgroundVariant,
@@ -17,321 +17,432 @@ import ReactFlow, {
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 import dagre from 'dagre'
-import { Input, Checkbox, Button, Tooltip, Empty, Spin } from 'antd'
+import { Input, Button, Tooltip, Empty, Spin, Radio } from 'antd'
 import { SearchOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useGraphStore } from '../../store/graphStore'
 import { useRepoStore } from '../../store/repoStore'
 import NodeDetailPanel from '../../components/NodeDetailPanel'
 import type { GraphNode } from '../../types/graph'
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── View modes ───────────────────────────────────────────────────────────────
 
-type NodeData = {
-  label:        string
-  nodeType:     string
-  isHighlighted: boolean
-  isDimmed:     boolean
-  originalNode: GraphNode
+type ViewMode = 'module' | 'lineage'
+
+// ─── Node / edge styling ──────────────────────────────────────────────────────
+
+const NODE_COLORS: Record<string, { bg: string; border: string; text: string }> = {
+  repository: { bg: 'rgba(0,212,255,0.08)',  border: '#00d4ff44', text: '#00d4ff' },
+  module:     { bg: 'rgba(176,142,255,0.08)', border: '#b08eff44', text: '#b08eff' },
+  file:       { bg: 'rgba(0,240,132,0.06)',  border: '#00f08433', text: '#00f084' },
+  class:      { bg: 'rgba(255,193,69,0.07)', border: '#ffc14533', text: '#ffc145' },
+  function:   { bg: 'rgba(255,107,107,0.07)',border: '#ff6b6b33', text: '#ff6b6b' },
+  api:        { bg: 'rgba(0,212,255,0.08)',  border: '#00d4ff44', text: '#00d4ff' },
+  database:   { bg: 'rgba(176,142,255,0.1)', border: '#b08eff55', text: '#b08eff' },
+  table:      { bg: 'rgba(176,142,255,0.07)',border: '#b08eff33', text: '#b08eff' },
+  service:    { bg: 'rgba(0,240,132,0.08)',  border: '#00f08444', text: '#00f084' },
+  _default:   { bg: 'rgba(30,45,61,0.5)',    border: '#1e2d3d',   text: '#6b8aaa' },
 }
 
 const EDGE_COLORS: Record<string, string> = {
-  produces:   '#00f084',
-  reads:      '#00d4ff',
-  writes:     '#ffc145',
-  depends_on: '#b08eff',
-  consumes:   '#ff7a7a',
+  contains:   '#1e3a4a',
+  imports:    '#b08eff66',
+  calls:      '#00f08466',
+  reads:      '#00d4ff66',
+  writes:     '#ffc14566',
+  depends_on: '#b08eff55',
+  produces:   '#00f08455',
+  consumes:   '#ff6b6b55',
 }
 
-const NODE_SHAPES: Record<string, { width: number; height: number }> = {
-  API:        { width: 160, height: 44 },
-  Service:    { width: 140, height: 52 },
-  Table:      { width: 150, height: 40 },
-  DataObject: { width: 120, height: 120 },
-  Module:     { width: 150, height: 44 },
-  Function:   { width: 160, height: 40 },
-  Component:  { width: 150, height: 44 },
-  _default:   { width: 150, height: 44 },
+function getNodeStyle(type: string) {
+  const t = type.toLowerCase()
+  return NODE_COLORS[t] ?? NODE_COLORS._default
 }
 
-// ─── Layout ───────────────────────────────────────────────────────────────────
+// ─── Node dimensions by type ──────────────────────────────────────────────────
 
-function applyDagreLayout(nodes: Node[], edges: Edge[]): Node[] {
+function getNodeDims(type: string): { w: number; h: number } {
+  const t = type.toLowerCase()
+  if (t === 'repository') return { w: 180, h: 52 }
+  if (t === 'module')     return { w: 160, h: 44 }
+  if (t === 'file')       return { w: 170, h: 40 }
+  if (t === 'class')      return { w: 155, h: 40 }
+  if (t === 'database')   return { w: 150, h: 48 }
+  return { w: 160, h: 40 }
+}
+
+// ─── Dagre layout ─────────────────────────────────────────────────────────────
+
+function applyDagreLayout(nodes: Node[], edges: Edge[], direction: 'TB' | 'LR' = 'TB'): Node[] {
   const g = new dagre.graphlib.Graph()
   g.setDefaultEdgeLabel(() => ({}))
-  g.setGraph({ rankdir: 'LR', nodesep: 50, ranksep: 100, marginx: 30, marginy: 30 })
+  g.setGraph({ rankdir: direction, nodesep: 36, ranksep: 70, marginx: 20, marginy: 20 })
   nodes.forEach((n) => {
-    const shape = NODE_SHAPES[n.data.nodeType] ?? NODE_SHAPES._default
-    g.setNode(n.id, { width: shape.width, height: shape.height })
+    const dims = getNodeDims((n.data as LineageNodeData).nodeType)
+    g.setNode(n.id, { width: dims.w, height: dims.h })
   })
   edges.forEach((e) => g.setEdge(e.source, e.target))
   dagre.layout(g)
   return nodes.map((n) => {
-    const pos = g.node(n.id)
-    const shape = NODE_SHAPES[n.data.nodeType] ?? NODE_SHAPES._default
-    return { ...n, position: { x: pos.x - shape.width / 2, y: pos.y - shape.height / 2 } }
+    const dims = getNodeDims((n.data as LineageNodeData).nodeType)
+    const pos  = g.node(n.id)
+    return { ...n, position: { x: pos.x - dims.w / 2, y: pos.y - dims.h / 2 } }
   })
 }
 
-// ─── Node Colors ──────────────────────────────────────────────────────────────
+// ─── Node data type ───────────────────────────────────────────────────────────
 
-const NODE_COLORS: Record<string, { accent: string; bg: string; border: string }> = {
-  API:        { accent: '#00d4ff', bg: 'rgba(0,212,255,0.06)', border: 'rgba(0,212,255,0.3)' },
-  Service:    { accent: '#b08eff', bg: 'rgba(176,142,255,0.06)', border: 'rgba(176,142,255,0.3)' },
-  Table:      { accent: '#ffc145', bg: 'rgba(255,193,69,0.06)', border: 'rgba(255,193,69,0.3)' },
-  DataObject: { accent: '#00f084', bg: 'rgba(0,240,132,0.06)', border: 'rgba(0,240,132,0.3)' },
-  Module:     { accent: '#00d4ff', bg: 'rgba(0,212,255,0.06)', border: 'rgba(0,212,255,0.3)' },
-  Function:   { accent: '#00f084', bg: 'rgba(0,240,132,0.06)', border: 'rgba(0,240,132,0.3)' },
-  Component:  { accent: '#b08eff', bg: 'rgba(176,142,255,0.06)', border: 'rgba(176,142,255,0.3)' },
-  _default:   { accent: '#3a5a6a', bg: 'rgba(58,90,106,0.06)', border: 'rgba(58,90,106,0.3)' },
+type LineageNodeData = {
+  label:         string
+  nodeType:      string
+  isHighlighted: boolean
+  isDimmed:      boolean
+  isSelected:    boolean
+  originalNode:  GraphNode
 }
 
-function nodeColor(type: string) {
-  return NODE_COLORS[type] ?? NODE_COLORS._default
-}
+// ─── Custom node component ────────────────────────────────────────────────────
 
-// ─── Generic Node (handles all node types) ────────────────────────────────────
+const LineageNode: React.FC<{ data: LineageNodeData }> = ({ data }) => {
+  const style    = getNodeStyle(data.nodeType)
+  const dims     = getNodeDims(data.nodeType)
+  const isRepo   = data.nodeType.toLowerCase() === 'repository'
+  const isModule = data.nodeType.toLowerCase() === 'module'
 
-const GenericNode: React.FC<{ data: NodeData }> = ({ data }) => {
-  const c = nodeColor(data.nodeType)
-  const shape = NODE_SHAPES[data.nodeType] ?? NODE_SHAPES._default
   return (
     <div style={{
-      width: shape.width, height: shape.height,
-      background: data.isHighlighted ? c.bg : data.isDimmed ? 'rgba(7,9,13,0.3)' : 'rgba(7,9,13,0.9)',
-      border: `1px solid ${data.isHighlighted ? c.accent : data.isDimmed ? '#111820' : c.border}`,
-      borderRadius: 6,
-      display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 3,
-      opacity: data.isDimmed ? 0.25 : 1,
-      boxShadow: data.isHighlighted ? `0 0 20px ${c.accent}33` : 'none',
-      transition: 'all 0.2s ease', cursor: 'pointer', position: 'relative', padding: '0 10px',
+      width:      dims.w,
+      height:     dims.h,
+      background: data.isDimmed
+        ? 'rgba(7,9,13,0.3)'
+        : data.isSelected
+        ? style.bg
+        : 'rgba(10,15,22,0.88)',
+      border:     `1px solid ${
+        data.isSelected    ? style.border.replace('44','aa').replace('33','88') :
+        data.isHighlighted ? style.border :
+        data.isDimmed      ? '#0d1520' :
+        '#1a2535'
+      }`,
+      borderRadius: isRepo ? 6 : isModule ? 4 : 3,
+      display:    'flex',
+      alignItems: 'center',
+      padding:    '0 10px',
+      gap:        8,
+      boxShadow:  data.isSelected
+        ? `0 0 16px ${style.border}88, 0 2px 8px rgba(0,0,0,0.5)`
+        : '0 1px 4px rgba(0,0,0,0.4)',
+      opacity:    data.isDimmed ? 0.2 : 1,
+      transition: 'all 0.18s ease',
+      cursor:     'pointer',
+      position:   'relative',
+      overflow:   'hidden',
     }}>
-      <span style={{ fontSize: 9, color: c.accent, fontFamily: "'IBM Plex Mono'", letterSpacing: '0.08em', textTransform: 'uppercase' }}>{data.nodeType}</span>
-      <span style={{ fontSize: 11, color: data.isDimmed ? '#2a3a4a' : '#8ab4c8', fontFamily: "'IBM Plex Mono'", overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: shape.width - 20, textAlign: 'center' }}>{data.label}</span>
-      <Handle type="target" position={Position.Left} style={{ background: c.accent, width: 6, height: 6, border: 'none' }} />
-      <Handle type="source" position={Position.Right} style={{ background: c.accent, width: 6, height: 6, border: 'none' }} />
+      {/* Type indicator strip */}
+      <div style={{
+        position:     'absolute',
+        left:         0, top: 0, bottom: 0,
+        width:        3,
+        background:   data.isDimmed ? '#0d1520' : style.text,
+        borderRadius: '3px 0 0 3px',
+        opacity:      data.isDimmed ? 0.3 : 0.7,
+      }} />
+
+      <div style={{ paddingLeft: 4, flex: 1, overflow: 'hidden' }}>
+        <div style={{
+          fontFamily:   "'IBM Plex Mono', monospace",
+          fontSize:     10,
+          color:        data.isDimmed ? '#1e2d3d' : style.text,
+          overflow:     'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace:   'nowrap',
+          fontWeight:   isRepo || isModule ? 600 : 400,
+        }}>
+          {data.label}
+        </div>
+        <div style={{
+          fontFamily:    "'IBM Plex Mono', monospace",
+          fontSize:      8,
+          color:         data.isDimmed ? '#111820' : '#3a5a6a',
+          letterSpacing: '0.1em',
+          textTransform: 'uppercase',
+          marginTop:     1,
+        }}>
+          {data.nodeType.toLowerCase()}
+        </div>
+      </div>
+
+      <Handle type="target" position={Position.Top}    style={{ background: style.text, width: 5, height: 5, border: 'none', top: -3 }} />
+      <Handle type="source" position={Position.Bottom} style={{ background: style.text, width: 5, height: 5, border: 'none', bottom: -3 }} />
+      <Handle type="target" position={Position.Left}   style={{ background: style.text, width: 5, height: 5, border: 'none', left: -3 }} />
+      <Handle type="source" position={Position.Right}  style={{ background: style.text, width: 5, height: 5, border: 'none', right: -3 }} />
     </div>
   )
 }
 
-// ReactFlow nodeTypes — 用动态类型时，在 rfNodes 中不设置 type 字段则用默认节点
-// 这里注册已知类型，未知类型通过 rfNodes 映射到 'generic'
-const nodeTypes: NodeTypes = { generic: GenericNode }
+const nodeTypes: NodeTypes = { lineage: LineageNode }
+
+// ─── Edge type legend ─────────────────────────────────────────────────────────
+
+const LEGEND_ITEMS: { type: string; label: string }[] = [
+  { type: 'contains', label: '包含' },
+  { type: 'imports',  label: '导入' },
+  { type: 'reads',    label: '读取' },
+  { type: 'writes',   label: '写入' },
+  { type: 'calls',    label: '调用' },
+]
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 const DataLineageInner: React.FC = () => {
-  const { lineageGraph, loadLineage, setSelectedNode } = useGraphStore()
+  const { moduleGraph, lineageGraph, loadModuleGraph, loadLineage, setSelectedNode } = useGraphStore()
   const { activeRepo } = useRepoStore()
-  const { fitView } = useReactFlow()
+  const { fitView }    = useReactFlow()
 
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
-  const [searchQuery, setSearchQuery] = useState('')
-  const [visibleNodeTypes, setVisibleNodeTypes] = useState<Set<string>>(new Set())
-  const [visibleEdgeTypes, setVisibleEdgeTypes] = useState<Set<string>>(new Set())
-  const [panelNode, setPanelNode] = useState<GraphNode | null>(null)
-  const [availableNodeTypes, setAvailableNodeTypes] = useState<string[]>([])
-  const [availableEdgeTypes, setAvailableEdgeTypes] = useState<string[]>([])
+  const [searchQuery, setSearchQuery]    = useState('')
+  const [viewMode, setViewMode]          = useState<ViewMode>('module')
+  const [focusNodeId, setFocusNodeId]    = useState<string | null>(null)
+  const [panelNode, setPanelNode]        = useState<GraphNode | null>(null)
 
   useEffect(() => {
-    if (activeRepo?.graphId) {
-      loadLineage(activeRepo.graphId)
-    }
+    if (!activeRepo?.graphId) return
+    loadModuleGraph(activeRepo.graphId)
+    loadLineage(activeRepo.graphId)
   }, [activeRepo?.graphId])
 
-  const rawData = lineageGraph.data
+  // Pick data source based on view mode
+  const activeSlice = viewMode === 'module' ? moduleGraph : lineageGraph
+  const rawData     = activeSlice.data
 
-  // 初始化可见类型（从实际数据推断）
-  useEffect(() => {
-    if (!rawData) return
-
-    const nodeTypes = Array.from(new Set(rawData.nodes.map(n => n.type)))
-    const edgeTypes = Array.from(new Set(rawData.edges.map(e => e.type)))
-
-    setAvailableNodeTypes(nodeTypes)
-    setAvailableEdgeTypes(edgeTypes)
-    setVisibleNodeTypes(new Set(nodeTypes))
-    setVisibleEdgeTypes(new Set(edgeTypes))
-  }, [rawData])
-
+  // Build ReactFlow graph
   useEffect(() => {
     if (!rawData) return
 
     const searchLower = searchQuery.toLowerCase()
-    const matchIds = searchQuery
+    const matchIds    = searchQuery
       ? new Set(rawData.nodes.filter((n) => (n.label ?? '').toLowerCase().includes(searchLower)).map((n) => n.id))
       : null
 
-    const filteredNodes = rawData.nodes.filter((n) => visibleNodeTypes.has(n.type))
-    const filteredNodeIds = new Set(filteredNodes.map((n) => n.id))
-
-    const filteredEdges = rawData.edges.filter(
-      (e) => visibleEdgeTypes.has(e.type) && filteredNodeIds.has(e.source) && filteredNodeIds.has(e.target)
-    )
-
-    const rfNodes: Node<NodeData>[] = filteredNodes.map((n) => ({
-      id: n.id,
-      type: 'generic',
+    const rfNodes: Node<LineageNodeData>[] = rawData.nodes.map((n) => ({
+      id:       n.id,
+      type:     'lineage',
       position: { x: 0, y: 0 },
       data: {
-        label: n.label,
-        nodeType: n.type,
+        label:         n.label,
+        nodeType:      n.type,
         isHighlighted: matchIds ? matchIds.has(n.id) : false,
-        isDimmed: matchIds ? matchIds.size > 0 && !matchIds.has(n.id) : false,
-        originalNode: n,
+        isDimmed:      matchIds ? matchIds.size > 0 && !matchIds.has(n.id) : false,
+        isSelected:    n.id === focusNodeId,
+        originalNode:  n,
       },
     }))
 
-    const rfEdges: Edge[] = filteredEdges.map((e) => {
-      const color = EDGE_COLORS[e.type] ?? '#3a5a6a'
-      return {
-        id: `${e.source}-${e.type}-${e.target}`,
-        source: e.source,
-        target: e.target,
-        type: 'smoothstep',
-        animated: e.type === 'produces',
-        label: e.type,
-        labelStyle: { fontFamily: "'IBM Plex Mono'", fontSize: 9, fill: color + 'cc' },
-        labelBgStyle: { fill: '#07090d', fillOpacity: 0.8 },
-        style: { stroke: color, strokeWidth: 1.5, opacity: 0.7 },
-        markerEnd: { type: MarkerType.ArrowClosed, color, width: 12, height: 12 },
-      }
-    })
+    const visibleNodeIds = new Set(rfNodes.map((n) => n.id))
+    const rfEdges: Edge[] = rawData.edges
+      .filter((e) => visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target))
+      .map((e) => {
+        const color     = EDGE_COLORS[e.type] ?? '#1a2535'
+        const isFocused = focusNodeId && (e.source === focusNodeId || e.target === focusNodeId)
+        return {
+          id:     `${e.source}--${e.type}--${e.target}`,
+          source: e.source,
+          target: e.target,
+          type:   'smoothstep',
+          animated: e.type === 'imports' && !!isFocused,
+          label:  e.type !== 'contains' ? e.type : undefined,
+          labelStyle: {
+            fontFamily: "'IBM Plex Mono'",
+            fontSize:   8,
+            fill:       color.replace('66','cc').replace('55','cc').replace('44','cc'),
+          },
+          labelBgStyle: { fill: '#07090d', fillOpacity: 0.85 },
+          style: {
+            stroke:      isFocused ? color.replace('66','cc').replace('55','cc').replace('44','cc') : color,
+            strokeWidth: isFocused ? 2 : e.type === 'contains' ? 1 : 1.5,
+            strokeDasharray: e.type === 'imports' ? '4 3' : undefined,
+            opacity:     matchIds && matchIds.size > 0 && !isFocused ? 0.15 : 0.8,
+          },
+          markerEnd: {
+            type:   MarkerType.ArrowClosed,
+            color:  color.replace('66','cc').replace('55','cc').replace('44','cc'),
+            width:  8,
+            height: 8,
+          },
+        }
+      })
 
-    const laid = applyDagreLayout(rfNodes, rfEdges)
+    const direction = viewMode === 'module' ? 'TB' : 'LR'
+    const laid = applyDagreLayout(rfNodes, rfEdges, direction)
     setNodes(laid)
     setEdges(rfEdges)
-    setTimeout(() => fitView({ padding: 0.12, duration: 400 }), 50)
-  }, [rawData, searchQuery, visibleNodeTypes, visibleEdgeTypes])
+    setTimeout(() => fitView({ padding: 0.1, duration: 450 }), 60)
+  }, [rawData, searchQuery, focusNodeId, viewMode])
 
-  const onNodeClick = useCallback((_: React.MouseEvent, node: Node<NodeData>) => {
+  const onNodeClick = useCallback((_: React.MouseEvent, node: Node<LineageNodeData>) => {
     const orig = node.data.originalNode
-    setPanelNode(orig)
-    setSelectedNode(orig)
-  }, [setSelectedNode])
-
-  const toggleNodeType = (t: string) => {
-    setVisibleNodeTypes((prev) => {
-      const next = new Set(prev)
-      next.has(t) ? next.delete(t) : next.add(t)
-      return next
-    })
-  }
-
-  const toggleEdgeType = (t: string) => {
-    setVisibleEdgeTypes((prev) => {
-      const next = new Set(prev)
-      next.has(t) ? next.delete(t) : next.add(t)
-      return next
-    })
-  }
+    if (focusNodeId === orig.id) {
+      setFocusNodeId(null); setPanelNode(null); setSelectedNode(null)
+    } else {
+      setFocusNodeId(orig.id); setPanelNode(orig); setSelectedNode(orig)
+    }
+  }, [focusNodeId])
 
   const handleReset = () => {
-    setSearchQuery('')
-    setVisibleNodeTypes(new Set(availableNodeTypes))
-    setVisibleEdgeTypes(new Set(availableEdgeTypes))
-    setPanelNode(null)
-    setSelectedNode(null)
-    setTimeout(() => fitView({ padding: 0.12, duration: 400 }), 50)
+    setFocusNodeId(null); setPanelNode(null); setSelectedNode(null); setSearchQuery('')
+    setTimeout(() => fitView({ padding: 0.1, duration: 450 }), 60)
   }
+
+  // Edge type counts for legend
+  const edgeCounts = useMemo(() => {
+    if (!rawData) return {}
+    const counts: Record<string, number> = {}
+    rawData.edges.forEach((e) => { counts[e.type] = (counts[e.type] ?? 0) + 1 })
+    return counts
+  }, [rawData])
 
   const nodeCount = rawData?.nodes.length ?? 0
   const edgeCount = rawData?.edges.length ?? 0
+  const isLoading = activeSlice.loading
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#07090d' }}>
+
+      {/* ── Toolbar ──────────────────────────────────────────────────────────── */}
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px',
-        borderBottom: '1px solid #0d1a24', background: 'rgba(7,9,13,0.95)',
-        backdropFilter: 'blur(8px)', flexShrink: 0,
+        display:        'flex',
+        alignItems:     'center',
+        gap:            14,
+        padding:        '10px 16px',
+        borderBottom:   '1px solid #0d1a24',
+        background:     'rgba(7,9,13,0.97)',
+        backdropFilter: 'blur(12px)',
+        flexShrink:     0,
+        flexWrap:       'wrap',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginRight: 8 }}>
-          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#b08eff', boxShadow: '0 0 8px #b08eff' }} />
-          <span style={{ fontFamily: "'Syne', sans-serif", fontSize: 13, fontWeight: 700, color: '#b08eff', letterSpacing: '0.08em' }}>
-            数据血缘
+        {/* Title */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{
+            width: 7, height: 7, borderRadius: 1,
+            background: '#b08eff', boxShadow: '0 0 10px #b08effaa',
+          }} />
+          <span style={{
+            fontFamily:    "'Syne', sans-serif",
+            fontSize:      12,
+            fontWeight:    700,
+            color:         '#b08eff',
+            letterSpacing: '0.1em',
+            textTransform: 'uppercase',
+          }}>
+            {viewMode === 'module' ? '模块结构' : '数据血缘'}
           </span>
         </div>
 
-        <div style={{ display: 'flex', gap: 12, marginRight: 'auto' }}>
-          {[
-            { label: '节点', value: nodeCount },
-            { label: '边', value: edgeCount },
-          ].map(({ label, value }) => (
-            <div key={label} style={{ display: 'flex', gap: 4, alignItems: 'baseline' }}>
-              <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 14, fontWeight: 600, color: '#b08eff' }}>{value}</span>
-              <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 9, color: '#3a5a6a', letterSpacing: '0.1em' }}>{label}</span>
+        {/* View mode toggle */}
+        <Radio.Group
+          value={viewMode}
+          onChange={(e) => { setViewMode(e.target.value); setFocusNodeId(null) }}
+          size="small"
+          style={{ fontFamily: "'IBM Plex Mono'" }}
+        >
+          <Radio.Button value="module" style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10 }}>
+            模块图
+          </Radio.Button>
+          <Radio.Button value="lineage" style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10 }}>
+            血缘图
+          </Radio.Button>
+        </Radio.Group>
+
+        {/* Stats */}
+        <div style={{ display: 'flex', gap: 16, marginRight: 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+            <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 15, fontWeight: 700, color: '#b08eff' }}>
+              {nodeCount.toLocaleString()}
+            </span>
+            <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 9, color: '#3a5a6a', letterSpacing: '0.1em' }}>节点</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+            <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 15, fontWeight: 700, color: '#00d4ff' }}>
+              {edgeCount.toLocaleString()}
+            </span>
+            <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 9, color: '#3a5a6a', letterSpacing: '0.1em' }}>关系</span>
+          </div>
+        </div>
+
+        {/* Edge type legend */}
+        <div style={{ display: 'flex', gap: 10 }}>
+          {LEGEND_ITEMS.filter(({ type }) => edgeCounts[type] > 0).map(({ type, label }) => (
+            <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div style={{
+                width:        16,
+                height:       1.5,
+                background:   EDGE_COLORS[type]?.replace('66','cc').replace('55','cc').replace('44','cc') ?? '#3a5a6a',
+                borderRadius: 1,
+              }} />
+              <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 9, color: '#3a5a6a' }}>
+                {label} ({edgeCounts[type] ?? 0})
+              </span>
             </div>
           ))}
         </div>
 
+        {/* Search */}
         <Input
-          prefix={<SearchOutlined style={{ color: '#3a5a6a', fontSize: 12 }} />}
-          placeholder="搜索..."
+          prefix={<SearchOutlined style={{ color: '#2a4a5a', fontSize: 11 }} />}
+          placeholder="搜索节点..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           style={{
-            width: 180, background: '#0a1520', border: '1px solid #1e2d3d',
-            borderRadius: 4, color: '#8ab4c8', fontFamily: "'IBM Plex Mono'", fontSize: 12,
+            width:      180,
+            background: '#080e16',
+            border:     '1px solid #1a2535',
+            borderRadius: 3,
+            color:      '#8ab4c8',
+            fontFamily: "'IBM Plex Mono'",
+            fontSize:   11,
           }}
           allowClear
         />
-
-        <div style={{ display: 'flex', gap: 8, padding: '0 8px', borderLeft: '1px solid #1e2d3d' }}>
-          {availableNodeTypes.map((t) => (
-            <Checkbox
-              key={t}
-              checked={visibleNodeTypes.has(t)}
-              onChange={() => toggleNodeType(t)}
-              style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10, color: nodeColor(t).accent }}
-            >
-              {t}
-            </Checkbox>
-          ))}
-        </div>
-
-        <div style={{ display: 'flex', gap: 8, padding: '0 8px', borderLeft: '1px solid #1e2d3d' }}>
-          {availableEdgeTypes.map((t) => (
-            <Checkbox
-              key={t}
-              checked={visibleEdgeTypes.has(t)}
-              onChange={() => toggleEdgeType(t)}
-              style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10, color: EDGE_COLORS[t] ?? '#3a5a6a' }}
-            >
-              {t}
-            </Checkbox>
-          ))}
-        </div>
 
         <Tooltip title="重置视图">
           <Button
             icon={<ReloadOutlined />}
             onClick={handleReset}
             size="small"
-            style={{ background: '#0a1520', border: '1px solid #1e2d3d', color: '#3a5a6a' }}
+            style={{ background: '#080e16', border: '1px solid #1a2535', color: '#2a4a5a' }}
           />
         </Tooltip>
       </div>
 
+      {/* ── Graph canvas ─────────────────────────────────────────────────────── */}
       <div style={{ flex: 1, display: 'flex', position: 'relative', overflow: 'hidden' }}>
-        {lineageGraph.loading && (
+
+        {isLoading && (
           <div style={{
-            position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'rgba(7,9,13,0.8)', zIndex: 10,
+            position: 'absolute', inset: 0,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            background: 'rgba(7,9,13,0.85)', zIndex: 10, gap: 12,
           }}>
             <Spin size="large" />
+            <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10, color: '#2a4a5a', letterSpacing: '0.12em' }}>
+              {viewMode === 'module' ? '加载模块结构...' : '加载数据血缘...'}
+            </span>
           </div>
         )}
 
-        {!activeRepo && !lineageGraph.loading && (
+        {!activeRepo && !isLoading && (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Empty
-              description={<span style={{ color: '#3a5a6a', fontFamily: "'IBM Plex Mono'", fontSize: 12 }}>请选择一个仓库以查看数据血缘</span>}
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-            />
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 40, opacity: 0.06, marginBottom: 12 }}>◈</div>
+              <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 11, color: '#2a4a5a', letterSpacing: '0.1em' }}>
+                请从顶栏选择一个仓库
+              </div>
+            </div>
           </div>
         )}
 
-        {activeRepo && !lineageGraph.loading && (
+        {activeRepo && !isLoading && (
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -340,19 +451,21 @@ const DataLineageInner: React.FC = () => {
             onNodeClick={onNodeClick}
             nodeTypes={nodeTypes}
             fitView
-            minZoom={0.1}
-            maxZoom={2}
+            minZoom={0.06}
+            maxZoom={3}
             proOptions={{ hideAttribution: true }}
           >
-            <Background variant={BackgroundVariant.Dots} gap={28} size={1} color="#0d1a24" />
-            <Controls style={{ background: '#0a1520', border: '1px solid #1e2d3d' }} />
+            <Background
+              variant={BackgroundVariant.Dots}
+              gap={30}
+              size={0.7}
+              color="#0d1520"
+            />
+            <Controls style={{ background: '#080e16', border: '1px solid #1a2535' }} />
             <MiniMap
-              style={{ background: '#07090d', border: '1px solid #1e2d3d' }}
-              nodeColor={(n) => {
-                const d = n.data as NodeData
-                return nodeColor(d.nodeType).accent
-              }}
-              maskColor="rgba(7,9,13,0.8)"
+              style={{ background: '#07090d', border: '1px solid #1a2535' }}
+              nodeColor={(n) => getNodeStyle((n.data as LineageNodeData).nodeType).text}
+              maskColor="rgba(7,9,13,0.75)"
             />
           </ReactFlow>
         )}
@@ -362,10 +475,7 @@ const DataLineageInner: React.FC = () => {
             node={panelNode}
             edges={rawData?.edges}
             allNodes={rawData?.nodes}
-            onClose={() => {
-              setPanelNode(null)
-              setSelectedNode(null)
-            }}
+            onClose={() => { setPanelNode(null); setFocusNodeId(null); setSelectedNode(null) }}
           />
         )}
       </div>

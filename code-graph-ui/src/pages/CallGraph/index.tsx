@@ -17,8 +17,8 @@ import ReactFlow, {
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 import dagre from 'dagre'
-import { Input, Slider, Button, Tooltip, Empty, Spin } from 'antd'
-import { SearchOutlined, ReloadOutlined } from '@ant-design/icons'
+import { Input, Slider, Button, Tooltip, Empty, Spin, Badge } from 'antd'
+import { SearchOutlined, ReloadOutlined, AimOutlined } from '@ant-design/icons'
 import { useGraphStore } from '../../store/graphStore'
 import { useRepoStore } from '../../store/repoStore'
 import NodeDetailPanel from '../../components/NodeDetailPanel'
@@ -27,25 +27,35 @@ import type { GraphNode } from '../../types/graph'
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type NodeData = {
-  label:        string
-  nodeType:     string
-  inDegree:     number
-  outDegree:    number
+  label:         string
+  nodeType:      string
+  inDegree:      number
+  outDegree:     number
   isHighlighted: boolean
-  isSelected:   boolean
-  isDimmed:     boolean
-  originalNode: GraphNode
+  isSelected:    boolean
+  isDimmed:      boolean
+  originalNode:  GraphNode
+}
+
+// ─── Node type accent colors (handles both PascalCase and lowercase) ──────────
+
+function getNodeAccent(type: string): string {
+  const t = type.toLowerCase()
+  if (t === 'api')      return '#00d4ff'
+  if (t === 'function') return '#00f084'
+  if (t === 'class')    return '#b08eff'
+  return '#ffc145'
 }
 
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
-const NODE_W = 180
+const NODE_W = 200
 const NODE_H = 48
 
 function applyDagreLayout(nodes: Node[], edges: Edge[]): Node[] {
   const g = new dagre.graphlib.Graph()
   g.setDefaultEdgeLabel(() => ({}))
-  g.setGraph({ rankdir: 'LR', nodesep: 40, ranksep: 80, marginx: 20, marginy: 20 })
+  g.setGraph({ rankdir: 'LR', nodesep: 44, ranksep: 90, marginx: 24, marginy: 24 })
   nodes.forEach((n) => g.setNode(n.id, { width: NODE_W, height: NODE_H }))
   edges.forEach((e) => g.setEdge(e.source, e.target))
   dagre.layout(g)
@@ -58,85 +68,111 @@ function applyDagreLayout(nodes: Node[], edges: Edge[]): Node[] {
 // ─── Custom Node ──────────────────────────────────────────────────────────────
 
 const FunctionNode: React.FC<{ data: NodeData }> = ({ data }) => {
-  const isApi = data.nodeType === 'API'
-  const accent = isApi ? '#00d4ff' : '#00f084'
+  const accent = getNodeAccent(data.nodeType)
 
   return (
     <div
       style={{
-        width: NODE_W,
-        height: NODE_H,
+        width:      NODE_W,
+        height:     NODE_H,
         background: data.isSelected
-          ? `linear-gradient(135deg, ${accent}22, ${accent}11)`
+          ? `linear-gradient(135deg, ${accent}1a, ${accent}0d)`
           : data.isDimmed
-          ? 'rgba(7,9,13,0.4)'
-          : 'rgba(7,9,13,0.85)',
-        border: `1px solid ${data.isSelected ? accent : data.isHighlighted ? accent + '88' : data.isDimmed ? '#1a2030' : '#1e2d3d'}`,
-        borderRadius: 6,
-        display: 'flex',
+          ? 'rgba(7,9,13,0.3)'
+          : 'rgba(10,15,22,0.92)',
+        border:     `1px solid ${
+          data.isSelected    ? accent :
+          data.isHighlighted ? accent + '66' :
+          data.isDimmed      ? '#111820' :
+          '#1a2535'
+        }`,
+        borderLeft: `3px solid ${data.isDimmed ? '#111820' : accent}`,
+        borderRadius: 4,
+        display:    'flex',
         alignItems: 'center',
-        padding: '0 12px',
-        gap: 8,
-        boxShadow: data.isSelected
-          ? `0 0 16px ${accent}44, 0 0 4px ${accent}22`
+        padding:    '0 10px 0 10px',
+        gap:        8,
+        boxShadow:  data.isSelected
+          ? `0 0 20px ${accent}33, 0 2px 8px rgba(0,0,0,0.6)`
           : data.isHighlighted
-          ? `0 0 8px ${accent}22`
-          : 'none',
-        opacity: data.isDimmed ? 0.3 : 1,
-        transition: 'all 0.2s ease',
-        cursor: 'pointer',
-        position: 'relative',
-        overflow: 'hidden',
+          ? `0 0 10px ${accent}1a`
+          : '0 2px 6px rgba(0,0,0,0.4)',
+        opacity:    data.isDimmed ? 0.25 : 1,
+        transition: 'all 0.18s ease',
+        cursor:     'pointer',
+        position:   'relative',
+        overflow:   'hidden',
       }}
     >
+      {/* Top shimmer on selected */}
       {data.isSelected && (
         <div style={{
-          position: 'absolute',
+          position:   'absolute',
           top: 0, left: 0, right: 0,
-          height: 1,
-          background: `linear-gradient(90deg, transparent, ${accent}, transparent)`,
+          height:     1,
+          background: `linear-gradient(90deg, transparent, ${accent}cc, transparent)`,
         }} />
       )}
 
+      {/* Type badge */}
       <div style={{
-        width: 6,
-        height: 6,
-        borderRadius: '50%',
-        background: accent,
-        boxShadow: `0 0 6px ${accent}`,
-        flexShrink: 0,
-      }} />
+        fontSize:      8,
+        fontFamily:    "'IBM Plex Mono', monospace",
+        color:         data.isDimmed ? '#1e2d3d' : accent,
+        letterSpacing: '0.12em',
+        textTransform: 'uppercase',
+        flexShrink:    0,
+        minWidth:      28,
+      }}>
+        {data.nodeType.toLowerCase().slice(0, 3)}
+      </div>
 
       <span style={{
-        fontFamily: "'IBM Plex Mono', monospace",
-        fontSize: 11,
-        color: data.isDimmed ? '#3a4a5a' : data.isSelected ? accent : '#8ab4c8',
-        overflow: 'hidden',
+        fontFamily:   "'IBM Plex Mono', monospace",
+        fontSize:     11,
+        color:        data.isDimmed ? '#1e2d3d' : data.isSelected ? accent : '#8ab4c8',
+        overflow:     'hidden',
         textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
-        flex: 1,
+        whiteSpace:   'nowrap',
+        flex:         1,
       }}>
         {data.label}
       </span>
 
-      {data.outDegree > 0 && (
-        <span style={{
-          fontSize: 9,
-          color: accent + '99',
-          fontFamily: "'IBM Plex Mono', monospace",
-          flexShrink: 0,
-        }}>
-          {data.outDegree}→
-        </span>
-      )}
+      {/* Degree indicators */}
+      <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+        {data.inDegree > 0 && (
+          <span style={{ fontSize: 9, color: accent + '88', fontFamily: "'IBM Plex Mono'" }}>
+            ←{data.inDegree}
+          </span>
+        )}
+        {data.outDegree > 0 && (
+          <span style={{ fontSize: 9, color: accent + '88', fontFamily: "'IBM Plex Mono'" }}>
+            {data.outDegree}→
+          </span>
+        )}
+      </div>
 
-      <Handle type="target" position={Position.Left} style={{ background: accent, width: 6, height: 6, border: 'none' }} />
-      <Handle type="source" position={Position.Right} style={{ background: accent, width: 6, height: 6, border: 'none' }} />
+      <Handle type="target" position={Position.Left}  style={{ background: accent, width: 5, height: 5, border: 'none', left: -3 }} />
+      <Handle type="source" position={Position.Right} style={{ background: accent, width: 5, height: 5, border: 'none', right: -3 }} />
     </div>
   )
 }
 
 const nodeTypes: NodeTypes = { function: FunctionNode }
+
+// ─── Stat pill ────────────────────────────────────────────────────────────────
+
+const StatPill: React.FC<{ label: string; value: number; color: string }> = ({ label, value, color }) => (
+  <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+    <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 16, fontWeight: 700, color, letterSpacing: '-0.02em' }}>
+      {value.toLocaleString()}
+    </span>
+    <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 9, color: '#3a5a6a', letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+      {label}
+    </span>
+  </div>
+)
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
@@ -147,10 +183,10 @@ const CallGraphInner: React.FC = () => {
 
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
-  const [searchQuery, setSearchQuery] = useState('')
-  const [depth, setDepth] = useState(2)
-  const [focusNodeId, setFocusNodeId] = useState<string | null>(null)
-  const [panelNode, setPanelNode] = useState<GraphNode | null>(null)
+  const [searchQuery, setSearchQuery]    = useState('')
+  const [depth, setDepth]                = useState(2)
+  const [focusNodeId, setFocusNodeId]    = useState<string | null>(null)
+  const [panelNode, setPanelNode]        = useState<GraphNode | null>(null)
 
   useEffect(() => {
     if (activeRepo?.graphId) {
@@ -160,6 +196,7 @@ const CallGraphInner: React.FC = () => {
 
   const rawData = callGraph.data
 
+  // Degree map
   const degreeMap = useMemo(() => {
     if (!rawData) return new Map<string, { in: number; out: number }>()
     const map = new Map<string, { in: number; out: number }>()
@@ -173,18 +210,19 @@ const CallGraphInner: React.FC = () => {
     return map
   }, [rawData])
 
+  // BFS reachability from focused node
   const visibleIds = useMemo(() => {
     if (!rawData || !focusNodeId) return null
-    const visited = new Set<string>()
-    const queue: [string, number][] = [[focusNodeId, 0]]
-    const outAdj = new Map<string, string[]>()
-    const inAdj  = new Map<string, string[]>()
+    const visited  = new Set<string>()
+    const outAdj   = new Map<string, string[]>()
+    const inAdj    = new Map<string, string[]>()
     rawData.edges.forEach((e) => {
       if (!outAdj.has(e.source)) outAdj.set(e.source, [])
       if (!inAdj.has(e.target))  inAdj.set(e.target, [])
       outAdj.get(e.source)!.push(e.target)
       inAdj.get(e.target)!.push(e.source)
     })
+    const queue: [string, number][] = [[focusNodeId, 0]]
     while (queue.length > 0) {
       const [id, d] = queue.shift()!
       if (visited.has(id)) continue
@@ -197,34 +235,35 @@ const CallGraphInner: React.FC = () => {
     return visited
   }, [rawData, focusNodeId, depth])
 
+  // Build ReactFlow nodes/edges
   useEffect(() => {
     if (!rawData) return
 
     const searchLower = searchQuery.toLowerCase()
-    const matchIds = searchQuery
+    const matchIds    = searchQuery
       ? new Set(rawData.nodes.filter((n) => (n.label ?? '').toLowerCase().includes(searchLower)).map((n) => n.id))
       : null
 
     const rfNodes: Node<NodeData>[] = rawData.nodes
       .filter((n) => !visibleIds || visibleIds.has(n.id))
       .map((n) => {
-        const deg = degreeMap.get(n.id) ?? { in: 0, out: 0 }
+        const deg           = degreeMap.get(n.id) ?? { in: 0, out: 0 }
         const isHighlighted = matchIds ? matchIds.has(n.id) : false
-        const isDimmed = matchIds ? matchIds.size > 0 && !matchIds.has(n.id) : false
-        const isSelected = n.id === focusNodeId
+        const isDimmed      = matchIds ? matchIds.size > 0 && !matchIds.has(n.id) : false
+        const isSelected    = n.id === focusNodeId
         return {
-          id: n.id,
-          type: 'function',
+          id:       n.id,
+          type:     'function',
           position: { x: 0, y: 0 },
           data: {
-            label: n.label,
-            nodeType: n.type,
-            inDegree: deg.in,
-            outDegree: deg.out,
+            label:         n.label,
+            nodeType:      n.type,
+            inDegree:      deg.in,
+            outDegree:     deg.out,
             isHighlighted,
             isSelected,
             isDimmed,
-            originalNode: n,
+            originalNode:  n,
           },
         }
       })
@@ -232,119 +271,159 @@ const CallGraphInner: React.FC = () => {
     const visibleNodeIds = new Set(rfNodes.map((n) => n.id))
     const rfEdges: Edge[] = rawData.edges
       .filter((e) => visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target))
-      .map((e) => ({
-        id: `${e.source}->${e.target}`,
-        source: e.source,
-        target: e.target,
-        type: 'smoothstep',
-        animated: focusNodeId ? (e.source === focusNodeId || e.target === focusNodeId) : false,
-        style: {
-          stroke: focusNodeId && (e.source === focusNodeId || e.target === focusNodeId)
-            ? '#00f084'
-            : '#1e3a2a',
-          strokeWidth: 1.5,
-          opacity: matchIds && matchIds.size > 0 ? 0.3 : 0.7,
-        },
-        markerEnd: {
-          type: MarkerType.ArrowClosed,
-          color: focusNodeId && (e.source === focusNodeId || e.target === focusNodeId)
-            ? '#00f084'
-            : '#1e3a2a',
-          width: 12,
-          height: 12,
-        },
-      }))
+      .map((e) => {
+        const isFocused = focusNodeId && (e.source === focusNodeId || e.target === focusNodeId)
+        return {
+          id:     `${e.source}->${e.target}`,
+          source: e.source,
+          target: e.target,
+          type:   'smoothstep',
+          animated: !!isFocused,
+          style: {
+            stroke:      isFocused ? '#00f084' : '#1a2d20',
+            strokeWidth: isFocused ? 2 : 1,
+            opacity:     matchIds && matchIds.size > 0 ? 0.2 : 0.65,
+          },
+          markerEnd: {
+            type:   MarkerType.ArrowClosed,
+            color:  isFocused ? '#00f084' : '#1a2d20',
+            width:  10,
+            height: 10,
+          },
+        }
+      })
 
     const laid = applyDagreLayout(rfNodes, rfEdges)
     setNodes(laid)
     setEdges(rfEdges)
-
-    setTimeout(() => fitView({ padding: 0.1, duration: 400 }), 50)
+    setTimeout(() => fitView({ padding: 0.12, duration: 450 }), 60)
   }, [rawData, searchQuery, focusNodeId, depth, degreeMap])
 
   const onNodeClick = useCallback((_: React.MouseEvent, node: Node<NodeData>) => {
     const orig = node.data.originalNode
     if (focusNodeId === orig.id) {
-      setFocusNodeId(null)
-      setPanelNode(null)
-      setSelectedNode(null)
+      setFocusNodeId(null); setPanelNode(null); setSelectedNode(null)
     } else {
-      setFocusNodeId(orig.id)
-      setPanelNode(orig)
-      setSelectedNode(orig)
+      setFocusNodeId(orig.id); setPanelNode(orig); setSelectedNode(orig)
     }
   }, [focusNodeId])
 
   const handleReset = () => {
-    setFocusNodeId(null)
-    setPanelNode(null)
-    setSelectedNode(null)
-    setSearchQuery('')
-    setTimeout(() => fitView({ padding: 0.1, duration: 400 }), 50)
+    setFocusNodeId(null); setPanelNode(null); setSelectedNode(null); setSearchQuery('')
+    setTimeout(() => fitView({ padding: 0.12, duration: 450 }), 60)
   }
+
+  // Type distribution for legend
+  const typeCounts = useMemo(() => {
+    if (!rawData) return {}
+    const counts: Record<string, number> = {}
+    rawData.nodes.forEach((n) => {
+      const t = n.type.toLowerCase()
+      counts[t] = (counts[t] ?? 0) + 1
+    })
+    return counts
+  }, [rawData])
 
   const nodeCount = rawData?.nodes.length ?? 0
   const edgeCount = rawData?.edges.length ?? 0
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#07090d' }}>
+
+      {/* ── Toolbar ──────────────────────────────────────────────────────────── */}
       <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-        padding: '10px 16px',
-        borderBottom: '1px solid #0d1a24',
-        background: 'rgba(7,9,13,0.95)',
-        backdropFilter: 'blur(8px)',
-        flexShrink: 0,
+        display:        'flex',
+        alignItems:     'center',
+        gap:            16,
+        padding:        '10px 16px',
+        borderBottom:   '1px solid #0d1a24',
+        background:     'rgba(7,9,13,0.97)',
+        backdropFilter: 'blur(12px)',
+        flexShrink:     0,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginRight: 8 }}>
-          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#00f084', boxShadow: '0 0 8px #00f084' }} />
-          <span style={{ fontFamily: "'Syne', sans-serif", fontSize: 13, fontWeight: 700, color: '#00f084', letterSpacing: '0.08em' }}>
+        {/* Title */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginRight: 4 }}>
+          <div style={{
+            width: 7, height: 7, borderRadius: '50%',
+            background: '#00f084', boxShadow: '0 0 10px #00f084aa',
+          }} />
+          <span style={{
+            fontFamily:    "'Syne', sans-serif",
+            fontSize:      12,
+            fontWeight:    700,
+            color:         '#00f084',
+            letterSpacing: '0.1em',
+            textTransform: 'uppercase',
+          }}>
             调用图
           </span>
         </div>
 
-        <div style={{ display: 'flex', gap: 12, marginRight: 'auto' }}>
-          {[
-            { label: '节点', value: nodeCount },
-            { label: '边', value: edgeCount },
-          ].map(({ label, value }) => (
-            <div key={label} style={{ display: 'flex', gap: 4, alignItems: 'baseline' }}>
-              <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 14, fontWeight: 600, color: '#00d4ff' }}>{value}</span>
-              <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 9, color: '#3a5a6a', letterSpacing: '0.1em' }}>{label}</span>
+        {/* Stats */}
+        <div style={{ display: 'flex', gap: 20, marginRight: 'auto' }}>
+          <StatPill label="节点" value={nodeCount} color="#00d4ff" />
+          <StatPill label="调用" value={edgeCount} color="#00f084" />
+        </div>
+
+        {/* Type legend */}
+        <div style={{ display: 'flex', gap: 10, marginRight: 8 }}>
+          {Object.entries(typeCounts).map(([type, count]) => (
+            <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div style={{
+                width: 6, height: 6, borderRadius: 1,
+                background: getNodeAccent(type),
+              }} />
+              <span style={{
+                fontFamily:    "'IBM Plex Mono'",
+                fontSize:      9,
+                color:         '#3a5a6a',
+                letterSpacing: '0.08em',
+              }}>
+                {type.toLowerCase()} ({count})
+              </span>
             </div>
           ))}
         </div>
 
+        {/* Search */}
         <Input
-          prefix={<SearchOutlined style={{ color: '#3a5a6a', fontSize: 12 }} />}
-          placeholder="搜索函数..."
+          prefix={<SearchOutlined style={{ color: '#2a4a5a', fontSize: 11 }} />}
+          placeholder="搜索函数 / 类..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           style={{
-            width: 200,
-            background: '#0a1520',
-            border: '1px solid #1e2d3d',
-            borderRadius: 4,
-            color: '#8ab4c8',
+            width:      200,
+            background: '#080e16',
+            border:     '1px solid #1a2535',
+            borderRadius: 3,
+            color:      '#8ab4c8',
             fontFamily: "'IBM Plex Mono'",
-            fontSize: 12,
+            fontSize:   11,
           }}
           allowClear
         />
 
+        {/* Depth */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10, color: '#3a5a6a', letterSpacing: '0.1em', whiteSpace: 'nowrap' }}>
+          <AimOutlined style={{ color: '#2a4a5a', fontSize: 11 }} />
+          <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 9, color: '#2a4a5a', letterSpacing: '0.1em' }}>
             深度
           </span>
           <Slider
-            min={1} max={5} value={depth}
+            min={1} max={6} value={depth}
             onChange={setDepth}
-            style={{ width: 80 }}
+            style={{ width: 72 }}
             tooltip={{ formatter: (v) => `${v} 层` }}
           />
-          <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 12, color: '#00f084', minWidth: 12 }}>{depth}</span>
+          <span style={{
+            fontFamily:  "'IBM Plex Mono'",
+            fontSize:    12,
+            fontWeight:  700,
+            color:       '#00f084',
+            minWidth:    14,
+          }}>
+            {depth}
+          </span>
         </div>
 
         <Tooltip title="重置视图">
@@ -352,27 +431,35 @@ const CallGraphInner: React.FC = () => {
             icon={<ReloadOutlined />}
             onClick={handleReset}
             size="small"
-            style={{ background: '#0a1520', border: '1px solid #1e2d3d', color: '#3a5a6a' }}
+            style={{ background: '#080e16', border: '1px solid #1a2535', color: '#2a4a5a' }}
           />
         </Tooltip>
       </div>
 
+      {/* ── Graph canvas ─────────────────────────────────────────────────────── */}
       <div style={{ flex: 1, display: 'flex', position: 'relative', overflow: 'hidden' }}>
+
         {callGraph.loading && (
           <div style={{
-            position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'rgba(7,9,13,0.8)', zIndex: 10,
+            position: 'absolute', inset: 0,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            background: 'rgba(7,9,13,0.85)', zIndex: 10, gap: 12,
           }}>
             <Spin size="large" />
+            <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10, color: '#2a4a5a', letterSpacing: '0.12em' }}>
+              加载调用图...
+            </span>
           </div>
         )}
 
         {!activeRepo && !callGraph.loading && (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Empty
-              description={<span style={{ color: '#3a5a6a', fontFamily: "'IBM Plex Mono'", fontSize: 12 }}>请选择一个仓库以查看调用图</span>}
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-            />
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 40, opacity: 0.06, marginBottom: 12 }}>⬡</div>
+              <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 11, color: '#2a4a5a', letterSpacing: '0.1em' }}>
+                请从顶栏选择一个仓库
+              </div>
+            </div>
           </div>
         )}
 
@@ -385,26 +472,21 @@ const CallGraphInner: React.FC = () => {
             onNodeClick={onNodeClick}
             nodeTypes={nodeTypes}
             fitView
-            minZoom={0.1}
-            maxZoom={2}
+            minZoom={0.08}
+            maxZoom={2.5}
             proOptions={{ hideAttribution: true }}
           >
             <Background
               variant={BackgroundVariant.Dots}
-              gap={24}
-              size={1}
+              gap={28}
+              size={0.8}
               color="#0d1a24"
             />
-            <Controls
-              style={{ background: '#0a1520', border: '1px solid #1e2d3d' }}
-            />
+            <Controls style={{ background: '#080e16', border: '1px solid #1a2535' }} />
             <MiniMap
-              style={{ background: '#07090d', border: '1px solid #1e2d3d' }}
-              nodeColor={(n) => {
-                const d = n.data as NodeData
-                return d.nodeType === 'API' ? '#00d4ff' : '#00f084'
-              }}
-              maskColor="rgba(7,9,13,0.8)"
+              style={{ background: '#07090d', border: '1px solid #1a2535' }}
+              nodeColor={(n) => getNodeAccent((n.data as NodeData).nodeType)}
+              maskColor="rgba(7,9,13,0.75)"
             />
           </ReactFlow>
         )}
@@ -414,30 +496,29 @@ const CallGraphInner: React.FC = () => {
             node={panelNode}
             edges={rawData?.edges}
             allNodes={rawData?.nodes}
-            onClose={() => {
-              setPanelNode(null)
-              setFocusNodeId(null)
-              setSelectedNode(null)
-            }}
+            onClose={() => { setPanelNode(null); setFocusNodeId(null); setSelectedNode(null) }}
           />
         )}
       </div>
 
+      {/* ── Focus hint ───────────────────────────────────────────────────────── */}
       {focusNodeId && (
         <div style={{
-          position: 'absolute',
-          bottom: 16,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          background: 'rgba(0,240,132,0.1)',
-          border: '1px solid #00f08444',
-          borderRadius: 4,
-          padding: '4px 12px',
-          fontFamily: "'IBM Plex Mono'",
-          fontSize: 11,
-          color: '#00f084',
+          position:      'absolute',
+          bottom:        20,
+          left:          '50%',
+          transform:     'translateX(-50%)',
+          background:    'rgba(0,240,132,0.08)',
+          border:        '1px solid rgba(0,240,132,0.2)',
+          borderRadius:  3,
+          padding:       '5px 14px',
+          fontFamily:    "'IBM Plex Mono'",
+          fontSize:      10,
+          color:         '#00f084',
           pointerEvents: 'none',
-          zIndex: 5,
+          zIndex:        5,
+          letterSpacing: '0.06em',
+          backdropFilter: 'blur(8px)',
         }}>
           显示 {depth} 层调用链 · 再次点击节点可重置
         </div>

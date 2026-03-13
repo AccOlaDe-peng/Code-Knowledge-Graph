@@ -90,4 +90,66 @@ export const graphApi = {
   getServicesGraph(graphId: string): Promise<ServicesGraphResponse> {
     return httpClient.get('/services', { params: { graph_id: graphId } })
   },
+
+  // ─── New GraphPipeline endpoints ──────────────────────────────────────────
+
+  /**
+   * GET /graph/data
+   * Full JSON Graph from GraphStorage (new pipeline format).
+   * Nodes have lowercase types: function, class, module, file, api, database, table
+   */
+  getGraphData(repoId: string): Promise<{ repo_id: string; node_count: number; edge_count: number; nodes: RawNode[]; edges: RawEdge[] }> {
+    return httpClient.get('/graph/data', { params: { repo_id: repoId } })
+  },
+
+  /**
+   * GET /graph/call
+   * Call subgraph (calls edges + related nodes).
+   */
+  getCallSubgraph(repoId: string): Promise<{ repo_id: string; node_count: number; edge_count: number; nodes: RawNode[]; edges: RawEdge[] }> {
+    return httpClient.get('/graph/call', { params: { repo_id: repoId } })
+  },
+
+  /**
+   * GET /graph/module
+   * Module structure subgraph (contains/imports edges + related nodes).
+   * edge_type: "contains" | "imports" | "all"
+   */
+  getModuleSubgraph(repoId: string, edgeType: 'contains' | 'imports' | 'all' = 'all'): Promise<{ repo_id: string; node_count: number; edge_count: number; nodes: RawNode[]; edges: RawEdge[] }> {
+    return httpClient.get('/graph/module', { params: { repo_id: repoId, edge_type: edgeType } })
+  },
+}
+
+// ─── Raw node/edge types from new pipeline ────────────────────────────────────
+
+export type RawNode = {
+  id:       string
+  type:     string   // lowercase: function, class, module, file, api, database, table, repository
+  name?:    string
+  file?:    string
+  line?:    number
+  module?:  string
+  language?: string
+}
+
+export type RawEdge = {
+  from: string
+  to:   string
+  type: string   // contains, calls, imports, reads, writes
+}
+
+/** Normalize raw node to GraphNode (label = name or id-derived) */
+export function rawNodeToGraphNode(n: RawNode): import('../types/graph').GraphNode {
+  const label = n.name || n.id.split(':').pop()?.split('.').pop() || n.id
+  return {
+    id:         n.id,
+    type:       n.type,
+    label,
+    properties: { file: n.file, line: n.line, module: n.module, language: n.language },
+  }
+}
+
+/** Normalize raw edge to GraphEdge (from/to → source/target) */
+export function rawEdgeToGraphEdge(e: RawEdge): import('../types/graph').GraphEdge {
+  return { source: e.from, target: e.to, type: e.type }
 }
