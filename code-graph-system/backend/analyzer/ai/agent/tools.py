@@ -118,6 +118,16 @@ class AgentTools:
             if not dir_path.is_absolute():
                 dir_path = self.repo_path / dir_path
 
+            # Security check: ensure directory is within repo_path
+            try:
+                dir_path = dir_path.resolve()
+                dir_path.relative_to(self.repo_path.resolve())
+            except ValueError:
+                return {
+                    "success": False,
+                    "error": f"Path outside repository: {path}",
+                }
+
             if not dir_path.exists():
                 return {
                     "success": False,

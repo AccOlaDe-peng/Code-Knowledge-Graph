@@ -95,3 +95,32 @@ def test_list_directory_basic(tmp_path):
 
     # Should not recurse
     assert "nested.py" not in names
+
+
+def test_list_directory_blocks_path_traversal(tmp_path):
+    """Test that path traversal attacks are blocked."""
+    # Create directory inside repo
+    repo_dir = tmp_path / "subdir"
+    repo_dir.mkdir()
+    (repo_dir / "file.py").write_text("content")
+
+    # Create directory outside repo
+    outside_dir = tmp_path.parent / "outside"
+    outside_dir.mkdir(exist_ok=True)
+    (outside_dir / "secret.py").write_text("secret")
+
+    tools = AgentTools(repo_path=str(tmp_path), static_graph=None)
+
+    # Try to list directory outside repo using relative path
+    result = tools.list_directory("../outside")
+    assert result["success"] is False
+    assert "Path outside repository" in result["error"]
+
+    # Try to list directory outside repo using absolute path
+    result = tools.list_directory(str(outside_dir))
+    assert result["success"] is False
+    assert "Path outside repository" in result["error"]
+
+    # Verify we can still list directories inside repo
+    result = tools.list_directory("subdir")
+    assert result["success"] is True
