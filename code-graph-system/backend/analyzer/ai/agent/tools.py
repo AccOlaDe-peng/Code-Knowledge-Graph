@@ -188,9 +188,15 @@ class AgentTools:
             matches = []
 
             # Simple recursive search (not using ripgrep for simplicity)
-            for file_path in self.repo_path.rglob("*"):
+            for file_path in self.repo_path.glob(file_glob):
                 if not file_path.is_file():
                     continue
+
+                # Security check: ensure file is within repo_path
+                try:
+                    file_path.resolve().relative_to(self.repo_path.resolve())
+                except ValueError:
+                    continue  # Skip files outside repo
 
                 # Skip binary files and common ignore patterns
                 if file_path.suffix in {".pyc", ".so", ".dll", ".exe"}:

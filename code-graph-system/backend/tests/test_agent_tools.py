@@ -142,3 +142,46 @@ def test_search_code_basic(tmp_path):
     assert "file" in match
     assert "line" in match
     assert "content" in match
+
+
+def test_search_code_with_file_glob(tmp_path):
+    """Test search with file glob pattern."""
+    (tmp_path / "file1.py").write_text("def authenticate():\n    pass\n")
+    (tmp_path / "file2.txt").write_text("authenticate\n")
+
+    tools = AgentTools(repo_path=str(tmp_path), static_graph=None)
+
+    # Search only .py files
+    result = tools.search_code("authenticate", file_glob="**/*.py")
+    assert result["success"] is True
+    assert len(result["matches"]) == 1
+    assert result["matches"][0]["file"].endswith(".py")
+
+
+def test_search_code_blocks_symlink_traversal(tmp_path):
+    """Test that symlinks outside repo are skipped."""
+    import os
+
+    # Create file inside repo
+    (tmp_path / "inside.py").write_text("secret_inside\n")
+
+    # Create directory outside repo
+    outside_dir = tmp_path.parent / "outside"
+    outside_dir.mkdir(exist_ok=True)
+    (outside_dir / "outside.py").write_text("secret_outside\n")
+
+    # Create symlink pointing outside (skip on Windows if no admin)
+    try:
+        symlink = tmp_path / "link_to_outside.py"
+        symlink.symlink_to(outside_dir / "outside.py")
+    except OSError:
+        pytest.skip("Cannot create symlinks (need admin on Windows)")
+
+    tools = AgentTools(repo_path=str(tmp_path), static_graph=None)
+    result = tools.search_code("secret")
+
+    assert result["success"] is True
+    # Should only find inside.py, not outside.py via symlink
+    assert len(result["matches"]) == 1
+    assert "inside.py" in result["matches"][0]["file"]
+    assert "outside.py" not in result["matches"][0]["file"]
