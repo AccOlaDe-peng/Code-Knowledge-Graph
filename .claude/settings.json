@@ -32,7 +32,19 @@
       "Bash(npm run:*)",
       "Bash(npx tsc:*)",
       "Bash(find c:codeCode-Knowledge-Graphcode-graph-uisrcfeaturesarchitecture -type f -name *.ts -o -name *.tsx -o -name *.json)",
-      "Bash(find c:codeCode-Knowledge-Graphcode-graph-uisrccomponents -type f -name *.ts -o -name *.tsx)"
+      "Bash(find c:codeCode-Knowledge-Graphcode-graph-uisrccomponents -type f -name *.ts -o -name *.tsx)",
+      "Bash(bash ~/.claude/skills/auto-batch/auto-batch/scripts/run_batch.sh /tmp/batch_tasks_code_graph_v2.md /Users/wayne/Documents/code/code-knowledge-graph)",
+      "Read(//Users/wayne/.claude/skills/auto-batch/**)",
+      "Bash(bash ~/.claude/skills/auto-batch/scripts/run_batch.sh /tmp/batch_tasks_code_graph_v2.md /Users/wayne/Documents/code/code-knowledge-graph)",
+      "Bash(mkdir -p code-graph-system-v2)",
+      "Bash(npm init:*)",
+      "Bash(chmod +x /Users/wayne/Documents/code/code-knowledge-graph/code-graph-system-v2/scripts/start-backend.sh)",
+      "Bash(chmod +x /Users/wayne/Documents/code/code-knowledge-graph/code-graph-system-v2/scripts/start-frontend.sh)",
+      "Bash(chmod +x /Users/wayne/Documents/code/code-knowledge-graph/code-graph-system-v2/scripts/test-workflow.sh)"
+    ],
+    "additionalDirectories": [
+      "/tmp",
+      "/private/tmp"
     ]
   }
 }
