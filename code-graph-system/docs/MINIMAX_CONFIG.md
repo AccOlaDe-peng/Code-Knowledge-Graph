@@ -27,17 +27,19 @@ LLM_PROVIDER=minimax
 # MiniMax API Key（替换为你的实际 Key）
 OPENAI_API_KEY=your_minimax_api_key_here
 
-# MiniMax API 基础 URL（Anthropic 兼容接口）
-OPENAI_BASE_URL=https://api.minimaxi.com/anthropic
+# MiniMax API 基础 URL（Anthropic 兼容接口，官方推荐）
+ANTHROPIC_BASE_URL=https://api.minimaxi.com/anthropic
+# 或使用 OPENAI_BASE_URL（二选一）
+# OPENAI_BASE_URL=https://api.minimaxi.com/anthropic
 
 # MiniMax 模型名称
 LLM_MODEL=MiniMax-M2.5
 ```
 
 **重要说明：**
-- MiniMax 使用 Anthropic 兼容接口，所以 API Key 存储在 `OPENAI_API_KEY` 环境变量中
-- Base URL 设置为 `https://api.minimaxi.com/anthropic`
-- 系统会自动检测 MiniMax 并使用正确的 API 格式
+- MiniMax 使用 Anthropic 兼容接口，API Key 存储在 `OPENAI_API_KEY` 环境变量中
+- Base URL 需设置为 `https://api.minimaxi.com/anthropic`（推荐使用 `ANTHROPIC_BASE_URL`，与 MiniMax 官方文档一致）
+- 系统会自动检测 `minimaxi`/`minimax` 并切换到 Anthropic 兼容模式
 
 ### 2. MiniMax 可用模型
 

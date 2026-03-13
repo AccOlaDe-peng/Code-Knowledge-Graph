@@ -29,12 +29,12 @@ def main():
     print("\n1. 检查环境变量...")
     provider = os.getenv("LLM_PROVIDER")
     api_key = os.getenv("OPENAI_API_KEY")
-    base_url = os.getenv("OPENAI_BASE_URL")
+    base_url = os.getenv("ANTHROPIC_BASE_URL") or os.getenv("OPENAI_BASE_URL")
     model = os.getenv("LLM_MODEL")
 
-    print(f"   LLM_PROVIDER: {provider}")
+    print(f"   LLM_PROVIDER: {provider or '(默认 anthropic)'}")
     print(f"   OPENAI_API_KEY: {'✅ 已设置' if api_key else '❌ 未设置'}")
-    print(f"   OPENAI_BASE_URL: {base_url or '(使用默认)'}")
+    print(f"   ANTHROPIC_BASE_URL / OPENAI_BASE_URL: {base_url or '(未设置，需配置 https://api.minimaxi.com/anthropic)'}")
     print(f"   LLM_MODEL: {model or '(使用默认)'}")
 
     if not api_key:
@@ -42,15 +42,15 @@ def main():
         print("   请在 .env 文件中设置你的 MiniMax API Key")
         return False
 
-    if provider != "openai":
-        print(f"\n⚠️  警告：LLM_PROVIDER 设置为 '{provider}'，应该设置为 'openai'")
-        print("   MiniMax 使用 OpenAI 兼容接口")
+    if not base_url or "minimaxi" not in (base_url or "").lower():
+        print("\n⚠️  提示：建议设置 ANTHROPIC_BASE_URL=https://api.minimaxi.com/anthropic")
+        print("   （或 OPENAI_BASE_URL）以使用 MiniMax Anthropic 兼容接口")
 
-    # 创建客户端
+    # 创建客户端（base_url 含 minimax 时会自动切换为 minimax 提供商）
     print("\n2. 创建 LLM 客户端...")
     try:
         client = LLMClient(
-            provider=provider or "openai",
+            provider=provider or "anthropic",
             model=model,
             api_key=api_key,
             base_url=base_url
