@@ -138,12 +138,20 @@ engine.rag_query(graph_id, "登录如何实现？")
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
+| GET  | `/health` | 健康检查 |
 | POST | `/analyze/repository` | 全量分析（本地路径或 Git URL），返回 graph_id + 统计 |
 | POST | `/analyze/upload-zip` | 上传 ZIP 文件分析，返回 graph_id + 统计 |
+| POST | `/analyze/graph` | GraphPipeline 直接分析，返回图谱数据 |
 | GET  | `/graph` | 无 `graph_id` 返回列表；有则返回节点+边 |
+| GET  | `/graph/data` | 通用图谱数据（按 node_types/edge_types 过滤） |
+| GET  | `/graph/call` | 调用图（Function/API 节点 + calls 边，类似 /callgraph） |
+| GET  | `/graph/module` | 模块依赖图（Module 节点 + depends_on 边） |
+| GET  | `/graph/summary` | 图谱摘要统计 |
+| GET  | `/graph/export` | 导出图谱（JSON/CSV 格式） |
 | DELETE | `/graph/{graph_id}` | 删除指定图谱（JSON + ChromaDB） |
 | GET  | `/callgraph` | Function/API 节点 + calls 边 |
 | GET  | `/lineage` | depends_on / reads / writes / produces / consumes 边 |
+| GET  | `/events` | Event/Topic 节点 + produces/consumes 边 |
 | GET  | `/services` | Service / Cluster / Database 节点 |
 | POST | `/query` | GraphRAG 自然语言查询 |
 
@@ -199,7 +207,7 @@ AI 分析缓存（`backend/ai/cache/`）：commit SHA 不变则跳过 LLM 调用
 
 ### 技术栈
 
-React 19 + TypeScript 5.9 + Vite 7 + Ant Design 6 + React Router v7 + Zustand 5 + Axios + Cytoscape.js（含 cytoscape-dagre、cytoscape-cose-bilkent）+ ECharts
+React 19 + TypeScript 5.9 + Vite 7 + Ant Design 6 + React Router v7 + Zustand 5 + Axios + Cytoscape.js（含 cytoscape-dagre、cytoscape-cose-bilkent）+ @xyflow/react（ReactFlow）+ ECharts
 
 ### 常用命令
 
