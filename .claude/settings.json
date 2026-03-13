@@ -43,7 +43,8 @@
       "Bash(chmod +x /Users/wayne/Documents/code/code-knowledge-graph/code-graph-system-v2/scripts/test-workflow.sh)",
       "Bash(npm install:*)",
       "Bash(curl -s http://localhost:3000/health)",
-      "Bash(ps -p 90078 -o pid,command)"
+      "Bash(ps -p 90078 -o pid,command)",
+      "Bash(git checkout:*)"
     ],
     "additionalDirectories": [
       "/tmp",
