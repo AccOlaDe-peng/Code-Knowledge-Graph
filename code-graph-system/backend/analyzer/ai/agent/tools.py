@@ -50,6 +50,16 @@ class AgentTools:
             if not file_path.is_absolute():
                 file_path = self.repo_path / file_path
 
+            # Security check: ensure file is within repo_path
+            try:
+                file_path = file_path.resolve()
+                file_path.relative_to(self.repo_path.resolve())
+            except ValueError:
+                return {
+                    "success": False,
+                    "error": f"Path outside repository: {path}",
+                }
+
             if not file_path.exists():
                 return {
                     "success": False,

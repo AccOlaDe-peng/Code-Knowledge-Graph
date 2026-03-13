@@ -43,3 +43,33 @@ def test_read_file_truncates_long_files(tmp_path):
     assert result["success"] is True
     assert result["truncated"] is True
     assert result["lines"] == 200
+
+
+def test_read_file_blocks_path_traversal(tmp_path):
+    """Test that path traversal attacks are blocked."""
+    # Create a file inside repo
+    repo_file = tmp_path / "allowed.py"
+    repo_file.write_text("allowed content")
+
+    # Create a file outside repo
+    outside_dir = tmp_path.parent / "outside"
+    outside_dir.mkdir(exist_ok=True)
+    outside_file = outside_dir / "secret.py"
+    outside_file.write_text("secret content")
+
+    tools = AgentTools(repo_path=str(tmp_path), static_graph=None)
+
+    # Try to read file outside repo using relative path with ..
+    result = tools.read_file("../outside/secret.py")
+    assert result["success"] is False
+    assert "Path outside repository" in result["error"]
+
+    # Try to read file outside repo using absolute path
+    result = tools.read_file(str(outside_file))
+    assert result["success"] is False
+    assert "Path outside repository" in result["error"]
+
+    # Verify we can still read files inside repo
+    result = tools.read_file(str(repo_file))
+    assert result["success"] is True
+    assert "allowed content" in result["content"]
