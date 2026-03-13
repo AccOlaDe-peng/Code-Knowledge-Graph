@@ -348,3 +348,74 @@ class AgentTools:
                 "success": False,
                 "error": str(e),
             }
+
+    def get_imports(self, path: str) -> dict[str, Any]:
+        """
+        Get import dependencies for a file from static analysis.
+
+        Args:
+            path: File path (relative to repo_path)
+
+        Returns:
+            {
+                "success": bool,
+                "imports": [{"source": str, "target": str}],
+                "error": str (if success=False)
+            }
+        """
+        try:
+            if self.static_graph is None:
+                return {
+                    "success": False,
+                    "error": "Static graph not available",
+                }
+
+            # Normalize path
+            norm_path = str(Path(path)).replace("\\", "/")
+
+            # Find the file node
+            file_node_id = None
+            for node in self.static_graph.nodes:
+                node_name = node.name
+                if node_name:
+                    norm_node_name = str(Path(node_name)).replace("\\", "/")
+                    # Match if exact match or ends with the path
+                    if norm_node_name == norm_path or norm_node_name.endswith("/" + norm_path):
+                        file_node_id = node.id
+                        break
+
+            if file_node_id is None:
+                return {
+                    "success": True,
+                    "imports": [],
+                }
+
+            # Collect IMPORTS edges from this file
+            from backend.graph.graph_schema import EdgeType
+
+            imports = []
+            for edge in self.static_graph.edges:
+                if edge.from_ == file_node_id and edge.type == EdgeType.IMPORTS:
+                    # Find target node name
+                    target_name = None
+                    for node in self.static_graph.nodes:
+                        if node.id == edge.to:
+                            target_name = node.name
+                            break
+
+                    if target_name:
+                        imports.append({
+                            "source": norm_path,
+                            "target": target_name,
+                        })
+
+            return {
+                "success": True,
+                "imports": imports,
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+            }

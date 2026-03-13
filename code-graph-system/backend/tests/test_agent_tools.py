@@ -295,3 +295,25 @@ def test_get_call_graph_depth_1(tmp_path):
     assert len(result["edges"]) == 1
     assert result["edges"][0]["from"] == "func1"
     assert result["edges"][0]["to"] == "func2"
+
+
+def test_get_imports_from_static_graph(tmp_path):
+    """Test retrieving import dependencies."""
+    from backend.graph.graph_schema import GraphNode, GraphEdge, NodeType, EdgeType
+
+    class MockGraph:
+        def __init__(self):
+            self.nodes = [
+                GraphNode(id="file1", type=NodeType.FILE, name="main.py", properties={}),
+                GraphNode(id="file2", type=NodeType.FILE, name="utils.py", properties={}),
+            ]
+            self.edges = [
+                GraphEdge(from_="file1", to="file2", type=EdgeType.IMPORTS, properties={}),
+            ]
+
+    tools = AgentTools(repo_path=str(tmp_path), static_graph=MockGraph())
+    result = tools.get_imports("main.py")
+
+    assert result["success"] is True
+    assert len(result["imports"]) == 1
+    assert result["imports"][0]["target"] == "utils.py"
