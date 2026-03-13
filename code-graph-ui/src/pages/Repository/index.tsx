@@ -539,7 +539,7 @@ const Repository: React.FC = () => {
           ))}
         </div>
 
-        <Form form={form} layout="vertical" onFinish={handleSubmit} requiredMark={false}>
+        <Form form={form} layout="vertical" onFinish={handleSubmit} requiredMark={false} initialValues={{ enableAi: false, enableRag: false }}>
           {sourceMode === 'git' && (<>
             <Form.Item name="gitUrl" label="Git 仓库地址" rules={[{ required: true, message: 'Git URL 不能为空' }]} style={{ marginBottom: 16 }}>
               <Input placeholder="git@github.com:org/repo.git 或 https://github.com/org/repo.git" style={{ fontFamily: "'IBM Plex Mono'", fontSize: 12 }} />
@@ -575,7 +575,7 @@ const Repository: React.FC = () => {
           <div style={{ padding: '16px', marginBottom: 20, background: 'var(--s-float)', borderRadius: 'var(--radius-s)', border: '1px solid var(--b-faint)', display: 'flex', flexDirection: 'column', gap: 16 }}>
             <Form.Item name="enableAi" valuePropName="checked" style={{ marginBottom: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                <Switch onChange={(v) => setEnableAiState(v)} />
+                <Switch onChange={(checked) => form.setFieldsValue({ enableAi: checked })} />
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontSize: 13, color: 'var(--t-primary)', fontFamily: "'Syne', sans-serif", fontWeight: 500 }}>AI 语义分析</span>
@@ -590,7 +590,7 @@ const Repository: React.FC = () => {
 
             <Form.Item name="enableRag" valuePropName="checked" style={{ marginBottom: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                <Switch />
+                <Switch onChange={(checked) => form.setFieldsValue({ enableRag: checked })} />
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontSize: 13, color: 'var(--t-primary)', fontFamily: "'Syne', sans-serif", fontWeight: 500 }}>向量检索（RAG）</span>
