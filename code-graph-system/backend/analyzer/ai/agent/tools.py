@@ -264,13 +264,16 @@ class AgentTools:
             matching_nodes = []
             for node in self.static_graph.nodes:
                 node_file = node.properties.get("file", "")
-                if node_file and norm_path in node_file:
-                    matching_nodes.append({
-                        "id": node.id,
-                        "type": node.type,
-                        "name": node.name,
-                        "line": node.properties.get("line", 0),
-                    })
+                if node_file:
+                    norm_node_file = str(Path(node_file)).replace("\\", "/")
+                    # Match if exact match or ends with the path (e.g., "file.py" matches "src/file.py")
+                    if norm_node_file == norm_path or norm_node_file.endswith("/" + norm_path):
+                        matching_nodes.append({
+                            "id": node.id,
+                            "type": str(node.type),  # Convert enum to string
+                            "name": node.name,
+                            "line": node.properties.get("line", 0),
+                        })
 
             return {
                 "success": True,

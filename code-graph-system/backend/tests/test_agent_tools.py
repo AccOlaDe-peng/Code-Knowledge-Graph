@@ -222,3 +222,51 @@ def test_get_ast_nodes_from_static_graph(tmp_path):
     assert len(result["nodes"]) == 2
     assert result["nodes"][0]["name"] == "authenticate"
     assert result["nodes"][1]["name"] == "login"
+
+
+def test_get_ast_nodes_path_matching(tmp_path):
+    """Test precise path matching (not substring matching)."""
+    from backend.graph.graph_schema import GraphNode, NodeType
+
+    class MockGraph:
+        def __init__(self):
+            self.nodes = [
+                GraphNode(
+                    id="func1",
+                    type=NodeType.FUNCTION,
+                    name="func_in_file",
+                    properties={"file": "src/file.py", "line": 10}
+                ),
+                GraphNode(
+                    id="func2",
+                    type=NodeType.FUNCTION,
+                    name="func_in_myfile",
+                    properties={"file": "src/myfile.py", "line": 20}
+                ),
+                GraphNode(
+                    id="func3",
+                    type=NodeType.FUNCTION,
+                    name="func_in_nested",
+                    properties={"file": "src/module/file.py", "line": 30}
+                ),
+            ]
+
+    tools = AgentTools(repo_path=str(tmp_path), static_graph=MockGraph())
+
+    # Query "file.py" should match both src/file.py and src/module/file.py
+    # but NOT src/myfile.py (which contains "file" as substring)
+    result = tools.get_ast_nodes("file.py")
+    assert result["success"] is True
+    assert len(result["nodes"]) == 2
+    names = {n["name"] for n in result["nodes"]}
+    assert "func_in_file" in names
+    assert "func_in_nested" in names
+    assert "func_in_myfile" not in names  # Should NOT match
+
+
+def test_get_ast_nodes_no_static_graph(tmp_path):
+    """Test graceful handling when static_graph is None."""
+    tools = AgentTools(repo_path=str(tmp_path), static_graph=None)
+    result = tools.get_ast_nodes("test.py")
+    assert result["success"] is False
+    assert "not available" in result["error"]
