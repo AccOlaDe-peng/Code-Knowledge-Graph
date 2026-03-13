@@ -54,7 +54,9 @@ from typing import Any, Optional
 
 from backend.ai.llm_client import LLMClient, get_default_client
 from backend.graph.code_graph_builder import CodeGraphBuilder
+from backend.graph.graph_builder import BuiltGraph
 from backend.graph.graph_repository import GraphRepository
+from backend.graph.graph_schema import GraphEdge, GraphNode
 from backend.parser.code_parser import CodeParser, ParsedFile
 from backend.scanner.repo_scanner import RepoScanner, ScanResult
 
@@ -165,13 +167,15 @@ class GraphPipeline:
         """
         Args:
             graph_repo: 图谱持久化仓库（默认 ``./data/graphs``）。
+                        同时用于写入 BuiltGraph 兼容格式，保证旧端点可读。
             llm_client: LLM 客户端（None 则按需从环境变量创建）。
             output_dir: graph.json 输出目录。
         """
-        self._repo       = graph_repo or GraphRepository(output_dir)
-        self._llm        = llm_client   # 懒加载，enable_ai=True 时才初始化
         self._output_dir = Path(output_dir)
         self._output_dir.mkdir(parents=True, exist_ok=True)
+        # 优先使用传入的 repo，否则指向同一目录（保证 index.json 共享）
+        self._repo       = graph_repo or GraphRepository(output_dir)
+        self._llm        = llm_client   # 懒加载，enable_ai=True 时才初始化
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -475,15 +479,20 @@ class GraphPipeline:
         repo_name: str,
         scan_result: ScanResult,
     ) -> tuple[str, Path, dict[str, Any]]:
-        """Step 5 — 将图谱写入 graph.json 并更新索引。"""
+        """Step 5 — 将图谱写入 graph.json 并更新索引。
+
+        同时通过 GraphRepository 写入 BuiltGraph 兼容格式，
+        保证 GET /graph、GET /callgraph 等旧端点可以正常读取。
+        """
         logger.info("[5/5] export_graph: 持久化 graph.json...")
         t = time.time()
 
-        graph_id   = _safe_filename(repo_name)
+        graph_id    = _safe_filename(repo_name)
         output_path = self._output_dir / f"{graph_id}.json"
+        commit      = getattr(scan_result, "git_commit", "") or ""
+        now         = _utc_now()
 
-        # 包装为完整 graph.json 格式（含 meta）
-        commit = getattr(scan_result, "git_commit", "") or ""
+        # ── 1. 写入标准 JSON Graph 格式（新格式，供 /graph/data 等端点使用）──
         payload = {
             "meta": {
                 "graph_id":    graph_id,
@@ -492,19 +501,28 @@ class GraphPipeline:
                 "edge_count":  len(graph["edges"]),
                 "git_commit":  commit,
                 "pipeline":    "GraphPipeline",
-                "created_at":  _utc_now(),
+                "created_at":  now,
             },
             "nodes": graph["nodes"],
             "edges": graph["edges"],
         }
-
         output_path.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
 
-        # 更新 index.json
-        _update_index(self._output_dir, graph_id, repo_name, payload["meta"])
+        # ── 2. 同步写入 GraphRepository（BuiltGraph 兼容格式）──────────────
+        # 将新格式节点/边转换为 GraphNode / GraphEdge Pydantic 模型，
+        # 再通过 GraphRepository._save_json 写入，保证旧端点（GET /graph、
+        # GET /callgraph、GET /lineage 等）能正常读取。
+        try:
+            built = _new_graph_to_built(
+                graph, graph_id, repo_name, commit, now
+            )
+            self._repo._save_json(built, graph_id, repo_name)
+            logger.debug("  → GraphRepository 同步写入完成: %s", graph_id)
+        except Exception as exc:
+            logger.warning("  ⚠ GraphRepository 同步写入失败（不影响主流程）: %s", exc)
 
         stats = {
             "graph_id":    graph_id,
@@ -859,6 +877,99 @@ def _utc_now() -> str:
     """返回当前 UTC 时间的 ISO 8601 字符串。"""
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat()
+
+
+def _new_graph_to_built(
+    graph: dict[str, Any],
+    graph_id: str,
+    repo_name: str,
+    commit: str,
+    created_at: str,
+) -> BuiltGraph:
+    """将新格式 JSON Graph 转换为 BuiltGraph（供 GraphRepository 写入）。
+
+    新格式节点字段：id, type, name, file, line, module, language
+    旧格式 GraphNode 字段：id, type, name, properties（dict）
+
+    转换规则：
+    - type 做首字母大写规范化（"function" → "Function"）以匹配 NodeType 枚举
+    - file / line / module / language 写入 properties
+    - 边的 "from" 键映射到 GraphEdge.from_
+    """
+    # 节点类型首字母大写映射（新格式小写 → 旧格式 PascalCase）
+    _TYPE_MAP: dict[str, str] = {
+        "repository": "Repository",
+        "module":     "Module",
+        "file":       "File",
+        "class":      "Class",
+        "function":   "Function",
+        "api":        "API",
+        "database":   "Database",
+        "table":      "Table",
+        "service":    "Service",
+        "component":  "Component",
+        "event":      "Event",
+        "topic":      "Topic",
+    }
+
+    nodes: list[GraphNode] = []
+    for raw in graph.get("nodes") or []:
+        if not isinstance(raw, dict) or not raw.get("id"):
+            continue
+        raw_type = raw.get("type", "")
+        node_type = _TYPE_MAP.get(raw_type.lower(), raw_type.capitalize() or "Function")
+        props: dict[str, Any] = {}
+        for field in ("file", "line", "module", "language"):
+            val = raw.get(field)
+            if val is not None:
+                props[field] = val
+        # 保留原始 properties（如有）
+        if isinstance(raw.get("properties"), dict):
+            props.update(raw["properties"])
+        nodes.append(GraphNode(
+            id=raw["id"],
+            type=node_type,
+            name=raw.get("name") or raw["id"].rsplit(":", 1)[-1].rsplit(".", 1)[-1],
+            properties=props,
+        ))
+
+    edges: list[GraphEdge] = []
+    for raw in graph.get("edges") or []:
+        if not isinstance(raw, dict):
+            continue
+        from_id = raw.get("from", "")
+        to_id   = raw.get("to", "")
+        etype   = raw.get("type", "")
+        if not from_id or not to_id or not etype or from_id == to_id:
+            continue
+        edges.append(GraphEdge(
+            from_=from_id,
+            to=to_id,
+            type=etype,
+            properties={},
+        ))
+
+    # 统计
+    node_type_counts: dict[str, int] = {}
+    for n in nodes:
+        node_type_counts[n.type] = node_type_counts.get(n.type, 0) + 1
+    edge_type_counts: dict[str, int] = {}
+    for e in edges:
+        edge_type_counts[e.type] = edge_type_counts.get(e.type, 0) + 1
+
+    meta: dict[str, Any] = {
+        "graph_id":         graph_id,
+        "repo_name":        repo_name,
+        "repo_path":        "",
+        "git_commit":       commit,
+        "node_count":       len(nodes),
+        "edge_count":       len(edges),
+        "node_type_counts": node_type_counts,
+        "edge_type_counts": edge_type_counts,
+        "created_at":       created_at,
+        "pipeline":         "GraphPipeline",
+    }
+    return BuiltGraph(nodes=nodes, edges=edges, meta=meta, metrics={})
 
 
 def _update_index(

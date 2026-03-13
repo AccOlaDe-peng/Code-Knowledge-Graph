@@ -2,12 +2,18 @@
 FastAPI 服务器主模块。
 
 API 端点：
-    POST   /analyze/repository  — 提交代码仓库分析任务
+    POST   /analyze/repository  — 分析代码仓库（统一走 GraphPipeline，不再生成 Markdown）
+    POST   /analyze/upload-zip  — 上传 ZIP 压缩包分析
     GET    /graph               — 列出所有图谱 / 获取指定图谱
     DELETE /graph/{graph_id}    — 删除指定图谱
+    GET    /graph/export        — 导出标准 JSON Graph（CodeGraph 格式）
+    GET    /graph/data          — 获取完整 JSON Graph（GraphStorage 格式）
+    GET    /graph/call          — 获取调用子图（calls 边）
+    GET    /graph/module        — 获取模块结构子图（contains/imports 边）
+    GET    /graph/summary       — 获取图谱 LOD-0 摘要
     GET    /callgraph           — 获取函数调用图（Function 节点 + calls 边）
-    GET    /lineage             — 获取依赖血缘图（Module/Service 节点 + depends_on 边）
-    GET    /events              — 获取事件流图（Event/Topic 节点 + produces/consumes 边）
+    GET    /lineage             — 获取依赖血缘图（depends_on/reads/writes 边）
+    GET    /events              — 获取事件流图（Event/Topic 节点）
     GET    /services            — 获取基础设施图（Service/Cluster/Database 节点）
     POST   /query               — GraphRAG 自然语言查询
 
@@ -41,6 +47,7 @@ from backend.pipeline.analyze_repository import AnalysisPipeline
 from backend.pipeline.graph_pipeline import GraphPipeline
 from backend.rag.graph_rag_engine import GraphRAGEngine
 from backend.rag.vector_store import VectorStore
+from backend.storage.graph_storage import GraphStorage, RepoNotFoundError
 
 logging.basicConfig(
     level=logging.INFO,
@@ -57,19 +64,23 @@ _vector_store:  VectorStore
 _pipeline:      AnalysisPipeline
 _rag_engine:    GraphRAGEngine
 _graph_pipeline: GraphPipeline
+_graph_storage: GraphStorage
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期：启动时初始化全局单例，关闭时释放 Neo4j 连接。"""
-    global _graph_repo, _vector_store, _pipeline, _rag_engine, _graph_pipeline
+    global _graph_repo, _vector_store, _pipeline, _rag_engine, _graph_pipeline, _graph_storage
 
     logger.info("初始化服务组件...")
     _graph_repo     = GraphRepository()
     _vector_store   = VectorStore()
     _pipeline       = AnalysisPipeline(_graph_repo, _vector_store)
     _rag_engine     = GraphRAGEngine(_graph_repo, _vector_store)
-    _graph_pipeline = GraphPipeline()
+    # GraphPipeline 共享同一个 GraphRepository 实例，
+    # 保证 Step 5 写入的 BuiltGraph 能被旧端点（GET /graph 等）直接读取
+    _graph_pipeline = GraphPipeline(graph_repo=_graph_repo)
+    _graph_storage  = GraphStorage()
     logger.info("服务启动完成")
 
     yield
@@ -193,10 +204,15 @@ def root():
         "version": "1.0.0",
         "docs":    "/docs",
         "endpoints": [
-            "POST   /analyze/repository  (旧版流水线)",
-            "POST   /analyze/graph       (新版 GraphPipeline)",
-            "GET    /graph",
-            "GET    /graph/export",
+            "POST   /analyze/repository  (GraphPipeline — scan→parse→AI→build→export)",
+            "POST   /analyze/upload-zip  (ZIP 上传分析)",
+            "POST   /analyze/graph       (GraphPipeline 直接调用，返回完整 graph)",
+            "GET    /graph               (列表 / 详情)",
+            "GET    /graph/export        (标准 CodeGraph JSON)",
+            "GET    /graph/data          (完整 JSON Graph)",
+            "GET    /graph/call          (调用子图)",
+            "GET    /graph/module        (模块结构子图)",
+            "GET    /graph/summary       (LOD-0 摘要)",
             "DELETE /graph/{graph_id}",
             "GET    /callgraph",
             "GET    /lineage",
@@ -248,14 +264,19 @@ def _clone_repo(git_url: str, branch: Optional[str], tmp_dir: str) -> str:
 @app.post("/analyze/repository", response_model=AnalyzeResponse, tags=["分析"])
 def analyze_repository(req: AnalyzeRequest):
     """
-    分析代码仓库，构建知识图谱并持久化。
+    分析代码仓库，构建 JSON 知识图谱并持久化。
+
+    统一使用 **GraphPipeline**（5 步流水线）：
+    scan → parse → AI analyze (per file) → build graph → export graph.json
+
+    不再生成 Markdown 文档。
 
     - **repo_path**: 本地路径 或 Git URL（ssh/https）
     - **branch**: Git 分支名（仅 Git URL 模式有效）
-    - **enable_ai**: 启用 LLM 语义增强（慢，需 API Key）
-    - **enable_rag**: 启用向量索引（需 chromadb）
+    - **enable_ai**: 启用 LLM 逐文件分析（需 API Key）
+    - **enable_rag**: 向量化索引（需 chromadb，分析完成后异步建立）
     """
-    logger.info("POST /analyze/repository  path=%s", req.repo_path)
+    logger.info("POST /analyze/repository  path=%s  enable_ai=%s", req.repo_path, req.enable_ai)
 
     tmp_dir: Optional[str] = None
     analyze_path = req.repo_path
@@ -266,12 +287,11 @@ def analyze_repository(req: AnalyzeRequest):
             analyze_path = _clone_repo(req.repo_path, req.branch, tmp_dir)
             logger.info("克隆完成，分析路径: %s", analyze_path)
 
-        result = _pipeline.analyze(
+        result = _graph_pipeline.run(
             analyze_path,
             repo_name=req.repo_name,
             languages=req.languages,
             enable_ai=req.enable_ai,
-            enable_rag=req.enable_rag,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -282,17 +302,26 @@ def analyze_repository(req: AnalyzeRequest):
         if tmp_dir and os.path.exists(tmp_dir):
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    built = result.built
+    # 可选：异步建立 RAG 向量索引（不阻塞响应）
+    if req.enable_rag:
+        try:
+            built = _graph_repo.load(result.graph_id)
+            if built:
+                _rag_engine.embed_nodes(result.graph_id, built.nodes)
+        except Exception as exc:
+            logger.warning("RAG 向量化失败（不影响图谱结果）: %s", exc)
+
+    graph_meta = result.step_stats.get("4_build", {})
     return AnalyzeResponse(
         graph_id=result.graph_id,
-        repo_name=result.repo_name,
-        repo_path=result.repo_path,
+        repo_name=req.repo_name or result.graph_id,
+        repo_path=analyze_path,
         node_count=result.node_count,
         edge_count=result.edge_count,
         duration_seconds=result.duration_seconds,
-        node_types=built.meta.get("node_type_counts", {}),
-        edge_types=built.meta.get("edge_type_counts", {}),
-        circular_deps=len(result.circular_deps),
+        node_types=graph_meta.get("node_types", {}),
+        edge_types=graph_meta.get("edge_types", {}),
+        circular_deps=0,
         warnings=result.warnings,
         step_stats=result.step_stats,
     )
@@ -345,12 +374,11 @@ def analyze_upload_zip(
             extracted = os.path.join(extracted, entries[0])
 
         logger.info("ZIP 解压完成，分析路径: %s", extracted)
-        result = _pipeline.analyze(
+        result = _graph_pipeline.run(
             extracted,
             repo_name=name,
             languages=lang_list,
             enable_ai=enable_ai,
-            enable_rag=enable_rag,
         )
     except zipfile.BadZipFile:
         raise HTTPException(status_code=400, detail="文件不是有效的 ZIP 压缩包")
@@ -363,17 +391,25 @@ def analyze_upload_zip(
         if tmp_dir and os.path.exists(tmp_dir):
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    built = result.built
+    if enable_rag:
+        try:
+            built = _graph_repo.load(result.graph_id)
+            if built:
+                _rag_engine.embed_nodes(result.graph_id, built.nodes)
+        except Exception as exc:
+            logger.warning("RAG 向量化失败（不影响图谱结果）: %s", exc)
+
+    graph_meta = result.step_stats.get("4_build", {})
     return AnalyzeResponse(
         graph_id=result.graph_id,
-        repo_name=result.repo_name,
-        repo_path=result.repo_path,
+        repo_name=name,
+        repo_path=extracted,
         node_count=result.node_count,
         edge_count=result.edge_count,
         duration_seconds=result.duration_seconds,
-        node_types=built.meta.get("node_type_counts", {}),
-        edge_types=built.meta.get("edge_type_counts", {}),
-        circular_deps=len(result.circular_deps),
+        node_types=graph_meta.get("node_types", {}),
+        edge_types=graph_meta.get("edge_types", {}),
+        circular_deps=0,
         warnings=result.warnings,
         step_stats=result.step_stats,
     )
@@ -442,6 +478,10 @@ def get_graph(
     """
     if graph_id is None:
         graphs = _graph_repo.list_graphs()
+        # 补充 git_commit 字段（GraphPipeline 写入的 meta 中含此字段）
+        for g in graphs:
+            if "git_commit" not in g:
+                g["git_commit"] = g.get("git_commit", "")
         return {"graphs": graphs, "total": len(graphs)}
 
     built = _load_or_404(graph_id)
@@ -524,6 +564,159 @@ def export_graph(
 
 
 # ---------------------------------------------------------------------------
+# GET /graph  (GraphStorage — 标准 JSON Graph)
+# GET /graph/call
+# GET /graph/module
+# ---------------------------------------------------------------------------
+
+
+def _storage_load_or_404(repo_id: str) -> dict[str, Any]:
+    """从 GraphStorage 加载完整图谱，不存在时抛出 404。"""
+    try:
+        return _graph_storage.load_graph(repo_id)
+    except RepoNotFoundError:
+        raise HTTPException(status_code=404, detail=f"图谱不存在: {repo_id}")
+    except Exception as exc:
+        logger.exception("GraphStorage 读取失败: %s", repo_id)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class GraphDataResponse(BaseModel):
+    """GET /graph, /graph/call, /graph/module 统一响应体。"""
+    repo_id:     str
+    node_count:  int
+    edge_count:  int
+    nodes:       list[dict[str, Any]]
+    edges:       list[dict[str, Any]]
+
+
+@app.get("/graph/data", response_model=GraphDataResponse, tags=["图谱数据"])
+def get_graph_data(
+    repo_id: str = Query(description="仓库 ID（由 POST /analyze/graph 返回的 graph_id）"),
+):
+    """
+    获取完整 JSON Graph 数据。
+
+    从 GraphStorage 读取 ``graph-storage/<repo_id>/graph.json``，
+    返回所有节点和边。
+
+    返回格式：
+    ```json
+    {
+      "repo_id": "my-project",
+      "node_count": 42,
+      "edge_count": 87,
+      "nodes": [{"id": "...", "type": "...", "name": "...", ...}],
+      "edges": [{"from": "...", "to": "...", "type": "..."}]
+    }
+    ```
+    """
+    graph = _storage_load_or_404(repo_id)
+    nodes: list[dict[str, Any]] = graph.get("nodes", [])
+    edges: list[dict[str, Any]] = graph.get("edges", [])
+    logger.info("GET /graph/data  repo=%s  %d nodes / %d edges", repo_id, len(nodes), len(edges))
+    return GraphDataResponse(
+        repo_id=repo_id,
+        node_count=len(nodes),
+        edge_count=len(edges),
+        nodes=nodes,
+        edges=edges,
+    )
+
+
+@app.get("/graph/call", response_model=GraphDataResponse, tags=["图谱数据"])
+def get_graph_call(
+    repo_id: str = Query(description="仓库 ID"),
+):
+    """
+    获取函数调用子图（``calls`` 边及相关节点）。
+
+    从 GraphStorage 读取预生成的 ``call-graph.json``（若不存在则实时过滤）。
+
+    只包含：
+    - 边类型：``calls``
+    - 节点：出现在 ``calls`` 边中的 ``function`` / ``api`` 节点
+
+    返回格式同 ``GET /graph/data``。
+    """
+    try:
+        subgraph = _graph_storage.get_subgraph(repo_id, "calls")
+    except RepoNotFoundError:
+        raise HTTPException(status_code=404, detail=f"图谱不存在: {repo_id}")
+    except Exception as exc:
+        logger.exception("get_subgraph(calls) 失败: %s", repo_id)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    nodes: list[dict[str, Any]] = subgraph.get("nodes", [])
+    edges: list[dict[str, Any]] = subgraph.get("edges", [])
+    logger.info("GET /graph/call  repo=%s  %d nodes / %d edges", repo_id, len(nodes), len(edges))
+    return GraphDataResponse(
+        repo_id=repo_id,
+        node_count=len(nodes),
+        edge_count=len(edges),
+        nodes=nodes,
+        edges=edges,
+    )
+
+
+@app.get("/graph/module", response_model=GraphDataResponse, tags=["图谱数据"])
+def get_graph_module(
+    repo_id: str  = Query(description="仓库 ID"),
+    edge_type: str = Query(
+        default="contains",
+        description="边类型过滤：``contains``（默认）、``imports`` 或 ``all``（contains + imports）",
+    ),
+):
+    """
+    获取模块结构子图（``contains`` / ``imports`` 边及相关节点）。
+
+    从 GraphStorage 读取预生成的 ``module-graph.json``（若不存在则实时过滤）。
+
+    - ``edge_type=contains``（默认）：仅返回包含关系（module → file → class/function）
+    - ``edge_type=imports``：仅返回导入关系（module → module）
+    - ``edge_type=all``：返回 contains + imports 全部
+
+    返回格式同 ``GET /graph/data``。
+    """
+    # "all" 等价于读取 module-graph.json（contains + imports 共用同一文件）
+    query_type = "contains" if edge_type == "all" else edge_type
+
+    try:
+        subgraph = _graph_storage.get_subgraph(repo_id, query_type)
+    except RepoNotFoundError:
+        raise HTTPException(status_code=404, detail=f"图谱不存在: {repo_id}")
+    except Exception as exc:
+        logger.exception("get_subgraph(%s) 失败: %s", edge_type, repo_id)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    nodes: list[dict[str, Any]] = subgraph.get("nodes", [])
+    edges: list[dict[str, Any]] = subgraph.get("edges", [])
+
+    # edge_type=contains 或 edge_type=imports 时，在内存中二次过滤
+    if edge_type in ("contains", "imports"):
+        edges = [e for e in edges if e.get("type") == edge_type]
+        involved: set[str] = set()
+        for e in edges:
+            if e.get("from"):
+                involved.add(e["from"])
+            if e.get("to"):
+                involved.add(e["to"])
+        nodes = [n for n in nodes if n.get("id") in involved]
+
+    logger.info(
+        "GET /graph/module  repo=%s  edge_type=%s  %d nodes / %d edges",
+        repo_id, edge_type, len(nodes), len(edges),
+    )
+    return GraphDataResponse(
+        repo_id=repo_id,
+        node_count=len(nodes),
+        edge_count=len(edges),
+        nodes=nodes,
+        edges=edges,
+    )
+
+
+# ---------------------------------------------------------------------------
 # GET /graph/summary
 # ---------------------------------------------------------------------------
 
@@ -590,7 +783,8 @@ def get_callgraph(
         }
 
     # 全图调用关系：仅 Function/API 节点 + calls 边
-    call_node_types = {"Function", "API"}
+    # 兼容新格式（小写）和旧格式（PascalCase）
+    call_node_types = {"Function", "API", "function", "api"}
     func_nodes = [
         n.model_dump()
         for n in built.nodes
@@ -632,7 +826,8 @@ def get_lineage(
     - 不传 `node_id`：返回整图中所有血缘相关节点和边
     - 传入 `node_id`：从该节点出发 BFS 展开血缘路径
     """
-    _LINEAGE_EDGE_TYPES = {"depends_on", "reads", "writes", "produces", "consumes"}
+    # 兼容新格式（imports 也属于血缘关系）
+    _LINEAGE_EDGE_TYPES = {"depends_on", "reads", "writes", "produces", "consumes", "imports"}
 
     if edge_types:
         target_types = {t.strip() for t in edge_types.split(",") if t.strip()}
