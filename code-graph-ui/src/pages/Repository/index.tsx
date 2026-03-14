@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Modal, Form, Input, Button, Switch, Select, Alert, Popconfirm, Tag, Upload, message } from 'antd'
+import { Modal, Form, Input, Button, Select, Alert, Popconfirm, Tag, Upload, message, Progress, Timeline } from 'antd'
 import { PlusOutlined, ReloadOutlined, EyeOutlined, DeleteOutlined, GithubOutlined, FolderOutlined, UploadOutlined } from '@ant-design/icons'
 import type { UploadFile } from 'antd'
 import { repoApi } from '../../api/repoApi'
+import { graphEndpoints } from '../../core/api/endpoints/graph'
+import { useAnalysisStream } from '../../core/hooks/useAnalysisStream'
 import { useRepoStore } from '../../store/repoStore'
 import { useGraphStore } from '../../store/graphStore'
 import type { AnalyzeRepoResponse, RepoInfo } from '../../types/api'
@@ -12,153 +14,151 @@ type SourceMode = 'local' | 'git' | 'zip'
 
 const LANGS = ['python', 'typescript', 'javascript', 'java', 'go', 'rust', 'cpp', 'csharp']
 
-// ─── Pipeline Steps ───────────────────────────────────────────────────────────
+// ─── Real-time Progress Display (SSE-driven) ──────────────────────────────────
 
-const PIPELINE_STEPS = [
-  { key: 'scan',   label: 'SCAN REPO',    desc: '扫描文件 + Git 信息',      icon: '◎' },
-  { key: 'parse',  label: 'PARSE CODE',   desc: 'AST 解析类/函数/调用',      icon: '⟨⟩' },
-  { key: 'ai',     label: 'AI ANALYZE',   desc: 'LLM 逐文件分析',           icon: '◈' },
-  { key: 'build',  label: 'BUILD GRAPH',  desc: '合并节点/边，去重',         icon: '⬡' },
-  { key: 'export', label: 'EXPORT JSON',  desc: '写入 graph.json',          icon: '↗' },
-]
-
-type StepStatus = 'idle' | 'running' | 'done' | 'skipped'
-
-// ─── Pipeline Progress Display ────────────────────────────────────────────────
-
-const PipelineProgress: React.FC<{
-  active: boolean
-  enableAi: boolean
-  done: boolean
-}> = ({ active, enableAi, done }) => {
-  const [stepIdx, setStepIdx]   = useState(-1)
-  const [statuses, setStatuses] = useState<StepStatus[]>(PIPELINE_STEPS.map(() => 'idle'))
-  const timerRef                = useRef<ReturnType<typeof setTimeout> | null>(null)
+const RealTimeProgress: React.FC<{
+  currentStep: any
+  completedSteps: any[]
+  finalResult: any
+  isConnected: boolean
+}> = ({ currentStep, completedSteps, finalResult, isConnected }) => {
+  const [startTime] = useState(Date.now())
+  const [elapsed, setElapsed] = useState(0)
 
   useEffect(() => {
-    if (!active) {
-      setStepIdx(-1)
-      setStatuses(PIPELINE_STEPS.map(() => 'idle'))
-      return
-    }
-    // Simulate step-by-step progress
-    const delays = [0, 800, 1800, enableAi ? 3500 : 2400, enableAi ? 5000 : 3200]
-    delays.forEach((delay, i) => {
-      timerRef.current = setTimeout(() => {
-        setStepIdx(i)
-        setStatuses((prev) => {
-          const next = [...prev]
-          if (i > 0) next[i - 1] = 'done'
-          next[i] = 'running'
-          if (!enableAi && i === 2) next[i] = 'skipped'
-          return next
-        })
-      }, delay)
-    })
-    return () => { if (timerRef.current) clearTimeout(timerRef.current) }
-  }, [active, enableAi])
+    if (!currentStep && !finalResult) return
+    const timer = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startTime) / 1000))
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [currentStep, finalResult, startTime])
 
-  useEffect(() => {
-    if (done) {
-      setStatuses(PIPELINE_STEPS.map((_, i) => (!enableAi && i === 2) ? 'skipped' : 'done'))
-      setStepIdx(PIPELINE_STEPS.length)
-    }
-  }, [done, enableAi])
+  const total = currentStep?.total ?? 13
+  const step = currentStep?.step ?? 0
+  const progress = total > 0 ? Math.round((step / total) * 100) : 0
 
   return (
     <div style={{ marginTop: 20 }}>
-      {/* Step track */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 12 }}>
-        {PIPELINE_STEPS.map((step, i) => {
-          const status = statuses[i]
-          const color  = status === 'done'    ? '#00f084' :
-                         status === 'running' ? '#00d4ff' :
-                         status === 'skipped' ? '#3a5a6a' :
-                         '#1a2535'
-          const isLast = i === PIPELINE_STEPS.length - 1
-          return (
-            <React.Fragment key={step.key}>
-              <div style={{
-                display:       'flex',
-                flexDirection: 'column',
-                alignItems:    'center',
-                gap:           4,
-                flex:          1,
-              }}>
-                {/* Circle */}
-                <div style={{
-                  width:        28,
-                  height:       28,
-                  borderRadius: '50%',
-                  border:       `2px solid ${color}`,
-                  background:   status === 'running' ? `${color}18` : 'transparent',
-                  display:      'flex',
-                  alignItems:   'center',
-                  justifyContent: 'center',
-                  fontSize:     12,
-                  color,
-                  boxShadow:    status === 'running' ? `0 0 12px ${color}66` : 'none',
-                  transition:   'all 0.3s ease',
-                  position:     'relative',
-                }}>
-                  {status === 'running' ? (
-                    <div style={{
-                      width:        8,
-                      height:       8,
-                      borderRadius: '50%',
-                      background:   color,
-                      animation:    'pulse 1s ease-in-out infinite',
-                    }} />
-                  ) : status === 'done' ? (
-                    <span style={{ fontSize: 11 }}>✓</span>
-                  ) : status === 'skipped' ? (
-                    <span style={{ fontSize: 10 }}>—</span>
-                  ) : (
-                    <span style={{ fontSize: 10, opacity: 0.4 }}>{i + 1}</span>
-                  )}
-                </div>
-                {/* Label */}
-                <div style={{
-                  fontFamily:    "'IBM Plex Mono', monospace",
-                  fontSize:      8,
-                  color,
-                  letterSpacing: '0.1em',
-                  textAlign:     'center',
-                  whiteSpace:    'nowrap',
-                  opacity:       status === 'idle' ? 0.3 : 1,
-                }}>
-                  {step.label}
-                </div>
-              </div>
-              {/* Connector */}
-              {!isLast && (
-                <div style={{
-                  height:     1.5,
-                  flex:       0.4,
-                  background: i < stepIdx
-                    ? 'linear-gradient(90deg, #00f084, #00d4ff)'
-                    : '#1a2535',
-                  transition: 'background 0.4s ease',
-                  marginBottom: 20,
-                }} />
-              )}
-            </React.Fragment>
-          )
-        })}
+      {/* Connection status */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <div style={{
+          width: 6, height: 6, borderRadius: '50%',
+          background: isConnected ? '#00f084' : '#ffc145',
+          boxShadow: isConnected ? '0 0 8px #00f084' : 'none',
+        }} />
+        <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 9, color: 'var(--t-muted)', letterSpacing: '0.08em' }}>
+          {isConnected ? '实时连接' : '连接中...'}
+        </span>
+        <span style={{ marginLeft: 'auto', fontFamily: "'IBM Plex Mono'", fontSize: 9, color: 'var(--t-muted)' }}>
+          {elapsed}s
+        </span>
       </div>
 
-      {/* Current step description */}
-      {stepIdx >= 0 && stepIdx < PIPELINE_STEPS.length && (
+      {/* Progress bar */}
+      <Progress
+        percent={progress}
+        strokeColor={{
+          '0%': '#00d4ff',
+          '100%': '#00f084',
+        }}
+        trailColor="var(--s-float)"
+        style={{ marginBottom: 16 }}
+      />
+
+      {/* Current step */}
+      {currentStep && (
         <div style={{
-          fontFamily:    "'IBM Plex Mono', monospace",
-          fontSize:      10,
-          color:         '#00d4ff',
-          letterSpacing: '0.08em',
-          textAlign:     'center',
-          opacity:       0.8,
+          padding: '12px 16px',
+          background: 'rgba(0,212,255,0.06)',
+          border: '1px solid rgba(0,212,255,0.2)',
+          borderRadius: 4,
+          marginBottom: 16,
         }}>
-          {statuses[stepIdx] === 'running' && `▶ ${PIPELINE_STEPS[stepIdx].desc}...`}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <div style={{
+              width: 8, height: 8, borderRadius: '50%',
+              background: '#00d4ff',
+              animation: 'pulse 1s ease-in-out infinite',
+            }} />
+            <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 11, color: '#00d4ff', letterSpacing: '0.08em' }}>
+              步骤 {step}/{total}: {currentStep.stage || '处理中'}
+            </span>
+          </div>
+          {currentStep.message && (
+            <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10, color: 'var(--t-secondary)', paddingLeft: 16 }}>
+              {currentStep.message}
+            </div>
+          )}
         </div>
+      )}
+
+      {/* Completed steps timeline */}
+      {completedSteps.length > 0 && (
+        <div style={{
+          maxHeight: 200,
+          overflowY: 'auto',
+          padding: '12px 16px',
+          background: 'var(--s-float)',
+          border: '1px solid var(--b-faint)',
+          borderRadius: 4,
+        }}>
+          <Timeline
+            items={completedSteps.map((step, i) => ({
+              key: i,
+              color: '#00f084',
+              children: (
+                <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10 }}>
+                  <span style={{ color: 'var(--t-secondary)' }}>{step.stage}</span>
+                  {step.message && (
+                    <span style={{ color: 'var(--t-muted)', marginLeft: 8 }}>— {step.message}</span>
+                  )}
+                </div>
+              ),
+            }))}
+          />
+        </div>
+      )}
+
+      {/* Final result */}
+      {finalResult && finalResult.status === 'completed' && (
+        <div style={{
+          marginTop: 16,
+          padding: '14px 16px',
+          background: 'rgba(0,240,132,0.06)',
+          border: '1px solid rgba(0,240,132,0.2)',
+          borderRadius: 4,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#00f084', boxShadow: '0 0 8px #00f084' }} />
+            <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 11, color: '#00f084', letterSpacing: '0.08em' }}>
+              分析完成
+            </span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            {[
+              { label: '图谱 ID', value: finalResult.graph_id || '—' },
+              { label: '耗时', value: `${finalResult.elapsed_seconds?.toFixed(2) ?? elapsed}s` },
+              { label: '节点数', value: (finalResult.node_count ?? 0).toLocaleString() },
+              { label: '边数', value: (finalResult.edge_count ?? 0).toLocaleString() },
+            ].map(({ label, value }) => (
+              <div key={label}>
+                <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 9, color: '#2a5a3a', letterSpacing: '0.1em', marginBottom: 2 }}>{label}</div>
+                <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 12, color: '#00f084', fontWeight: 600 }}>{value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Error result */}
+      {finalResult && finalResult.status === 'failed' && (
+        <Alert
+          type="error"
+          message="分析失败"
+          description={<span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 12 }}>{finalResult.error || '未知错误'}</span>}
+          showIcon
+          style={{ marginTop: 16 }}
+        />
       )}
 
       <style>{`
@@ -213,30 +213,25 @@ const Repository: React.FC = () => {
   const [modalOpen, setModalOpen]     = useState(false)
   const [sourceMode, setSourceMode]   = useState<SourceMode>('git')
   const [form]                        = Form.useForm()
-  const [analyzing, setAnalyzing]     = useState(false)
-  const [analysisDone, setAnalysisDone] = useState(false)
-  const [result, setResult]           = useState<AnalyzeRepoResponse | null>(null)
+  const [taskId, setTaskId]           = useState<string | null>(null)
   const [error, setError]             = useState<string | null>(null)
   const [zipFileList, setZipFileList] = useState<UploadFile[]>([])
-  const [enableAiState, setEnableAiState] = useState(false)
+
+  // SSE stream for async analysis
+  const { currentStep, completedSteps, finalResult, isConnected } = useAnalysisStream(taskId)
 
   const handleCloseModal = () => {
     setModalOpen(false)
     form.resetFields()
-    setResult(null)
+    setTaskId(null)
     setError(null)
     setZipFileList([])
-    setAnalyzing(false)
-    setAnalysisDone(false)
-    setEnableAiState(false)
   }
 
   const onAnalyzeSuccess = (
     res: AnalyzeRepoResponse,
-    opts: { languages?: string[]; repoPath?: string; branch?: string; sourceMode?: SourceMode; enableAi?: boolean; enableRag?: boolean }
+    opts: { languages?: string[]; repoPath?: string; branch?: string; sourceMode?: SourceMode }
   ) => {
-    setAnalysisDone(true)
-    setResult(res)
     addRepo({
       graphId:    res.graphId,
       repoName:   res.repoName,
@@ -247,45 +242,70 @@ const Repository: React.FC = () => {
       repoPath:   opts.repoPath,
       branch:     opts.branch,
       sourceMode: opts.sourceMode,
-      enableAi:   opts.enableAi,
-      enableRag:  opts.enableRag,
     })
     setTimeout(handleCloseModal, 2500)
   }
 
   const handleSubmit = async (values: {
     repoPath?: string; gitUrl?: string; branch?: string; repoName?: string
-    languages?: string[]; enableAi?: boolean; enableRag?: boolean
+    languages?: string[]
   }) => {
-    setAnalyzing(true)
-    setAnalysisDone(false)
     setError(null)
-    setResult(null)
-    setEnableAiState(values.enableAi ?? false)
+    setTaskId(null)
 
     try {
       if (sourceMode === 'zip') {
+        // ZIP upload remains synchronous
         const rawFile = zipFileList[0]?.originFileObj
-        if (!rawFile) { message.error('请先选择 ZIP 文件'); setAnalyzing(false); return }
+        if (!rawFile) { message.error('请先选择 ZIP 文件'); return }
         const res = await repoApi.analyzeZip(rawFile, {
           repoName: values.repoName, languages: values.languages,
-          enableAi: values.enableAi ?? false, enableRag: values.enableRag ?? false,
         })
-        onAnalyzeSuccess(res, { languages: values.languages, repoPath: rawFile.name, sourceMode: 'zip', enableAi: values.enableAi, enableRag: values.enableRag })
+        onAnalyzeSuccess(res, { languages: values.languages, repoPath: rawFile.name, sourceMode: 'zip' })
       } else {
+        // Git/local path uses async analysis
         const repoPath = sourceMode === 'git' ? (values.gitUrl ?? '') : (values.repoPath ?? '')
-        const res = await repoApi.analyzeRepository({
-          repoPath, repoName: values.repoName, branch: values.branch,
-          languages: values.languages, enableAi: values.enableAi ?? false, enableRag: values.enableRag ?? false,
+        const response = await graphEndpoints.analyzeRepository({
+          repo_path: repoPath,
+          repo_name: values.repoName,
+          languages: values.languages,
         })
-        onAnalyzeSuccess(res, { languages: values.languages, repoPath, branch: values.branch, sourceMode, enableAi: values.enableAi, enableRag: values.enableRag })
+        setTaskId(response.task_id)
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : '分析失败')
-      setAnalyzing(false)
-      setAnalysisDone(false)
     }
   }
+
+  // Navigate to architecture page when analysis completes
+  useEffect(() => {
+    if (finalResult?.status === 'completed' && finalResult.graph_id) {
+      const graphId = finalResult.graph_id
+      const nodeCount = finalResult.node_count ?? 0
+      const edgeCount = finalResult.edge_count ?? 0
+
+      // Add to repo store
+      addRepo({
+        graphId,
+        repoName: form.getFieldValue('repoName') || graphId,
+        language: form.getFieldValue('languages') || [],
+        createdAt: new Date().toISOString(),
+        nodeCount,
+        edgeCount,
+        repoPath: sourceMode === 'git' ? form.getFieldValue('gitUrl') : form.getFieldValue('repoPath'),
+        branch: form.getFieldValue('branch'),
+        sourceMode,
+      })
+
+      // Set active graph and navigate
+      setActiveGraphId(graphId)
+      message.success('分析完成，正在跳转...')
+      setTimeout(() => {
+        navigate(`/architecture?graph_id=${graphId}`)
+        handleCloseModal()
+      }, 1500)
+    }
+  }, [finalResult, navigate, addRepo, setActiveGraphId, form, sourceMode])
 
   const handleReanalyze = async (repo: RepoInfo) => {
     if (!repo.repoPath) {
@@ -303,13 +323,13 @@ const Repository: React.FC = () => {
       onOk: async () => {
         try {
           message.loading({ content: '正在重新分析...', key: 'reanalyze', duration: 0 })
-          const res = await repoApi.analyzeRepository({
-            repoPath: repo.repoPath!, repoName: repo.repoName, branch: repo.branch,
-            languages: repo.language, enableAi: repo.enableAi ?? false, enableRag: repo.enableRag ?? false,
+          const response = await graphEndpoints.analyzeRepository({
+            repo_path: repo.repoPath!,
+            repo_name: repo.repoName,
+            languages: repo.language,
           })
-          removeRepo(repo.graphId)
-          addRepo({ ...repo, graphId: res.graphId, nodeCount: res.nodeCount, edgeCount: res.edgeCount, createdAt: new Date().toISOString() })
-          message.success({ content: '重新分析完成', key: 'reanalyze' })
+          message.info({ content: `任务已提交: ${response.task_id}`, key: 'reanalyze' })
+          // Note: Could open a modal to track progress here
         } catch (e) {
           message.error({ content: e instanceof Error ? e.message : '重新分析失败', key: 'reanalyze' })
         }
@@ -368,28 +388,10 @@ const Repository: React.FC = () => {
       }}>
         <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#00d4ff', flexShrink: 0 }} />
         <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10, color: '#3a6a7a', letterSpacing: '0.06em' }}>
-          分析流水线：
-        </div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-          {PIPELINE_STEPS.map((step, i) => (
-            <React.Fragment key={step.key}>
-              <span style={{
-                fontFamily:    "'IBM Plex Mono'",
-                fontSize:      9,
-                color:         '#00d4ff88',
-                letterSpacing: '0.08em',
-                textTransform: 'uppercase',
-              }}>
-                {step.icon} {step.label}
-              </span>
-              {i < PIPELINE_STEPS.length - 1 && (
-                <span style={{ color: '#1a2535', fontSize: 10 }}>→</span>
-              )}
-            </React.Fragment>
-          ))}
+          分析流水线：13 步全自动分析（扫描 → 解析 → 模块检测 → 组件检测 → 依赖分析 → 调用图 → 事件分析 → 基础设施 → AI 分析 → 图谱构建 → 持久化 → 向量化）
         </div>
         <div style={{ marginLeft: 'auto', fontFamily: "'IBM Plex Mono'", fontSize: 9, color: '#2a4a5a', letterSpacing: '0.06em' }}>
-          GraphPipeline v2
+          AnalysisPipeline v2
         </div>
       </div>
 
@@ -539,7 +541,7 @@ const Repository: React.FC = () => {
           ))}
         </div>
 
-        <Form form={form} layout="vertical" onFinish={handleSubmit} requiredMark={false} initialValues={{ enableAi: false, enableRag: false }}>
+        <Form form={form} layout="vertical" onFinish={handleSubmit} requiredMark={false}>
           {sourceMode === 'git' && (<>
             <Form.Item name="gitUrl" label="Git 仓库地址" rules={[{ required: true, message: 'Git URL 不能为空' }]} style={{ marginBottom: 16 }}>
               <Input placeholder="git@github.com:org/repo.git 或 https://github.com/org/repo.git" style={{ fontFamily: "'IBM Plex Mono'", fontSize: 12 }} />
@@ -571,53 +573,25 @@ const Repository: React.FC = () => {
             <Select mode="multiple" placeholder="自动检测所有语言" options={LANGS.map(l => ({ value: l, label: l }))} style={{ fontFamily: "'IBM Plex Mono'" }} />
           </Form.Item>
 
-          {/* Toggles */}
-          <div style={{ padding: '16px', marginBottom: 20, background: 'var(--s-float)', borderRadius: 'var(--radius-s)', border: '1px solid var(--b-faint)', display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <Form.Item name="enableAi" valuePropName="checked" style={{ marginBottom: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                <Switch onChange={(checked) => form.setFieldsValue({ enableAi: checked })} />
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 13, color: 'var(--t-primary)', fontFamily: "'Syne', sans-serif", fontWeight: 500 }}>AI 语义分析</span>
-                    <span style={{ fontSize: 9, fontFamily: "'IBM Plex Mono'", letterSpacing: '0.08em', padding: '1px 6px', borderRadius: 2, background: 'rgba(176,142,255,0.12)', color: 'rgb(176,142,255)', border: '1px solid rgba(176,142,255,0.3)' }}>可选</span>
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--t-muted)', fontFamily: "'IBM Plex Mono'", marginTop: 2 }}>
-                    LLM 逐文件分析 · 需要 ANTHROPIC_API_KEY
-                  </div>
-                </div>
-              </div>
-            </Form.Item>
-
-            <Form.Item name="enableRag" valuePropName="checked" style={{ marginBottom: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                <Switch onChange={(checked) => form.setFieldsValue({ enableRag: checked })} />
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 13, color: 'var(--t-primary)', fontFamily: "'Syne', sans-serif", fontWeight: 500 }}>向量检索（RAG）</span>
-                    <span style={{ fontSize: 9, fontFamily: "'IBM Plex Mono'", letterSpacing: '0.08em', padding: '1px 6px', borderRadius: 2, background: 'rgba(255,193,69,0.12)', color: 'rgb(255,193,69)', border: '1px solid rgba(255,193,69,0.3)' }}>可选</span>
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--t-muted)', fontFamily: "'IBM Plex Mono'", marginTop: 2 }}>
-                    向量化索引 · 需要 ChromaDB
-                  </div>
-                </div>
-              </div>
-            </Form.Item>
-          </div>
-
           <Button
             type="primary"
             htmlType="submit"
-            loading={analyzing && !analysisDone}
+            loading={!!taskId && !finalResult}
             size="large"
             block
             style={{ height: 44, fontSize: 13, fontFamily: "'IBM Plex Mono'", letterSpacing: '0.08em' }}
           >
-            {analyzing && !analysisDone ? '分析中...' : '⚡ 开始分析'}
+            {taskId && !finalResult ? '分析中...' : '⚡ 开始分析'}
           </Button>
 
-          {/* Pipeline progress */}
-          {analyzing && (
-            <PipelineProgress active={analyzing} enableAi={enableAiState} done={analysisDone} />
+          {/* Real-time progress */}
+          {taskId && (
+            <RealTimeProgress
+              currentStep={currentStep}
+              completedSteps={completedSteps}
+              finalResult={finalResult}
+              isConnected={isConnected}
+            />
           )}
 
           {error && (
@@ -628,36 +602,6 @@ const Repository: React.FC = () => {
               showIcon closable onClose={() => setError(null)}
               style={{ marginTop: 16 }}
             />
-          )}
-
-          {result && analysisDone && (
-            <div style={{
-              marginTop:    16,
-              padding:      '14px 16px',
-              background:   'rgba(0,240,132,0.06)',
-              border:       '1px solid rgba(0,240,132,0.2)',
-              borderRadius: 4,
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#00f084', boxShadow: '0 0 8px #00f084' }} />
-                <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 11, color: '#00f084', letterSpacing: '0.08em' }}>
-                  分析完成
-                </span>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                {[
-                  { label: '图谱 ID',  value: result.graphId },
-                  { label: '耗时',     value: `${result.duration?.toFixed(2) ?? '—'}s` },
-                  { label: '节点数',   value: result.nodeCount.toLocaleString() },
-                  { label: '边数',     value: result.edgeCount.toLocaleString() },
-                ].map(({ label, value }) => (
-                  <div key={label}>
-                    <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 9, color: '#2a5a3a', letterSpacing: '0.1em', marginBottom: 2 }}>{label}</div>
-                    <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 12, color: '#00f084', fontWeight: 600 }}>{value}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
           )}
         </Form>
       </Modal>

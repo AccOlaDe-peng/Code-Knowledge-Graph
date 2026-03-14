@@ -25,8 +25,6 @@ export const repoApi = {
       repo_name:  req.repoName,
       branch:     req.branch,
       languages:  req.languages,
-      enable_ai:  req.enableAi  ?? false,
-      enable_rag: req.enableRag ?? false,
     })
     return toRepoResponse(raw)
   },
@@ -40,16 +38,12 @@ export const repoApi = {
     opts: {
       repoName?: string
       languages?: string[]
-      enableAi?: boolean
-      enableRag?: boolean
     } = {},
   ): Promise<AnalyzeRepoResponse> {
     const form = new FormData()
     form.append('file', file)
     form.append('repo_name',  opts.repoName  ?? '')
     form.append('languages',  (opts.languages ?? []).join(','))
-    form.append('enable_ai',  String(opts.enableAi  ?? false))
-    form.append('enable_rag', String(opts.enableRag ?? false))
 
     const raw: Record<string, unknown> = await httpClient.post(
       '/analyze/upload-zip',
