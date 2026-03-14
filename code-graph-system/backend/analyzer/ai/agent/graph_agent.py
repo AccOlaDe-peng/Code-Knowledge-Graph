@@ -202,8 +202,16 @@ class AIGraphAgent:
         # 替换 system prompt 中的 {context} 占位符
         system_prompt = self._system_prompt.replace("{context}", initial_context)
 
-        # 初始化消息历史
-        messages = []
+        # 初始化消息历史。MiniMax Anthropic 兼容接口要求首轮 messages 不能为空。
+        messages = [
+            {
+                "role": "user",
+                "content": (
+                    "请基于 system 提供的上下文开始代码架构分析，"
+                    "优先通过工具探索并在完成后调用 emit_graph。"
+                ),
+            }
+        ]
 
         # 工具调用循环
         tool_call_count = 0

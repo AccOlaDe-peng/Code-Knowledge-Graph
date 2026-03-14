@@ -437,8 +437,9 @@ class AnalysisPipeline:
                 llm_client = get_default_client()
 
                 if not llm_client.is_available():
-                    logger.warning("LLM 客户端不可用，跳过 AI 分析")
-                    warnings.append("LLM 客户端不可用（未配置 API Key），AI 分析已跳过")
+                    reason = llm_client.availability_reason()
+                    logger.warning("LLM 客户端不可用，跳过 AI 分析: %s", reason)
+                    warnings.append(f"LLM 客户端不可用（{reason}），AI 分析已跳过")
                     step_stats["10_ai_graph_agent"] = {"skipped": True}
                 else:
                     # Run AIGraphAgent (reuse static_graph from step 9)

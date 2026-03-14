@@ -31,6 +31,7 @@ import dataclasses
 import json
 import logging
 import time
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, Optional
@@ -294,6 +295,11 @@ def _extract_from_graph(
 
     # ── 节点提取 ──────────────────────────────────────────────────────
 
+    if isinstance(graph, Mapping):
+        raw_nodes = graph.get("nodes", [])
+        if isinstance(raw_nodes, list):
+            nodes.extend(x for x in raw_nodes if isinstance(x, GraphNode))
+
     if hasattr(graph, "nodes"):
         # GraphSchema / 直接含 nodes 属性
         raw = graph.nodes
@@ -313,7 +319,11 @@ def _extract_from_graph(
 
     # ── 边提取 ────────────────────────────────────────────────────────
 
-    raw_edges = getattr(graph, "edges", [])
+    if isinstance(graph, Mapping):
+        raw_edges = graph.get("edges", [])
+    else:
+        raw_edges = getattr(graph, "edges", [])
+
     if isinstance(raw_edges, list):
         edges.extend(x for x in raw_edges if isinstance(x, GraphEdge))
 
@@ -322,6 +332,12 @@ def _extract_from_graph(
 
 def _public_list_attrs(obj: Any) -> Iterator[list]:
     """返回对象所有公开 list 属性的迭代器（跳过 _ 前缀）。"""
+    if isinstance(obj, Mapping):
+        for k, v in obj.items():
+            if isinstance(k, str) and not k.startswith("_") and isinstance(v, list):
+                yield v
+        return
+
     if dataclasses.is_dataclass(obj):
         for f in dataclasses.fields(obj):
             if f.name.startswith("_"):
@@ -338,7 +354,11 @@ def _public_list_attrs(obj: Any) -> Iterator[list]:
             if isinstance(val, list):
                 yield val
     else:
-        for k, v in vars(obj).items():
+        try:
+            attrs = vars(obj)
+        except TypeError:
+            return
+        for k, v in attrs.items():
             if not k.startswith("_") and isinstance(v, list):
                 yield v
 

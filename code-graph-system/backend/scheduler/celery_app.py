@@ -21,8 +21,14 @@ Celery 应用实例。
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from celery import Celery
+from dotenv import load_dotenv
+
+# Ensure worker process sees the same env config as API server.
+_ROOT_DIR = Path(__file__).resolve().parents[2]
+load_dotenv(dotenv_path=_ROOT_DIR / ".env", override=False)
 
 # ---------------------------------------------------------------------------
 # 连接配置

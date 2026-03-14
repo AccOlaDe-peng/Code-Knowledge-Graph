@@ -81,14 +81,31 @@ class LLMClient:
 
     def _load_api_key(self, provider: str) -> Optional[str]:
         """从环境变量加载 API 密钥。"""
+        # MiniMax 兼容多种变量名，优先读取 MINIMAX_API_KEY。
+        if provider == "minimax":
+            return (
+                os.getenv("MINIMAX_API_KEY")
+                or os.getenv("OPENAI_API_KEY")
+                or os.getenv("ANTHROPIC_API_KEY")
+            )
+
         env_keys = {
             "anthropic": "ANTHROPIC_API_KEY",
             "openai": "OPENAI_API_KEY",
             "ollama": None,  # Ollama 本地部署不需要 Key
-            "minimax": "OPENAI_API_KEY",  # MiniMax 使用 OPENAI_API_KEY
         }
         env_name = env_keys.get(provider)
         return os.getenv(env_name) if env_name else None
+
+    def _required_key_env(self) -> Optional[str]:
+        """返回当前 provider 所需的 API Key 环境变量名。"""
+        required = {
+            "anthropic": "ANTHROPIC_API_KEY",
+            "openai": "OPENAI_API_KEY",
+            "ollama": None,
+            "minimax": "MINIMAX_API_KEY 或 OPENAI_API_KEY 或 ANTHROPIC_API_KEY",
+        }
+        return required.get(self.provider)
 
     def _get_client(self) -> object:
         """懒加载 LLM 客户端实例。"""
@@ -263,15 +280,25 @@ class LLMClient:
 
     def is_available(self) -> bool:
         """检查 LLM 服务是否可用。"""
-        if self.provider in ("anthropic", "minimax") and not self.api_key:
-            return False
-        if self.provider == "openai" and not self.api_key:
+        required_env = self._required_key_env()
+        if required_env and not self.api_key:
             return False
         try:
             self._get_client()
             return True
         except Exception:
             return False
+
+    def availability_reason(self) -> str:
+        """返回不可用原因，便于日志/告警定位。"""
+        required_env = self._required_key_env()
+        if required_env and not self.api_key:
+            return f"缺少环境变量 {required_env} (provider={self.provider})"
+        try:
+            self._get_client()
+            return "ok"
+        except Exception as exc:
+            return f"{type(exc).__name__}: {exc}"
 
 
 # 模块级默认客户端（按需使用）
@@ -286,6 +313,8 @@ def get_default_client() -> LLMClient:
         model = os.getenv("LLM_MODEL")
         # 优先使用 ANTHROPIC_BASE_URL（MiniMax 等兼容接口），其次 OPENAI_BASE_URL
         base_url = os.getenv("ANTHROPIC_BASE_URL") or os.getenv("OPENAI_BASE_URL")
+        if provider == "minimax" and not base_url:
+            base_url = "https://api.minimaxi.com/anthropic"
         _default_client = LLMClient(provider=provider, model=model, base_url=base_url)
     return _default_client
 
