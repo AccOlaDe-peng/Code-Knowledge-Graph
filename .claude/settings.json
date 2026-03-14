@@ -86,7 +86,17 @@
       "Bash(python test_404_checks.py)",
       "Bash(python -m py_compile backend/scheduler/tasks.py)",
       "Bash(python test_quality_fixes.py)",
-      "Bash(docker info:*)"
+      "Bash(docker info:*)",
+      "Bash(python -c \"import redis; r = redis.Redis\\(host=''localhost'', port=6379, db=0\\); print\\(''Redis connected:'', r.ping\\(\\)\\)\")",
+      "Bash(celery -A backend.scheduler.celery_app inspect active)",
+      "Bash(python -c \"from backend.scheduler.celery_app import celery_app; print\\(''Celery broker:'', celery_app.conf.broker_url\\); print\\(''Celery backend:'', celery_app.conf.result_backend\\)\")",
+      "Bash(redis-cli -h localhost -p 6379 LLEN celery)",
+      "Bash(redis-cli -h localhost -p 6379 KEYS \"celery-task-meta-*\")",
+      "Bash(python -c \"import redis; r = redis.Redis\\(host=''localhost'', port=6379, db=0\\); print\\(''队列长度:'', r.llen\\(''celery''\\)\\); print\\(''待处理任务:'', r.lrange\\(''celery'', 0, -1\\)[:3]\\)\")",
+      "Bash(python -c \"import redis; r = redis.Redis\\(host=''localhost'', port=6379, db=0\\); deleted = r.delete\\(''celery''\\); print\\(f''已清理队列，删除 {deleted} 个 key''\\)\")",
+      "Bash(python test_llm_connection.py)",
+      "Bash(python -c \"import os; from dotenv import load_dotenv; load_dotenv\\(\\); print\\(''Provider:'', os.getenv\\(''LLM_PROVIDER''\\)\\); print\\(''Model:'', os.getenv\\(''LLM_MODEL''\\)\\); print\\(''OpenAI Key:'', ''YES'' if os.getenv\\(''OPENAI_API_KEY''\\) else ''NO''\\); print\\(''OpenAI Base:'', os.getenv\\(''OPENAI_BASE_URL''\\)\\); print\\(''Anthropic Key:'', ''YES'' if os.getenv\\(''ANTHROPIC_API_KEY''\\) else ''NO''\\); print\\(''Anthropic Base:'', os.getenv\\(''ANTHROPIC_BASE_URL''\\)\\)\")",
+      "Bash(env)"
     ],
     "additionalDirectories": [
       "/tmp",

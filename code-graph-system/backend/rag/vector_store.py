@@ -123,17 +123,38 @@ class VectorStore:
         # ChromaDB 元数据值只支持 str / int / float / bool
         clean_metas = [_clean_metadata(m) for m in metadatas]
 
+        # ChromaDB 限制单次 upsert 最大批次大小（通常为 5461）
+        # 将大批次拆分成小批次避免 "Batch size greater than max batch size" 错误
+        MAX_BATCH_SIZE = 5000
+        total_inserted = 0
+
         try:
-            collection.upsert(ids=ids, documents=documents, metadatas=clean_metas)
-            logger.debug(
-                "VectorStore.upsert: graph=%s, %d 条文档", graph_id, len(ids)
+            for i in range(0, len(ids), MAX_BATCH_SIZE):
+                batch_ids = ids[i:i + MAX_BATCH_SIZE]
+                batch_docs = documents[i:i + MAX_BATCH_SIZE]
+                batch_metas = clean_metas[i:i + MAX_BATCH_SIZE]
+
+                collection.upsert(
+                    ids=batch_ids,
+                    documents=batch_docs,
+                    metadatas=batch_metas
+                )
+                total_inserted += len(batch_ids)
+                logger.debug(
+                    "VectorStore.upsert: graph=%s, 批次 %d-%d/%d 完成",
+                    graph_id, i + 1, i + len(batch_ids), len(ids)
+                )
+
+            logger.info(
+                "VectorStore.upsert: graph=%s, 共写入 %d 条文档", graph_id, total_inserted
             )
-            return len(ids)
+            return total_inserted
         except Exception:
             logger.error(
-                "VectorStore.upsert 失败: graph=%s", graph_id, exc_info=True
+                "VectorStore.upsert 失败: graph=%s, 已写入 %d/%d",
+                graph_id, total_inserted, len(ids), exc_info=True
             )
-            return 0
+            return total_inserted
 
     # ------------------------------------------------------------------
     # search

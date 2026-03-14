@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Alert,
@@ -276,16 +282,39 @@ const Repository: React.FC = () => {
   const detailTaskId =
     detailRepo?.status === "analyzing" ? (detailRepo.taskId ?? null) : null;
   const { currentStep, finalResult } = useAnalysisStream(detailTaskId);
+  const lastAppliedStreamEventRef = useRef<string>("");
 
   const refreshLocalRepos = useCallback(() => {
     message.success("已刷新本地仓库列表");
   }, []);
 
   useEffect(() => {
+    // 切换任务后清空去重标记，允许新任务事件正常落库。
+    lastAppliedStreamEventRef.current = "";
+  }, [detailTaskId]);
+
+  useEffect(() => {
     if (!detailRepo || detailRepo.status !== "analyzing") return;
 
     const event = finalResult ?? currentStep;
     if (!event) return;
+
+    const eventKey = JSON.stringify({
+      taskId: detailTaskId,
+      status: event.status,
+      step: event.step,
+      total: event.total,
+      stage: event.stage,
+      message: event.message,
+      elapsed: event.elapsed_seconds,
+      graphId: event.graph_id,
+      nodeCount: event.node_count,
+      edgeCount: event.edge_count,
+      error: event.error,
+    });
+
+    if (lastAppliedStreamEventRef.current === eventKey) return;
+    lastAppliedStreamEventRef.current = eventKey;
 
     const patch: Partial<RepoInfo> = {
       analysisStep: event.step,
@@ -337,7 +366,7 @@ const Repository: React.FC = () => {
       ...patch,
       status: "analyzing",
     });
-  }, [detailRepo, currentStep, finalResult, updateRepo]);
+  }, [detailRepo, detailTaskId, currentStep, finalResult, updateRepo]);
 
   useEffect(() => {
     const analyzingRepos = repos.filter(
