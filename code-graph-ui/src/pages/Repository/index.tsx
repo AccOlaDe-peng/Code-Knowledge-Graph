@@ -27,6 +27,7 @@ import {
   ReloadOutlined,
 } from "@ant-design/icons";
 import { graphEndpoints } from "../../core/api/endpoints/graph";
+import { useAnalysisStream } from "../../core/hooks/useAnalysisStream";
 import { repoApi } from "../../api/repoApi";
 import { useRepoStore } from "../../store/repoStore";
 import { useGraphStore } from "../../store/graphStore";
@@ -258,10 +259,6 @@ const Repository: React.FC = () => {
   const [form] = Form.useForm<RepoFormValues>();
 
   const repos = useRepoStore((s) => s.repos ?? []);
-  const loading = useRepoStore((s) => s.loading);
-  const setRepos = useRepoStore((s) => s.setRepos);
-  const setLoading = useRepoStore((s) => s.setLoading);
-  const setError = useRepoStore((s) => s.setError);
   const addRepo = useRepoStore((s) => s.addRepo);
   const updateRepo = useRepoStore((s) => s.updateRepo);
   const removeRepo = useRepoStore((s) => s.removeRepo);
@@ -276,28 +273,78 @@ const Repository: React.FC = () => {
     () => repos.find((repo) => repo.repoId === detailRepoId) ?? null,
     [repos, detailRepoId],
   );
+  const detailTaskId =
+    detailRepo?.status === "analyzing" ? (detailRepo.taskId ?? null) : null;
+  const { currentStep, finalResult } = useAnalysisStream(detailTaskId);
 
-  const refreshRemoteRepos = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await graphEndpoints.listGraphs();
-      setRepos(data.graphs ?? []);
-    } catch (error) {
-      const text = error instanceof Error ? error.message : "获取仓库列表失败";
-      setError(text);
-      message.error(text);
-    } finally {
-      setLoading(false);
-    }
-  }, [setLoading, setRepos, setError]);
+  const refreshLocalRepos = useCallback(() => {
+    message.success("已刷新本地仓库列表");
+  }, []);
 
   useEffect(() => {
-    void refreshRemoteRepos();
-  }, [refreshRemoteRepos]);
+    if (!detailRepo || detailRepo.status !== "analyzing") return;
+
+    const event = finalResult ?? currentStep;
+    if (!event) return;
+
+    const patch: Partial<RepoInfo> = {
+      analysisStep: event.step,
+      analysisTotal: event.total,
+      analysisStage: event.stage,
+      analysisMessage: event.message,
+      analysisElapsedSeconds: event.elapsed_seconds,
+    };
+
+    if (event.status === "completed") {
+      updateRepo(detailRepo.repoId, {
+        ...patch,
+        status: "completed",
+        graphId: event.graph_id || detailRepo.graphId,
+        nodeCount: event.node_count ?? detailRepo.nodeCount,
+        edgeCount: event.edge_count ?? detailRepo.edgeCount,
+        taskId: undefined,
+        error: undefined,
+        lastAnalyzedAt: new Date().toISOString(),
+      });
+      message.success(`${detailRepo.repoName} 分析完成`);
+      return;
+    }
+
+    if (event.status === "failed" || event.status === "error") {
+      updateRepo(detailRepo.repoId, {
+        ...patch,
+        status: "failed",
+        taskId: undefined,
+        error: event.error || event.message || "分析失败",
+        lastAnalyzedAt: new Date().toISOString(),
+      });
+      message.error(`${detailRepo.repoName} 分析失败`);
+      return;
+    }
+
+    if (event.status === "canceled") {
+      updateRepo(detailRepo.repoId, {
+        ...patch,
+        status: "canceled",
+        taskId: undefined,
+        lastAnalyzedAt: new Date().toISOString(),
+      });
+      message.warning(`${detailRepo.repoName} 已取消分析`);
+      return;
+    }
+
+    updateRepo(detailRepo.repoId, {
+      ...patch,
+      status: "analyzing",
+    });
+  }, [detailRepo, currentStep, finalResult, updateRepo]);
 
   useEffect(() => {
     const analyzingRepos = repos.filter(
-      (repo) => repo.status === "analyzing" && !!repo.taskId,
+      (repo) =>
+        repo.status === "analyzing" &&
+        !!repo.taskId &&
+        repo.taskId !== detailTaskId,
     );
     if (analyzingRepos.length === 0) return;
 
@@ -313,8 +360,6 @@ const Repository: React.FC = () => {
         }),
       );
 
-      let hasCompleted = false;
-
       for (const item of statusList) {
         if (!item) continue;
 
@@ -328,7 +373,6 @@ const Repository: React.FC = () => {
         };
 
         if (status.status === "completed") {
-          hasCompleted = true;
           updateRepo(repo.repoId, {
             ...patch,
             status: "completed",
@@ -371,16 +415,12 @@ const Repository: React.FC = () => {
           status: "analyzing",
         });
       }
-
-      if (hasCompleted) {
-        void refreshRemoteRepos();
-      }
-    }, 3000);
+    }, 10000);
 
     return () => {
       window.clearInterval(timer);
     };
-  }, [repos, updateRepo, refreshRemoteRepos]);
+  }, [repos, detailTaskId, updateRepo]);
 
   const handleSaveRepo = async (values: RepoFormValues) => {
     setSubmitError(null);
@@ -527,8 +567,7 @@ const Repository: React.FC = () => {
         <Space>
           <Button
             icon={<ReloadOutlined />}
-            onClick={() => void refreshRemoteRepos()}
-            loading={loading}
+            onClick={refreshLocalRepos}
             style={{ fontFamily: "'IBM Plex Mono'" }}
           >
             刷新
