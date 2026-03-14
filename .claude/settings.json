@@ -65,7 +65,9 @@
       "Bash(pytest backend/tests/test_agent_tools.py -v --tb=short)",
       "Bash(python -m pytest backend/tests/test_agent_tools.py::test_get_call_graph_depth_1 -v)",
       "Bash(python /tmp/test_performance.py)",
-      "Bash(python -m pylint backend/analyzer/ai/agent/tools.py --disable=all --enable=C0103,C0114,C0115,C0116,C0301,C0302,C0303,C0304,C0305,C0321,C0325,C0326,C0330,C0411,C0412,C0413)"
+      "Bash(python -m pylint backend/analyzer/ai/agent/tools.py --disable=all --enable=C0103,C0114,C0115,C0116,C0301,C0302,C0303,C0304,C0305,C0321,C0325,C0326,C0330,C0411,C0412,C0413)",
+      "Bash(python -m pytest backend/tests/test_graph_agent.py -v)",
+      "Bash(python -m pytest backend/tests/test_graph_agent.py::test_emit_graph_terminates_loop -v)"
     ],
     "additionalDirectories": [
       "/tmp",
