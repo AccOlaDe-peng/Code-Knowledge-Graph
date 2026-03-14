@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Alert, Select } from 'antd';
-import { useGraphStore } from '../../store/graphStore';
-import { useRepoStore } from '../../store/repoStore';
-import GraphViewer from '../../components/GraphViewer';
-import type { GraphNode, GraphEdge } from '../../types/graph';
+import React, { useState, useEffect, useMemo } from "react";
+import { Alert, Select } from "antd";
+import { useGraphStore } from "../../store/graphStore";
+import { useRepoStore } from "../../store/repoStore";
+import GraphViewer from "../../components/GraphViewer";
+import type { GraphNode, GraphEdge } from "../../types/graph";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -22,7 +22,14 @@ type ImpactStats = {
 
 // ─── Node Type Filter ─────────────────────────────────────────────────────────
 
-const ANALYZABLE_TYPES = ['Component', 'Function', 'Service', 'API', 'Module', 'Class'];
+const ANALYZABLE_TYPES = [
+  "Component",
+  "Function",
+  "Service",
+  "API",
+  "Module",
+  "Class",
+];
 
 // ─── Impact Analysis Logic ────────────────────────────────────────────────────
 
@@ -30,15 +37,15 @@ function computeImpact(
   sourceNodeId: string,
   allNodes: GraphNode[],
   allEdges: GraphEdge[],
-  maxDepth = 5
+  maxDepth = 5,
 ): { results: ImpactResult[]; stats: ImpactStats } {
-  const nodeMap = new Map(allNodes.map(n => [n.id, n]));
+  const nodeMap = new Map(allNodes.map((n) => [n.id, n]));
 
   // Build adjacency list (both directions for full impact)
   const outgoing = new Map<string, string[]>();
   const incoming = new Map<string, string[]>();
 
-  allEdges.forEach(e => {
+  allEdges.forEach((e) => {
     if (!outgoing.has(e.source)) outgoing.set(e.source, []);
     if (!incoming.has(e.target)) incoming.set(e.target, []);
     outgoing.get(e.source)!.push(e.target);
@@ -48,7 +55,7 @@ function computeImpact(
   // BFS traversal (downstream impact)
   const visited = new Set<string>();
   const queue: { id: string; depth: number; path: string[] }[] = [
-    { id: sourceNodeId, depth: 0, path: [sourceNodeId] }
+    { id: sourceNodeId, depth: 0, path: [sourceNodeId] },
   ];
   const results: ImpactResult[] = [];
 
@@ -67,9 +74,13 @@ function computeImpact(
 
     // Add downstream nodes
     const targets = outgoing.get(id) || [];
-    targets.forEach(targetId => {
+    targets.forEach((targetId) => {
       if (!visited.has(targetId)) {
-        queue.push({ id: targetId, depth: depth + 1, path: [...path, targetId] });
+        queue.push({
+          id: targetId,
+          depth: depth + 1,
+          path: [...path, targetId],
+        });
       }
     });
   }
@@ -82,7 +93,7 @@ function computeImpact(
     maxDepth: 0,
   };
 
-  results.forEach(r => {
+  results.forEach((r) => {
     stats.byType[r.node.type] = (stats.byType[r.node.type] || 0) + 1;
     stats.byDepth[r.depth] = (stats.byDepth[r.depth] || 0) + 1;
     stats.maxDepth = Math.max(stats.maxDepth, r.depth);
@@ -112,10 +123,10 @@ const ImpactAnalysis: React.FC = () => {
   const analyzableNodes = useMemo(() => {
     if (!graph.data?.nodes) return [];
     return graph.data.nodes
-      .filter(n => ANALYZABLE_TYPES.includes(n.type))
+      .filter((n) => ANALYZABLE_TYPES.includes(n.type))
       .sort((a, b) => {
-        const labelA = a.label || a.id || '';
-        const labelB = b.label || b.id || '';
+        const labelA = a.label || a.id || "";
+        const labelB = b.label || b.id || "";
         return labelA.localeCompare(labelB);
       });
   }, [graph.data]);
@@ -131,7 +142,7 @@ const ImpactAnalysis: React.FC = () => {
     const { results, stats } = computeImpact(
       selectedNodeId,
       graph.data.nodes,
-      graph.data.edges
+      graph.data.edges,
     );
 
     setImpactResults(results);
@@ -144,15 +155,15 @@ const ImpactAnalysis: React.FC = () => {
       return { nodes: [], edges: [] };
     }
 
-    const sourceNode = graph.data.nodes.find(n => n.id === selectedNodeId);
+    const sourceNode = graph.data.nodes.find((n) => n.id === selectedNodeId);
     if (!sourceNode) return { nodes: [], edges: [] };
 
-    const impactedNodeIds = new Set(impactResults.map(r => r.node.id));
+    const impactedNodeIds = new Set(impactResults.map((r) => r.node.id));
     impactedNodeIds.add(selectedNodeId);
 
-    const nodes = graph.data.nodes.filter(n => impactedNodeIds.has(n.id));
+    const nodes = graph.data.nodes.filter((n) => impactedNodeIds.has(n.id));
     const edges = graph.data.edges.filter(
-      e => impactedNodeIds.has(e.source) && impactedNodeIds.has(e.target)
+      (e) => impactedNodeIds.has(e.source) && impactedNodeIds.has(e.target),
     );
 
     return { nodes, edges };
@@ -174,9 +185,26 @@ const ImpactAnalysis: React.FC = () => {
 
   if (graph.loading) {
     return (
-      <div style={{ padding: 24, display: 'flex', alignItems: 'center', gap: 12 }}>
-        <div style={{ width: 16, height: 16, border: '2px solid var(--a-cyan)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--t-secondary)' }}>
+      <div
+        style={{ padding: 24, display: "flex", alignItems: "center", gap: 12 }}
+      >
+        <div
+          style={{
+            width: 16,
+            height: 16,
+            border: "2px solid var(--a-cyan)",
+            borderTopColor: "transparent",
+            borderRadius: "50%",
+            animation: "spin 0.8s linear infinite",
+          }}
+        />
+        <span
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: 13,
+            color: "var(--t-secondary)",
+          }}
+        >
           图谱加载中...
         </span>
       </div>
@@ -192,38 +220,86 @@ const ImpactAnalysis: React.FC = () => {
   }
 
   return (
-    <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20, height: 'calc(100vh - 64px)', overflow: 'auto' }}>
+    <div
+      style={{
+        padding: 24,
+        display: "flex",
+        flexDirection: "column",
+        gap: 20,
+        height: "calc(100vh - 64px)",
+        overflow: "auto",
+      }}
+    >
       {/* Header */}
       <div>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--t-muted)', letterSpacing: '0.15em', marginBottom: 6 }}>
+        <div
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            color: "var(--t-muted)",
+            letterSpacing: "0.15em",
+            marginBottom: 6,
+          }}
+        >
           影响分析
         </div>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 600, color: 'var(--t-primary)', margin: 0 }}>
+        <h1
+          style={{
+            fontFamily: "var(--font-display)",
+            fontSize: 28,
+            fontWeight: 600,
+            color: "var(--t-primary)",
+            margin: 0,
+          }}
+        >
           影响半径计算
         </h1>
-        <p style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--t-secondary)', marginTop: 8, marginBottom: 0 }}>
+        <p
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: 12,
+            color: "var(--t-secondary)",
+            marginTop: 8,
+            marginBottom: 0,
+          }}
+        >
           选择一个节点，分析其下游影响并识别所有受影响的组件。
         </p>
       </div>
 
       {/* Node Selector */}
-      <div style={{
-        background: 'var(--s-float)', border: '1px solid var(--b-subtle)',
-        borderRadius: 'var(--radius-m)', padding: 20,
-      }}>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--t-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 12 }}>
+      <div
+        style={{
+          background: "var(--s-float)",
+          border: "1px solid var(--b-subtle)",
+          borderRadius: "var(--radius-m)",
+          padding: 20,
+        }}
+      >
+        <div
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            color: "var(--t-muted)",
+            letterSpacing: "0.1em",
+            textTransform: "uppercase",
+            marginBottom: 12,
+          }}
+        >
           选择目标节点
         </div>
         <Select
           showSearch
           placeholder="按名称或类型搜索..."
-          style={{ width: '100%' }}
+          style={{ width: "100%" }}
           value={selectedNodeId}
           onChange={setSelectedNodeId}
           filterOption={(input, option) =>
-            (option?.label?.toString() ?? '').toLowerCase().includes(input.toLowerCase())
+            (option?.label?.toString() ?? "")
+              .toLowerCase()
+              .includes(input.toLowerCase())
           }
-          options={analyzableNodes.map(n => ({
+          options={analyzableNodes.map((n) => ({
             value: n.id,
             label: `${n.label} (${n.type})`,
           }))}
@@ -232,37 +308,94 @@ const ImpactAnalysis: React.FC = () => {
 
       {/* Impact Stats */}
       {impactStats && (
-        <div style={{
-          background: 'var(--s-float)', border: '1px solid var(--b-subtle)',
-          borderRadius: 'var(--radius-m)', padding: 20,
-        }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--t-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 16 }}>
+        <div
+          style={{
+            background: "var(--s-float)",
+            border: "1px solid var(--b-subtle)",
+            borderRadius: "var(--radius-m)",
+            padding: 20,
+          }}
+        >
+          <div
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              color: "var(--t-muted)",
+              letterSpacing: "0.1em",
+              textTransform: "uppercase",
+              marginBottom: 16,
+            }}
+          >
             影响摘要
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 16 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+              gap: 16,
+            }}
+          >
             {/* Total */}
-            <div style={{
-              background: 'var(--s-void)', border: '1px solid var(--b-faint)',
-              borderRadius: 6, padding: 12,
-            }}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--t-muted)', letterSpacing: '0.08em', marginBottom: 6 }}>
+            <div
+              style={{
+                background: "var(--s-void)",
+                border: "1px solid var(--b-faint)",
+                borderRadius: 6,
+                padding: 12,
+              }}
+            >
+              <div
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 9,
+                  color: "var(--t-muted)",
+                  letterSpacing: "0.08em",
+                  marginBottom: 6,
+                }}
+              >
                 总影响
               </div>
-              <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 600, color: '#ff4568' }}>
+              <div
+                style={{
+                  fontFamily: "var(--font-display)",
+                  fontSize: 24,
+                  fontWeight: 600,
+                  color: "#ff4568",
+                }}
+              >
                 {impactStats.total}
               </div>
             </div>
 
             {/* Max Depth */}
-            <div style={{
-              background: 'var(--s-void)', border: '1px solid var(--b-faint)',
-              borderRadius: 6, padding: 12,
-            }}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--t-muted)', letterSpacing: '0.08em', marginBottom: 6 }}>
+            <div
+              style={{
+                background: "var(--s-void)",
+                border: "1px solid var(--b-faint)",
+                borderRadius: 6,
+                padding: 12,
+              }}
+            >
+              <div
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 9,
+                  color: "var(--t-muted)",
+                  letterSpacing: "0.08em",
+                  marginBottom: 6,
+                }}
+              >
                 最大深度
               </div>
-              <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 600, color: '#ffc145' }}>
+              <div
+                style={{
+                  fontFamily: "var(--font-display)",
+                  fontSize: 24,
+                  fontWeight: 600,
+                  color: "#ffc145",
+                }}
+              >
                 {impactStats.maxDepth}
               </div>
             </div>
@@ -272,14 +405,34 @@ const ImpactAnalysis: React.FC = () => {
               .sort(([, a], [, b]) => b - a)
               .slice(0, 4)
               .map(([type, count]) => (
-                <div key={type} style={{
-                  background: 'var(--s-void)', border: '1px solid var(--b-faint)',
-                  borderRadius: 6, padding: 12,
-                }}>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--t-muted)', letterSpacing: '0.08em', marginBottom: 6 }}>
+                <div
+                  key={type}
+                  style={{
+                    background: "var(--s-void)",
+                    border: "1px solid var(--b-faint)",
+                    borderRadius: 6,
+                    padding: 12,
+                  }}
+                >
+                  <div
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 9,
+                      color: "var(--t-muted)",
+                      letterSpacing: "0.08em",
+                      marginBottom: 6,
+                    }}
+                  >
                     {type.toUpperCase()}
                   </div>
-                  <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 600, color: '#00d4ff' }}>
+                  <div
+                    style={{
+                      fontFamily: "var(--font-display)",
+                      fontSize: 24,
+                      fontWeight: 600,
+                      color: "#00d4ff",
+                    }}
+                  >
                     {count}
                   </div>
                 </div>
@@ -290,12 +443,28 @@ const ImpactAnalysis: React.FC = () => {
 
       {/* Impact Graph */}
       {impactGraph.nodes.length > 0 && (
-        <div style={{
-          background: 'var(--s-float)', border: '1px solid var(--b-subtle)',
-          borderRadius: 'var(--radius-m)', padding: 20, flex: 1, minHeight: 500,
-        }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--t-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 16 }}>
-            影响图 · {impactGraph.nodes.length} 节点 · {impactGraph.edges.length} 边
+        <div
+          style={{
+            background: "var(--s-float)",
+            border: "1px solid var(--b-subtle)",
+            borderRadius: "var(--radius-m)",
+            padding: 20,
+            flex: 1,
+            minHeight: 500,
+          }}
+        >
+          <div
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              color: "var(--t-muted)",
+              letterSpacing: "0.1em",
+              textTransform: "uppercase",
+              marginBottom: 16,
+            }}
+          >
+            影响图 · {impactGraph.nodes.length} 节点 ·{" "}
+            {impactGraph.edges.length} 边
           </div>
           <GraphViewer
             nodes={impactGraph.nodes}
@@ -308,27 +477,67 @@ const ImpactAnalysis: React.FC = () => {
 
       {/* Depth Legend */}
       {impactStats && (
-        <div style={{
-          background: 'var(--s-float)', border: '1px solid var(--b-subtle)',
-          borderRadius: 'var(--radius-m)', padding: 16,
-        }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--t-muted)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 12 }}>
+        <div
+          style={{
+            background: "var(--s-float)",
+            border: "1px solid var(--b-subtle)",
+            borderRadius: "var(--radius-m)",
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 9,
+              color: "var(--t-muted)",
+              letterSpacing: "0.1em",
+              textTransform: "uppercase",
+              marginBottom: 12,
+            }}
+          >
             影响深度图例
           </div>
-          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+          <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
             {[
-              { depth: 0, label: '源节点', color: '#ff4568' },
-              { depth: 1, label: '直接影响（深度 1）', color: '#ff8844' },
-              { depth: 2, label: '二级影响（深度 2）', color: '#ffc145' },
-              { depth: 3, label: '三级及以上影响（深度 3+）', color: '#00d4ff' },
+              { depth: 0, label: "源节点", color: "#ff4568" },
+              { depth: 1, label: "直接影响（深度 1）", color: "#ff8844" },
+              { depth: 2, label: "二级影响（深度 2）", color: "#ffc145" },
+              {
+                depth: 3,
+                label: "三级及以上影响（深度 3+）",
+                color: "#00d4ff",
+              },
             ].map(({ depth, label, color }) => (
-              <div key={depth} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ width: 12, height: 12, borderRadius: 2, background: color, border: `1px solid ${color}` }} />
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--t-secondary)' }}>
+              <div
+                key={depth}
+                style={{ display: "flex", alignItems: "center", gap: 8 }}
+              >
+                <div
+                  style={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: 2,
+                    background: color,
+                    border: `1px solid ${color}`,
+                  }}
+                />
+                <span
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 11,
+                    color: "var(--t-secondary)",
+                  }}
+                >
                   {label}
                 </span>
                 {impactStats.byDepth[depth] && (
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--t-muted)' }}>
+                  <span
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 10,
+                      color: "var(--t-muted)",
+                    }}
+                  >
                     ({impactStats.byDepth[depth]})
                   </span>
                 )}

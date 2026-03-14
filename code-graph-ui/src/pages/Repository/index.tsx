@@ -544,13 +544,6 @@ const Repository: React.FC = () => {
         </Space>
       </div>
 
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 16 }}
-        message="流程已拆分：先保存仓库，再在列表中点击“分析”执行任务；分析中可取消并查看实时进度。"
-      />
-
       <div
         style={{
           background: "var(--s-raised)",

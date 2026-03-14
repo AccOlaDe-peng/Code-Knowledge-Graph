@@ -1,8 +1,8 @@
-import type { GraphNode, GraphEdge } from '../types/graph';
+import type { GraphNode, GraphEdge } from "../types/graph";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type LayoutName = 'force' | 'dagre' | 'hierarchy' | 'grid';
+export type LayoutName = "force" | "dagre" | "hierarchy" | "grid";
 
 export type Position = { x: number; y: number };
 
@@ -31,7 +31,7 @@ export type LayoutOptions = {
 export function forceLayout(
   nodes: GraphNode[],
   edges: GraphEdge[],
-  options: LayoutOptions = {}
+  options: LayoutOptions = {},
 ): LayoutResult {
   const {
     width = 1000,
@@ -47,7 +47,7 @@ export function forceLayout(
 
   // Initialize positions randomly
   const positions = new Map<string, Position>();
-  nodes.forEach(node => {
+  nodes.forEach((node) => {
     positions.set(node.id, {
       x: padding + Math.random() * (width - 2 * padding),
       y: padding + Math.random() * (height - 2 * padding),
@@ -56,7 +56,7 @@ export function forceLayout(
 
   // Build adjacency map
   const adjacency = new Map<string, Set<string>>();
-  edges.forEach(e => {
+  edges.forEach((e) => {
     if (!adjacency.has(e.source)) adjacency.set(e.source, new Set());
     if (!adjacency.has(e.target)) adjacency.set(e.target, new Set());
     adjacency.get(e.source)!.add(e.target);
@@ -69,7 +69,7 @@ export function forceLayout(
     const forces = new Map<string, { x: number; y: number }>();
 
     // Initialize forces
-    nodes.forEach(n => forces.set(n.id, { x: 0, y: 0 }));
+    nodes.forEach((n) => forces.set(n.id, { x: 0, y: 0 }));
 
     // Repulsive forces (all pairs)
     for (let i = 0; i < nodes.length; i++) {
@@ -95,7 +95,7 @@ export function forceLayout(
     }
 
     // Attractive forces (edges)
-    edges.forEach(e => {
+    edges.forEach((e) => {
       const p1 = positions.get(e.source);
       const p2 = positions.get(e.target);
       if (!p1 || !p2) return;
@@ -115,11 +115,12 @@ export function forceLayout(
     });
 
     // Apply forces with temperature cooling
-    nodes.forEach(n => {
+    nodes.forEach((n) => {
       const pos = positions.get(n.id)!;
       const force = forces.get(n.id)!;
 
-      const magnitude = Math.sqrt(force.x * force.x + force.y * force.y) || 0.01;
+      const magnitude =
+        Math.sqrt(force.x * force.x + force.y * force.y) || 0.01;
       const displacement = Math.min(magnitude, t);
 
       pos.x += (force.x / magnitude) * displacement;
@@ -143,27 +144,21 @@ export function forceLayout(
 export function dagreLayout(
   nodes: GraphNode[],
   edges: GraphEdge[],
-  options: LayoutOptions = {}
+  options: LayoutOptions = {},
 ): LayoutResult {
-  const {
-    width = 1000,
-    height = 800,
-    padding = 50,
-  } = options;
+  const { width = 1000, padding = 50 } = options;
 
-  const nodeWidth = 80;
-  const nodeHeight = 60;
   const layerGap = 120;
   const nodeGap = 100;
 
   // Build adjacency lists
   const outgoing = new Map<string, string[]>();
   const incoming = new Map<string, string[]>();
-  nodes.forEach(n => {
+  nodes.forEach((n) => {
     outgoing.set(n.id, []);
     incoming.set(n.id, []);
   });
-  edges.forEach(e => {
+  edges.forEach((e) => {
     outgoing.get(e.source)?.push(e.target);
     incoming.get(e.target)?.push(e.source);
   });
@@ -175,7 +170,7 @@ export function dagreLayout(
   const queue: string[] = [];
 
   // Find root nodes (no incoming edges)
-  nodes.forEach(n => {
+  nodes.forEach((n) => {
     if (incoming.get(n.id)!.length === 0) {
       queue.push(n.id);
       layerMap.set(n.id, 0);
@@ -192,7 +187,7 @@ export function dagreLayout(
     if (!layers[layer]) layers[layer] = [];
     layers[layer].push(nodeId);
 
-    outgoing.get(nodeId)!.forEach(targetId => {
+    outgoing.get(nodeId)!.forEach((targetId) => {
       const currentLayer = layerMap.get(targetId) ?? -1;
       const newLayer = layer + 1;
       if (newLayer > currentLayer) {
@@ -205,7 +200,7 @@ export function dagreLayout(
   }
 
   // Handle unvisited nodes (cycles or disconnected)
-  nodes.forEach(n => {
+  nodes.forEach((n) => {
     if (!visited.has(n.id)) {
       const lastLayer = layers.length;
       if (!layers[lastLayer]) layers[lastLayer] = [];
@@ -216,7 +211,6 @@ export function dagreLayout(
 
   // Position nodes
   const positions = new Map<string, Position>();
-  const maxLayerWidth = Math.max(...layers.map(l => l.length));
   const totalHeight = layers.length * layerGap;
 
   layers.forEach((layer, layerIndex) => {
@@ -242,13 +236,9 @@ export function dagreLayout(
 export function hierarchyLayout(
   nodes: GraphNode[],
   edges: GraphEdge[],
-  options: LayoutOptions = {}
+  options: LayoutOptions = {},
 ): LayoutResult {
-  const {
-    width = 1000,
-    height = 800,
-    padding = 50,
-  } = options;
+  const { width = 1000, height = 800, padding = 50 } = options;
 
   const levelHeight = 120;
   const nodeGap = 80;
@@ -256,15 +246,15 @@ export function hierarchyLayout(
   // Build tree structure
   const children = new Map<string, string[]>();
   const parents = new Map<string, string>();
-  nodes.forEach(n => children.set(n.id, []));
+  nodes.forEach((n) => children.set(n.id, []));
 
-  edges.forEach(e => {
+  edges.forEach((e) => {
     children.get(e.source)?.push(e.target);
     parents.set(e.target, e.source);
   });
 
   // Find root nodes
-  const roots = nodes.filter(n => !parents.has(n.id));
+  const roots = nodes.filter((n) => !parents.has(n.id));
   if (roots.length === 0 && nodes.length > 0) {
     roots.push(nodes[0]); // Fallback to first node
   }
@@ -281,7 +271,7 @@ export function hierarchyLayout(
   // Build tree recursively
   function buildTree(nodeId: string, depth: number): TreeNode {
     const childIds = children.get(nodeId) || [];
-    const childNodes = childIds.map(id => buildTree(id, depth + 1));
+    const childNodes = childIds.map((id) => buildTree(id, depth + 1));
     return {
       id: nodeId,
       children: childNodes,
@@ -299,7 +289,7 @@ export function hierarchyLayout(
     } else {
       // Internal node
       let prevChild: TreeNode | null = null;
-      node.children.forEach(child => {
+      node.children.forEach((child) => {
         firstWalk(child, prevChild);
         prevChild = child;
       });
@@ -319,14 +309,14 @@ export function hierarchyLayout(
 
   function secondWalk(node: TreeNode, modSum: number): void {
     node.x += modSum;
-    node.children.forEach(child => secondWalk(child, modSum + node.mod));
+    node.children.forEach((child) => secondWalk(child, modSum + node.mod));
   }
 
   // Layout each root tree
   const positions = new Map<string, Position>();
   let offsetX = padding;
 
-  roots.forEach(root => {
+  roots.forEach((root) => {
     const tree = buildTree(root.id, 0);
     firstWalk(tree, null);
     secondWalk(tree, 0);
@@ -342,13 +332,13 @@ export function hierarchyLayout(
     traverse(tree);
 
     // Update offset for next tree
-    const maxX = Math.max(...Array.from(positions.values()).map(p => p.x));
+    const maxX = Math.max(...Array.from(positions.values()).map((p) => p.x));
     offsetX = maxX + nodeGap * 2;
   });
 
   // Handle orphan nodes (not in any tree)
   const positioned = new Set(positions.keys());
-  const orphans = nodes.filter(n => !positioned.has(n.id));
+  const orphans = nodes.filter((n) => !positioned.has(n.id));
   orphans.forEach((n, i) => {
     positions.set(n.id, {
       x: padding + (i % 5) * nodeGap,
@@ -367,13 +357,11 @@ export function hierarchyLayout(
 export function gridLayout(
   nodes: GraphNode[],
   edges: GraphEdge[],
-  options: LayoutOptions = {}
+  options: LayoutOptions = {},
 ): LayoutResult {
-  const {
-    width = 1000,
-    height = 800,
-    padding = 50,
-  } = options;
+  void edges;
+
+  const { width = 1000, height = 800, padding = 50 } = options;
 
   const cols = Math.ceil(Math.sqrt(nodes.length));
   const cellWidth = (width - 2 * padding) / cols;
@@ -401,16 +389,16 @@ export function applyLayout(
   layoutName: LayoutName,
   nodes: GraphNode[],
   edges: GraphEdge[],
-  options: LayoutOptions = {}
+  options: LayoutOptions = {},
 ): LayoutResult {
   switch (layoutName) {
-    case 'force':
+    case "force":
       return forceLayout(nodes, edges, options);
-    case 'dagre':
+    case "dagre":
       return dagreLayout(nodes, edges, options);
-    case 'hierarchy':
+    case "hierarchy":
       return hierarchyLayout(nodes, edges, options);
-    case 'grid':
+    case "grid":
       return gridLayout(nodes, edges, options);
     default:
       return gridLayout(nodes, edges, options);
@@ -422,14 +410,18 @@ export function applyLayout(
 /**
  * Center layout result in viewport.
  */
-export function centerLayout(result: LayoutResult, viewWidth: number, viewHeight: number): LayoutResult {
+export function centerLayout(
+  result: LayoutResult,
+  viewWidth: number,
+  viewHeight: number,
+): LayoutResult {
   const positions = Array.from(result.nodes.values());
   if (positions.length === 0) return result;
 
-  const minX = Math.min(...positions.map(p => p.x));
-  const maxX = Math.max(...positions.map(p => p.x));
-  const minY = Math.min(...positions.map(p => p.y));
-  const maxY = Math.max(...positions.map(p => p.y));
+  const minX = Math.min(...positions.map((p) => p.x));
+  const maxX = Math.max(...positions.map((p) => p.x));
+  const minY = Math.min(...positions.map((p) => p.y));
+  const maxY = Math.max(...positions.map((p) => p.y));
 
   const graphWidth = maxX - minX;
   const graphHeight = maxY - minY;
@@ -451,14 +443,19 @@ export function centerLayout(result: LayoutResult, viewWidth: number, viewHeight
 /**
  * Scale layout to fit viewport.
  */
-export function scaleLayout(result: LayoutResult, viewWidth: number, viewHeight: number, padding = 50): LayoutResult {
+export function scaleLayout(
+  result: LayoutResult,
+  viewWidth: number,
+  viewHeight: number,
+  padding = 50,
+): LayoutResult {
   const positions = Array.from(result.nodes.values());
   if (positions.length === 0) return result;
 
-  const minX = Math.min(...positions.map(p => p.x));
-  const maxX = Math.max(...positions.map(p => p.x));
-  const minY = Math.min(...positions.map(p => p.y));
-  const maxY = Math.max(...positions.map(p => p.y));
+  const minX = Math.min(...positions.map((p) => p.x));
+  const maxX = Math.max(...positions.map((p) => p.x));
+  const minY = Math.min(...positions.map((p) => p.y));
+  const maxY = Math.max(...positions.map((p) => p.y));
 
   const graphWidth = maxX - minX;
   const graphHeight = maxY - minY;
