@@ -268,6 +268,7 @@ const Repository: React.FC = () => {
   const addRepo = useRepoStore((s) => s.addRepo);
   const updateRepo = useRepoStore((s) => s.updateRepo);
   const removeRepo = useRepoStore((s) => s.removeRepo);
+  const setRepos = useRepoStore((s) => s.setRepos);
   const { setActiveGraphId } = useGraphStore();
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -284,9 +285,38 @@ const Repository: React.FC = () => {
   const { currentStep, finalResult } = useAnalysisStream(detailTaskId);
   const lastAppliedStreamEventRef = useRef<string>("");
 
+  // 从后端同步仓库列表
+  const syncReposFromBackend = useCallback(async () => {
+    try {
+      const response = await graphEndpoints.listGraphs();
+      // 将后端图谱数据转换为前端仓库格式
+      const backendRepos: RepoInfo[] = response.graphs.map((graph) => ({
+        repoId: graph.graphId,
+        graphId: graph.graphId,
+        repoName: graph.repoName || graph.graphId,
+        language: graph.language || [],
+        createdAt: graph.createdAt || new Date().toISOString(),
+        nodeCount: graph.nodeCount || 0,
+        edgeCount: graph.edgeCount || 0,
+        repoPath: graph.repoPath || "",
+        status: "completed",
+        lastAnalyzedAt: graph.lastAnalyzedAt || graph.createdAt,
+      }));
+      setRepos(backendRepos);
+      message.success(`已同步 ${backendRepos.length} 个仓库`);
+    } catch (error) {
+      message.error("同步失败: " + (error instanceof Error ? error.message : "未知错误"));
+    }
+  }, [setRepos]);
+
+  // 组件挂载时自动同步
+  useEffect(() => {
+    syncReposFromBackend();
+  }, [syncReposFromBackend]);
+
   const refreshLocalRepos = useCallback(() => {
-    message.success("已刷新本地仓库列表");
-  }, []);
+    syncReposFromBackend();
+  }, [syncReposFromBackend]);
 
   useEffect(() => {
     // 切换任务后清空去重标记，允许新任务事件正常落库。
@@ -457,6 +487,13 @@ const Repository: React.FC = () => {
     const repoPath = sourceMode === "git" ? values.gitUrl : values.repoPath;
     if (!repoPath) {
       setSubmitError("仓库地址不能为空");
+      return;
+    }
+
+    // 检查是否已存在相同路径的仓库
+    const existing = repos.find((r) => r.repoPath === repoPath);
+    if (existing) {
+      setSubmitError(`仓库已存在: ${existing.repoName}`);
       return;
     }
 

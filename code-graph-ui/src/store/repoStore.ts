@@ -81,9 +81,25 @@ export const useRepoStore = create<RepoState>()(
       setActiveRepo: (repo) => set({ activeRepo: repo }),
 
       addRepo: (repo) =>
-        set((state) => ({
-          repos: [repo, ...state.repos.filter((r) => r.repoId !== repo.repoId)],
-        })),
+        set((state) => {
+          // 按 repoPath 去重，避免同一个仓库被添加多次
+          const existingIndex = state.repos.findIndex(
+            (r) =>
+              r.repoPath === repo.repoPath ||
+              (repo.graphId && r.graphId === repo.graphId) ||
+              r.repoId === repo.repoId,
+          );
+
+          if (existingIndex >= 0) {
+            // 更新现有仓库
+            const updated = [...state.repos];
+            updated[existingIndex] = { ...updated[existingIndex], ...repo };
+            return { repos: updated };
+          }
+
+          // 添加新仓库
+          return { repos: [repo, ...state.repos] };
+        }),
 
       updateRepo: (repoId, patch) =>
         set((state) => ({
