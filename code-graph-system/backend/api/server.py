@@ -45,6 +45,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 import redis.asyncio as aioredis
+import redis as sync_redis
 from celery.result import AsyncResult
 
 from backend.graph.code_graph import CodeGraph
@@ -57,12 +58,36 @@ from backend.scheduler.celery_app import celery_app
 from backend.scheduler.tasks import analyze_repository as celery_analyze
 
 _REDIS_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+_TASK_REGISTRY_PREFIX = "analyze:task:"
+_TASK_REGISTRY_TTL_SECONDS = int(os.getenv("ANALYZE_TASK_REGISTRY_TTL", str(60 * 60 * 24)))
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+def _task_registry_key(task_id: str) -> str:
+    return f"{_TASK_REGISTRY_PREFIX}{task_id}"
+
+
+def _register_task_id(task_id: str) -> None:
+    """登记 task_id，避免队列等待期间被误判为不存在。"""
+    try:
+        client = sync_redis.Redis.from_url(_REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        client.setex(_task_registry_key(task_id), _TASK_REGISTRY_TTL_SECONDS, "1")
+    except Exception as exc:
+        logger.warning("任务登记失败 task_id=%s: %s", task_id, exc)
+
+
+def _is_registered_task_id(task_id: str) -> bool:
+    try:
+        client = sync_redis.Redis.from_url(_REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+        return bool(client.exists(_task_registry_key(task_id)))
+    except Exception as exc:
+        logger.debug("任务登记查询失败 task_id=%s: %s", task_id, exc)
+        return False
 
 # ---------------------------------------------------------------------------
 # 全局单例
@@ -326,6 +351,7 @@ def analyze_repository(req: AnalyzeRequest):
         },
     )
     task_id: str = job.id
+    _register_task_id(task_id)
     logger.info("任务已提交  task_id=%s  path=%s  tmp_dir=%s", task_id, analyze_path, tmp_dir)
 
     return AnalyzeAsyncResponse(task_id=task_id, status="pending")
@@ -341,9 +367,9 @@ async def analyze_stream(task_id: str):
               data: {status: "failed", error}
     心跳:     : heartbeat  （每 15 秒）
     """
-    # 404 检测：Celery 任务启动后立即设置 PROGRESS state，info 非 None 表示任务存在
+    # 若任务未登记且 Celery 中也无任何状态信息，认为 task_id 不存在
     _check = AsyncResult(task_id, app=celery_app)
-    if _check.info is None and _check.state == "PENDING":
+    if _check.state == "PENDING" and _check.info is None and not _is_registered_task_id(task_id):
         raise HTTPException(status_code=404, detail=f"任务不存在或尚未启动: {task_id}")
 
     async def event_generator():
@@ -358,6 +384,18 @@ async def analyze_stream(task_id: str):
                 yield f"data: {json.dumps(cur.info)}\n\n"
                 if cur.info.get("status") in ("completed", "failed"):
                     return
+            elif cur.state == "PENDING" and _is_registered_task_id(task_id):
+                # 任务仅排队未启动时，主动回传 pending，避免前端空白等待。
+                pending_event = {
+                    "status": "pending",
+                    "step": 0,
+                    "total": 13,
+                    "stage": "",
+                    "message": "任务已提交，等待 Worker 拉取...",
+                    "log": "",
+                    "elapsed_seconds": 0.0,
+                }
+                yield f"data: {json.dumps(pending_event)}\n\n"
         except Exception:
             pass
 
@@ -428,7 +466,7 @@ async def analyze_stream(task_id: str):
 def analyze_status(task_id: str):
     """查询分析任务的最新状态（轮询 / 断线重连恢复用）。"""
     result = AsyncResult(task_id, app=celery_app)
-    if result.info is None and result.state == "PENDING":
+    if result.info is None and result.state == "PENDING" and not _is_registered_task_id(task_id):
         raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
 
     info = result.info or {}

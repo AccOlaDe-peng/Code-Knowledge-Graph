@@ -85,7 +85,8 @@
       "Bash(curl -s -w \"\\\\nHTTP Status: %{http_code}\\\\n\" http://localhost:8000/analyze/stream/invalid-task-id-67890)",
       "Bash(python test_404_checks.py)",
       "Bash(python -m py_compile backend/scheduler/tasks.py)",
-      "Bash(python test_quality_fixes.py)"
+      "Bash(python test_quality_fixes.py)",
+      "Bash(docker info:*)"
     ],
     "additionalDirectories": [
       "/tmp",
