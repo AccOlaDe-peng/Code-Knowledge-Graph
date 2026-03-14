@@ -24,8 +24,11 @@ API 端点：
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import os
+import time as _time
 
 from dotenv import load_dotenv
 
@@ -39,7 +42,10 @@ from typing import Any, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+import redis.asyncio as aioredis
+from celery.result import AsyncResult
 
 from backend.graph.code_graph import CodeGraph
 from backend.graph.graph_repository import GraphRepository
@@ -48,6 +54,10 @@ from backend.pipeline.graph_pipeline import GraphPipeline
 from backend.rag.graph_rag_engine import GraphRAGEngine
 from backend.rag.vector_store import VectorStore
 from backend.storage.graph_storage import GraphStorage, RepoNotFoundError
+from backend.scheduler.celery_app import celery_app
+from backend.scheduler.tasks import analyze_repository as celery_analyze
+
+_REDIS_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -120,8 +130,29 @@ class AnalyzeRequest(BaseModel):
     repo_name:  str            = Field(default="", description="图谱名称（空字符串则用目录名）")
     branch:     Optional[str]  = Field(default=None, description="Git 分支名（仅当 repo_path 为 Git URL 时生效）")
     languages:  Optional[list[str]] = Field(default=None, description="限定分析语言，如 ['python', 'typescript']")
-    enable_ai:  bool           = Field(default=False, description="启用 SemanticAnalyzer（需 ANTHROPIC_API_KEY）")
-    enable_rag: bool           = Field(default=False, description="启用向量化索引（需安装 chromadb）")
+    # enable_ai 和 enable_rag 已移除，默认全部开启
+
+
+class AnalyzeAsyncResponse(BaseModel):
+    """POST /analyze/repository 异步响应（立即返回 task_id）。"""
+    task_id: str
+    status:  str = "pending"
+
+
+class AnalysisStatusResponse(BaseModel):
+    """GET /analyze/status/{task_id} 响应。"""
+    task_id:         str
+    status:          str
+    step:            Optional[int]   = None
+    total:           Optional[int]   = None
+    stage:           Optional[str]   = None
+    message:         Optional[str]   = None
+    log:             Optional[str]   = None
+    elapsed_seconds: Optional[float] = None
+    graph_id:        Optional[str]   = None
+    node_count:      Optional[int]   = None
+    edge_count:      Optional[int]   = None
+    error:           Optional[str]   = None
 
 
 class AnalyzeResponse(BaseModel):
@@ -204,7 +235,9 @@ def root():
         "version": "1.0.0",
         "docs":    "/docs",
         "endpoints": [
-            "POST   /analyze/repository  (GraphPipeline — scan→parse→AI→build→export)",
+            "POST   /analyze/repository  (异步分析，返回 task_id)",
+            "GET    /analyze/stream/{task_id}  (SSE 实时进度)",
+            "GET    /analyze/status/{task_id}  (查询任务状态)",
             "POST   /analyze/upload-zip  (ZIP 上传分析)",
             "POST   /analyze/graph       (GraphPipeline 直接调用，返回完整 graph)",
             "GET    /graph               (列表 / 详情)",
@@ -261,69 +294,160 @@ def _clone_repo(git_url: str, branch: Optional[str], tmp_dir: str) -> str:
     return clone_dir
 
 
-@app.post("/analyze/repository", response_model=AnalyzeResponse, tags=["分析"])
+@app.post("/analyze/repository", response_model=AnalyzeAsyncResponse, tags=["分析"])
 def analyze_repository(req: AnalyzeRequest):
     """
-    分析代码仓库，构建 JSON 知识图谱并持久化。
+    提交代码仓库分析任务（异步）。立即返回 task_id，分析在后台进行。
 
-    统一使用 **GraphPipeline**（5 步流水线）：
-    scan → parse → AI analyze (per file) → build graph → export graph.json
-
-    不再生成 Markdown 文档。
-
-    - **repo_path**: 本地路径 或 Git URL（ssh/https）
-    - **branch**: Git 分支名（仅 Git URL 模式有效）
-    - **enable_ai**: 启用 LLM 逐文件分析（需 API Key）
-    - **enable_rag**: 向量化索引（需 chromadb，分析完成后异步建立）
+    - 通过 GET /analyze/stream/{task_id} 订阅实时进度（SSE）
+    - 通过 GET /analyze/status/{task_id} 查询最新状态
+    - 默认启用 AI 语义分析和 RAG 向量索引
     """
-    logger.info("POST /analyze/repository  path=%s  enable_ai=%s", req.repo_path, req.enable_ai)
+    logger.info("POST /analyze/repository  path=%s", req.repo_path)
 
-    tmp_dir: Optional[str] = None
     analyze_path = req.repo_path
+    tmp_dir: Optional[str] = None
 
-    try:
-        if _is_git_url(req.repo_path):
+    # Git URL 克隆（同步，在提交 Celery 任务前完成）
+    if _is_git_url(req.repo_path):
+        try:
             tmp_dir = tempfile.mkdtemp(prefix="ckg_git_")
             analyze_path = _clone_repo(req.repo_path, req.branch, tmp_dir)
             logger.info("克隆完成，分析路径: %s", analyze_path)
+        except ValueError as e:
+            if tmp_dir:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            raise HTTPException(status_code=400, detail=str(e))
 
-        result = _graph_pipeline.run(
-            analyze_path,
-            repo_name=req.repo_name,
-            languages=req.languages,
-            enable_ai=req.enable_ai,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.exception("分析失败")
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        if tmp_dir and os.path.exists(tmp_dir):
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+    # 提交 Celery 任务
+    job = celery_analyze.apply_async(
+        args=[analyze_path],
+        kwargs={"repo_name": req.repo_name, "languages": req.languages},
+    )
+    task_id: str = job.id
+    logger.info("任务已提交  task_id=%s  path=%s", task_id, analyze_path)
 
-    # 可选：异步建立 RAG 向量索引（不阻塞响应）
-    if req.enable_rag:
+    return AnalyzeAsyncResponse(task_id=task_id, status="pending")
+
+
+@app.get("/analyze/stream/{task_id}", tags=["分析"])
+async def analyze_stream(task_id: str):
+    """
+    订阅分析任务进度（Server-Sent Events）。
+
+    事件格式: data: {step, total, stage, message, log, status, elapsed_seconds}
+    特殊事件: data: {status: "completed", graph_id, node_count, edge_count}
+              data: {status: "failed", error}
+    心跳:     : heartbeat  （每 15 秒）
+    """
+    # 404 检测：检查任务是否存在于 Celery
+    # 注意：新提交的任务可能 state=PENDING 且 info=None，这是正常的
+    # 只有当任务完全不存在时才返回 404
+    _check = AsyncResult(task_id, app=celery_app)
+    # 如果任务 ID 格式无效或任务已被清理，state 会是 PENDING 且 backend 中无记录
+    # 我们暂时允许所有任务 ID 通过，让 SSE 流自己处理超时
+
+    async def event_generator():
+        # 先发送当前持久化状态（断线重连恢复用）
         try:
-            built = _graph_repo.load(result.graph_id)
-            if built:
-                _rag_engine.embed_nodes(result.graph_id, built.nodes)
-        except Exception as exc:
-            logger.warning("RAG 向量化失败（不影响图谱结果）: %s", exc)
+            cur = AsyncResult(task_id, app=celery_app)
+            if cur.info:
+                yield f"data: {json.dumps(cur.info)}\n\n"
+                if cur.info.get("status") in ("completed", "failed"):
+                    return
+        except Exception:
+            pass
 
-    graph_meta = result.step_stats.get("4_build", {})
-    return AnalyzeResponse(
-        graph_id=result.graph_id,
-        repo_name=req.repo_name or result.graph_id,
-        repo_path=analyze_path,
-        node_count=result.node_count,
-        edge_count=result.edge_count,
-        duration_seconds=result.duration_seconds,
-        node_types=graph_meta.get("node_types", {}),
-        edge_types=graph_meta.get("edge_types", {}),
-        circular_deps=0,
-        warnings=result.warnings,
-        step_stats=result.step_stats,
+        # 订阅 Redis Pub/Sub channel
+        redis_conn = None
+        pubsub = None
+        try:
+            redis_conn = aioredis.from_url(_REDIS_URL, socket_connect_timeout=3)
+            pubsub = redis_conn.pubsub()
+            await pubsub.subscribe(f"progress:{task_id}")
+
+            last_hb = _time.monotonic()
+            while True:
+                try:
+                    msg = await asyncio.wait_for(
+                        pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0),
+                        timeout=2.0,
+                    )
+                except asyncio.TimeoutError:
+                    msg = None
+
+                if msg and msg.get("type") == "message":
+                    data_str = msg["data"]
+                    if isinstance(data_str, bytes):
+                        data_str = data_str.decode()
+                    event = json.loads(data_str)
+                    yield f"data: {data_str}\n\n"
+                    if event.get("status") in ("completed", "failed"):
+                        break
+
+                # 心跳
+                now = _time.monotonic()
+                if now - last_hb >= 15:
+                    yield ": heartbeat\n\n"
+                    last_hb = now
+
+        except Exception as exc:
+            err = json.dumps({"status": "error", "error": "stream_interrupted"})
+            yield f"data: {err}\n\n"
+            logger.warning("SSE stream error task=%s: %s", task_id, exc)
+        finally:
+            if pubsub:
+                try:
+                    await pubsub.unsubscribe(f"progress:{task_id}")
+                    await pubsub.aclose()
+                except Exception:
+                    pass
+            if redis_conn:
+                try:
+                    await redis_conn.aclose()
+                except Exception:
+                    pass
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.get("/analyze/status/{task_id}", response_model=AnalysisStatusResponse, tags=["分析"])
+def analyze_status(task_id: str):
+    """查询分析任务的最新状态（轮询 / 断线重连恢复用）。"""
+    result = AsyncResult(task_id, app=celery_app)
+
+    # 如果任务是 PENDING 且没有 info，返回 pending 状态而不是 404
+    # 这允许客户端轮询尚未被 worker 接收的任务
+    if result.info is None and result.state == "PENDING":
+        return AnalysisStatusResponse(
+            task_id=task_id,
+            status="pending",
+        )
+
+    info = result.info or {}
+    if isinstance(info, Exception):
+        return AnalysisStatusResponse(task_id=task_id, status="failed", error=str(info))
+
+    return AnalysisStatusResponse(
+        task_id=task_id,
+        status=info.get("status", result.state.lower()),
+        step=info.get("step"),
+        total=info.get("total"),
+        stage=info.get("stage"),
+        message=info.get("message"),
+        log=info.get("log"),
+        elapsed_seconds=info.get("elapsed_seconds"),
+        graph_id=info.get("graph_id"),
+        node_count=info.get("node_count"),
+        edge_count=info.get("edge_count"),
+        error=info.get("error"),
     )
 
 
