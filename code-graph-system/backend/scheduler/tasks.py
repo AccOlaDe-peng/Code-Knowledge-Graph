@@ -41,11 +41,22 @@ from backend.scheduler.celery_app import celery_app
 logger = get_task_logger(__name__)
 
 _REDIS_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+_redis_pool = None
 
 
 # ---------------------------------------------------------------------------
 # 内部辅助
 # ---------------------------------------------------------------------------
+
+
+def _get_redis_pool():
+    """获取或创建 Redis 连接池（Worker 进程内复用）。"""
+    global _redis_pool
+    if _redis_pool is None:
+        _redis_pool = sync_redis.ConnectionPool.from_url(
+            _REDIS_URL, decode_responses=True, socket_connect_timeout=3
+        )
+    return _redis_pool
 
 
 def _get_git_head(repo_path: Path) -> Optional[str]:
@@ -93,22 +104,13 @@ def publish_progress(task_id: str, event: dict) -> None:
 
     Note:
         Redis 连接失败时只记录警告，不抛出异常，确保任务继续执行。
+        使用连接池避免每次事件创建新连接。
     """
-    redis_client = None
     try:
-        redis_client = sync_redis.Redis.from_url(
-            _REDIS_URL, decode_responses=True, socket_connect_timeout=3
-        )
-        channel = f"progress:{task_id}"
-        redis_client.publish(channel, json.dumps(event))
+        client = sync_redis.Redis(connection_pool=_get_redis_pool())
+        client.publish(f"progress:{task_id}", json.dumps(event, default=str))
     except Exception as exc:
         logger.warning("Failed to publish progress to Redis: %s", exc)
-    finally:
-        if redis_client is not None:
-            try:
-                redis_client.close()
-            except Exception:
-                pass
 
 
 # ---------------------------------------------------------------------------
@@ -169,8 +171,8 @@ def analyze_repository(
         publish_progress(task_id, event)
         try:
             self.update_state(state="PROGRESS", meta=event)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to update Celery state: %s", exc)
 
     # ── 发布初始 pending 事件 ──────────────────────────────────────
     on_progress_callback({
