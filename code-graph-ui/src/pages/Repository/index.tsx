@@ -1,612 +1,958 @@
-import React, { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Modal, Form, Input, Button, Select, Alert, Popconfirm, Tag, Upload, message, Progress, Timeline } from 'antd'
-import { PlusOutlined, ReloadOutlined, EyeOutlined, DeleteOutlined, GithubOutlined, FolderOutlined, UploadOutlined } from '@ant-design/icons'
-import type { UploadFile } from 'antd'
-import { repoApi } from '../../api/repoApi'
-import { graphEndpoints } from '../../core/api/endpoints/graph'
-import { useAnalysisStream } from '../../core/hooks/useAnalysisStream'
-import { useRepoStore } from '../../store/repoStore'
-import { useGraphStore } from '../../store/graphStore'
-import type { AnalyzeRepoResponse, RepoInfo } from '../../types/api'
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  Alert,
+  Button,
+  Descriptions,
+  Form,
+  Input,
+  Modal,
+  Popconfirm,
+  Progress,
+  Select,
+  Space,
+  Tag,
+  Timeline,
+  message,
+} from "antd";
+import {
+  DeleteOutlined,
+  EyeOutlined,
+  FolderOutlined,
+  GithubOutlined,
+  InfoCircleOutlined,
+  PauseCircleOutlined,
+  PlayCircleOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+} from "@ant-design/icons";
+import { graphEndpoints } from "../../core/api/endpoints/graph";
+import { repoApi } from "../../api/repoApi";
+import { useRepoStore } from "../../store/repoStore";
+import { useGraphStore } from "../../store/graphStore";
+import type { RepoInfo } from "../../types/api";
 
-type SourceMode = 'local' | 'git' | 'zip'
+type SourceMode = "local" | "git";
 
-const LANGS = ['python', 'typescript', 'javascript', 'java', 'go', 'rust', 'cpp', 'csharp']
+type RepoFormValues = {
+  repoPath?: string;
+  gitUrl?: string;
+  repoName?: string;
+  branch?: string;
+  languages?: string[];
+};
 
-// ─── Real-time Progress Display (SSE-driven) ──────────────────────────────────
+const LANGS = [
+  "python",
+  "typescript",
+  "javascript",
+  "java",
+  "go",
+  "rust",
+  "cpp",
+  "csharp",
+];
 
-const RealTimeProgress: React.FC<{
-  currentStep: any
-  completedSteps: any[]
-  finalResult: any
-  isConnected: boolean
-}> = ({ currentStep, completedSteps, finalResult, isConnected }) => {
-  const [startTime] = useState(Date.now())
-  const [elapsed, setElapsed] = useState(0)
+const PIPELINE_STAGES = [
+  "扫描仓库",
+  "解析代码 AST",
+  "模块检测",
+  "组件检测",
+  "依赖分析",
+  "构建调用图",
+  "事件分析",
+  "基础设施分析",
+  "生成仓库摘要",
+  "AI 深度分析",
+  "图谱构建",
+  "图谱持久化",
+  "向量化索引",
+];
 
-  useEffect(() => {
-    if (!currentStep && !finalResult) return
-    const timer = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - startTime) / 1000))
-    }, 1000)
-    return () => clearInterval(timer)
-  }, [currentStep, finalResult, startTime])
+const getStatusConfig = (status?: RepoInfo["status"]) => {
+  const value = status ?? "saved";
+  switch (value) {
+    case "analyzing":
+      return {
+        label: "分析中",
+        color: "#00d4ff",
+        bg: "rgba(0,212,255,0.08)",
+        border: "rgba(0,212,255,0.2)",
+      };
+    case "completed":
+      return {
+        label: "已完成",
+        color: "#00f084",
+        bg: "rgba(0,240,132,0.08)",
+        border: "rgba(0,240,132,0.2)",
+      };
+    case "failed":
+      return {
+        label: "失败",
+        color: "#ff6b6b",
+        bg: "rgba(255,107,107,0.08)",
+        border: "rgba(255,107,107,0.2)",
+      };
+    case "canceled":
+      return {
+        label: "已取消",
+        color: "#ffc145",
+        bg: "rgba(255,193,69,0.08)",
+        border: "rgba(255,193,69,0.2)",
+      };
+    default:
+      return {
+        label: "已保存",
+        color: "#9bb0c8",
+        bg: "rgba(155,176,200,0.08)",
+        border: "rgba(155,176,200,0.2)",
+      };
+  }
+};
 
-  const total = currentStep?.total ?? 13
-  const step = currentStep?.step ?? 0
-  const progress = total > 0 ? Math.round((step / total) * 100) : 0
+const StatusBadge: React.FC<{ status?: RepoInfo["status"] }> = ({ status }) => {
+  const cfg = getStatusConfig(status);
 
   return (
-    <div style={{ marginTop: 20 }}>
-      {/* Connection status */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-        <div style={{
-          width: 6, height: 6, borderRadius: '50%',
-          background: isConnected ? '#00f084' : '#ffc145',
-          boxShadow: isConnected ? '0 0 8px #00f084' : 'none',
-        }} />
-        <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 9, color: 'var(--t-muted)', letterSpacing: '0.08em' }}>
-          {isConnected ? '实时连接' : '连接中...'}
-        </span>
-        <span style={{ marginLeft: 'auto', fontFamily: "'IBM Plex Mono'", fontSize: 9, color: 'var(--t-muted)' }}>
-          {elapsed}s
-        </span>
-      </div>
-
-      {/* Progress bar */}
-      <Progress
-        percent={progress}
-        strokeColor={{
-          '0%': '#00d4ff',
-          '100%': '#00f084',
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "3px 10px",
+        borderRadius: 2,
+        background: cfg.bg,
+        border: `1px solid ${cfg.border}`,
+      }}
+    >
+      <span
+        style={{
+          width: 5,
+          height: 5,
+          borderRadius: "50%",
+          background: cfg.color,
+          boxShadow: status === "analyzing" ? `0 0 8px ${cfg.color}` : "none",
         }}
-        trailColor="var(--s-float)"
-        style={{ marginBottom: 16 }}
       />
-
-      {/* Current step */}
-      {currentStep && (
-        <div style={{
-          padding: '12px 16px',
-          background: 'rgba(0,212,255,0.06)',
-          border: '1px solid rgba(0,212,255,0.2)',
-          borderRadius: 4,
-          marginBottom: 16,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <div style={{
-              width: 8, height: 8, borderRadius: '50%',
-              background: '#00d4ff',
-              animation: 'pulse 1s ease-in-out infinite',
-            }} />
-            <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 11, color: '#00d4ff', letterSpacing: '0.08em' }}>
-              步骤 {step}/{total}: {currentStep.stage || '处理中'}
-            </span>
-          </div>
-          {currentStep.message && (
-            <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10, color: 'var(--t-secondary)', paddingLeft: 16 }}>
-              {currentStep.message}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Completed steps timeline */}
-      {completedSteps.length > 0 && (
-        <div style={{
-          maxHeight: 200,
-          overflowY: 'auto',
-          padding: '12px 16px',
-          background: 'var(--s-float)',
-          border: '1px solid var(--b-faint)',
-          borderRadius: 4,
-        }}>
-          <Timeline
-            items={completedSteps.map((step, i) => ({
-              key: i,
-              color: '#00f084',
-              children: (
-                <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10 }}>
-                  <span style={{ color: 'var(--t-secondary)' }}>{step.stage}</span>
-                  {step.message && (
-                    <span style={{ color: 'var(--t-muted)', marginLeft: 8 }}>— {step.message}</span>
-                  )}
-                </div>
-              ),
-            }))}
-          />
-        </div>
-      )}
-
-      {/* Final result */}
-      {finalResult && finalResult.status === 'completed' && (
-        <div style={{
-          marginTop: 16,
-          padding: '14px 16px',
-          background: 'rgba(0,240,132,0.06)',
-          border: '1px solid rgba(0,240,132,0.2)',
-          borderRadius: 4,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#00f084', boxShadow: '0 0 8px #00f084' }} />
-            <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 11, color: '#00f084', letterSpacing: '0.08em' }}>
-              分析完成
-            </span>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            {[
-              { label: '图谱 ID', value: finalResult.graph_id || '—' },
-              { label: '耗时', value: `${finalResult.elapsed_seconds?.toFixed(2) ?? elapsed}s` },
-              { label: '节点数', value: (finalResult.node_count ?? 0).toLocaleString() },
-              { label: '边数', value: (finalResult.edge_count ?? 0).toLocaleString() },
-            ].map(({ label, value }) => (
-              <div key={label}>
-                <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 9, color: '#2a5a3a', letterSpacing: '0.1em', marginBottom: 2 }}>{label}</div>
-                <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 12, color: '#00f084', fontWeight: 600 }}>{value}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Error result */}
-      {finalResult && finalResult.status === 'failed' && (
-        <Alert
-          type="error"
-          message="分析失败"
-          description={<span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 12 }}>{finalResult.error || '未知错误'}</span>}
-          showIcon
-          style={{ marginTop: 16 }}
-        />
-      )}
-
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; transform: scale(1); }
-          50% { opacity: 0.5; transform: scale(0.7); }
-        }
-      `}</style>
-    </div>
-  )
-}
-
-// ─── Status Badge ─────────────────────────────────────────────────────────────
-
-const StatusBadge: React.FC<{ status: 'completed' | 'pending' | 'analyzing' }> = ({ status }) => {
-  const cfg = {
-    completed: { label: '已完成', color: '#00f084', bg: 'rgba(0,240,132,0.08)',  border: 'rgba(0,240,132,0.2)' },
-    pending:   { label: '等待中', color: '#ffc145', bg: 'rgba(255,193,69,0.08)', border: 'rgba(255,193,69,0.2)' },
-    analyzing: { label: '分析中', color: '#00d4ff', bg: 'rgba(0,212,255,0.08)',  border: 'rgba(0,212,255,0.2)' },
-  }[status]
-  return (
-    <div style={{
-      display:    'inline-flex',
-      alignItems: 'center',
-      gap:        5,
-      padding:    '3px 9px',
-      borderRadius: 2,
-      background: cfg.bg,
-      border:     `1px solid ${cfg.border}`,
-    }}>
-      <span style={{
-        width: 4, height: 4, borderRadius: '50%',
-        background: cfg.color,
-        boxShadow:  status === 'analyzing' ? `0 0 6px ${cfg.color}` : 'none',
-      }} />
-      <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 9, color: cfg.color, letterSpacing: '0.08em' }}>
+      <span
+        style={{
+          fontFamily: "'IBM Plex Mono'",
+          fontSize: 10,
+          color: cfg.color,
+          letterSpacing: "0.08em",
+        }}
+      >
         {cfg.label}
       </span>
     </div>
-  )
-}
+  );
+};
 
-// ─── Repository Page ──────────────────────────────────────────────────────────
-
-const Repository: React.FC = () => {
-  const navigate    = useNavigate()
-  const repos       = useRepoStore(s => s.repos ?? [])
-  const addRepo     = useRepoStore(s => s.addRepo)
-  const removeRepo  = useRepoStore(s => s.removeRepo)
-  const { setActiveGraphId } = useGraphStore()
-
-  const [modalOpen, setModalOpen]     = useState(false)
-  const [sourceMode, setSourceMode]   = useState<SourceMode>('git')
-  const [form]                        = Form.useForm()
-  const [taskId, setTaskId]           = useState<string | null>(null)
-  const [error, setError]             = useState<string | null>(null)
-  const [zipFileList, setZipFileList] = useState<UploadFile[]>([])
-
-  // SSE stream for async analysis
-  const { currentStep, completedSteps, finalResult, isConnected } = useAnalysisStream(taskId)
-
-  const handleCloseModal = () => {
-    setModalOpen(false)
-    form.resetFields()
-    setTaskId(null)
-    setError(null)
-    setZipFileList([])
-  }
-
-  const onAnalyzeSuccess = (
-    res: AnalyzeRepoResponse,
-    opts: { languages?: string[]; repoPath?: string; branch?: string; sourceMode?: SourceMode }
-  ) => {
-    addRepo({
-      graphId:    res.graphId,
-      repoName:   res.repoName,
-      language:   opts.languages || [],
-      createdAt:  new Date().toISOString(),
-      nodeCount:  res.nodeCount,
-      edgeCount:  res.edgeCount,
-      repoPath:   opts.repoPath,
-      branch:     opts.branch,
-      sourceMode: opts.sourceMode,
-    })
-    setTimeout(handleCloseModal, 2500)
-  }
-
-  const handleSubmit = async (values: {
-    repoPath?: string; gitUrl?: string; branch?: string; repoName?: string
-    languages?: string[]
-  }) => {
-    setError(null)
-    setTaskId(null)
-
-    try {
-      if (sourceMode === 'zip') {
-        // ZIP upload remains synchronous
-        const rawFile = zipFileList[0]?.originFileObj
-        if (!rawFile) { message.error('请先选择 ZIP 文件'); return }
-        const res = await repoApi.analyzeZip(rawFile, {
-          repoName: values.repoName, languages: values.languages,
-        })
-        onAnalyzeSuccess(res, { languages: values.languages, repoPath: rawFile.name, sourceMode: 'zip' })
-      } else {
-        // Git/local path uses async analysis
-        const repoPath = sourceMode === 'git' ? (values.gitUrl ?? '') : (values.repoPath ?? '')
-        const response = await graphEndpoints.analyzeRepository({
-          repo_path: repoPath,
-          repo_name: values.repoName,
-          languages: values.languages,
-        })
-        setTaskId(response.task_id)
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '分析失败')
-    }
-  }
-
-  // Navigate to architecture page when analysis completes
-  useEffect(() => {
-    if (finalResult?.status === 'completed' && finalResult.graph_id) {
-      const graphId = finalResult.graph_id
-      const nodeCount = finalResult.node_count ?? 0
-      const edgeCount = finalResult.edge_count ?? 0
-
-      // Add to repo store
-      addRepo({
-        graphId,
-        repoName: form.getFieldValue('repoName') || graphId,
-        language: form.getFieldValue('languages') || [],
-        createdAt: new Date().toISOString(),
-        nodeCount,
-        edgeCount,
-        repoPath: sourceMode === 'git' ? form.getFieldValue('gitUrl') : form.getFieldValue('repoPath'),
-        branch: form.getFieldValue('branch'),
-        sourceMode,
-      })
-
-      // Set active graph and navigate
-      setActiveGraphId(graphId)
-      message.success('分析完成，正在跳转...')
-      setTimeout(() => {
-        navigate(`/architecture?graph_id=${graphId}`)
-        handleCloseModal()
-      }, 1500)
-    }
-  }, [finalResult, navigate, addRepo, setActiveGraphId, form, sourceMode])
-
-  const handleReanalyze = async (repo: RepoInfo) => {
-    if (!repo.repoPath) {
-      Modal.warning({ title: '无法重新分析', content: `仓库 "${repo.repoName}" 缺少原始路径信息。` })
-      return
-    }
-    if (repo.sourceMode === 'zip') {
-      Modal.warning({ title: '无法重新分析', content: 'ZIP 上传的仓库无法重新分析，请重新上传 ZIP 文件。' })
-      return
-    }
-    Modal.confirm({
-      title: '重新分析仓库',
-      content: `确定要重新分析 "${repo.repoName}" 吗？这将覆盖现有图谱数据。`,
-      okText: '确定', cancelText: '取消',
-      onOk: async () => {
-        try {
-          message.loading({ content: '正在重新分析...', key: 'reanalyze', duration: 0 })
-          const response = await graphEndpoints.analyzeRepository({
-            repo_path: repo.repoPath!,
-            repo_name: repo.repoName,
-            languages: repo.language,
-          })
-          message.info({ content: `任务已提交: ${response.task_id}`, key: 'reanalyze' })
-          // Note: Could open a modal to track progress here
-        } catch (e) {
-          message.error({ content: e instanceof Error ? e.message : '重新分析失败', key: 'reanalyze' })
-        }
-      },
-    })
-  }
-
-  const handleViewGraph = (repo: RepoInfo) => {
-    setActiveGraphId(repo.graphId)
-    navigate('/architecture')
-  }
-
-  const handleDelete = async (graphId: string) => {
-    if (!graphId) { message.error('仓库 ID 缺失，无法删除'); return }
-    try {
-      await repoApi.deleteRepository(graphId)
-      removeRepo(graphId)
-      message.success('仓库已删除')
-    } catch (e) {
-      message.error(e instanceof Error ? e.message : '删除失败')
-    }
-  }
+const AnalysisProgressPanel: React.FC<{ repo: RepoInfo }> = ({ repo }) => {
+  const total = repo.analysisTotal ?? PIPELINE_STAGES.length;
+  const step = repo.analysisStep ?? 0;
+  const percent =
+    total > 0 ? Math.min(100, Math.round((step / total) * 100)) : 0;
 
   return (
     <div>
-      {/* ── Page heading ──────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 24 }}>
+      <Progress
+        percent={percent}
+        strokeColor={{ "0%": "#00d4ff", "100%": "#00f084" }}
+        trailColor="var(--s-float)"
+      />
+
+      <div
+        style={{
+          marginTop: 10,
+          marginBottom: 12,
+          padding: "10px 12px",
+          background: "rgba(0,212,255,0.06)",
+          border: "1px solid rgba(0,212,255,0.2)",
+          borderRadius: 4,
+          fontFamily: "'IBM Plex Mono'",
+        }}
+      >
+        <div style={{ fontSize: 11, color: "#00d4ff", marginBottom: 4 }}>
+          当前进度: {step}/{total}
+        </div>
+        <div style={{ fontSize: 12, color: "var(--t-secondary)" }}>
+          {repo.analysisStage || "等待调度"}
+        </div>
+        {repo.analysisMessage && (
+          <div style={{ marginTop: 4, fontSize: 11, color: "var(--t-muted)" }}>
+            {repo.analysisMessage}
+          </div>
+        )}
+      </div>
+
+      <div
+        style={{
+          maxHeight: 280,
+          overflowY: "auto",
+          padding: "10px 12px",
+          background: "var(--s-float)",
+          border: "1px solid var(--b-faint)",
+          borderRadius: 4,
+        }}
+      >
+        <Timeline
+          items={PIPELINE_STAGES.map((name, index) => {
+            const stageIndex = index + 1;
+            const color =
+              stageIndex < step
+                ? "#00f084"
+                : stageIndex === step
+                  ? "#00d4ff"
+                  : "#3d4a5d";
+            return {
+              color,
+              children: (
+                <span
+                  style={{
+                    fontFamily: "'IBM Plex Mono'",
+                    fontSize: 11,
+                    color:
+                      stageIndex <= step
+                        ? "var(--t-secondary)"
+                        : "var(--t-muted)",
+                  }}
+                >
+                  {stageIndex}. {name}
+                </span>
+              ),
+            };
+          })}
+        />
+      </div>
+    </div>
+  );
+};
+
+const inferRepoName = (
+  source: string | undefined,
+  fallback?: string,
+): string => {
+  if (fallback?.trim()) return fallback.trim();
+  if (!source) return `repo-${Date.now()}`;
+
+  const normalized = source.replace(/\\/g, "/").replace(/\/$/, "");
+  const last = normalized.split("/").pop() || normalized;
+  return last.replace(/\.git$/i, "") || `repo-${Date.now()}`;
+};
+
+const formatTime = (value?: string): string => {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const Repository: React.FC = () => {
+  const navigate = useNavigate();
+  const [form] = Form.useForm<RepoFormValues>();
+
+  const repos = useRepoStore((s) => s.repos ?? []);
+  const loading = useRepoStore((s) => s.loading);
+  const setRepos = useRepoStore((s) => s.setRepos);
+  const setLoading = useRepoStore((s) => s.setLoading);
+  const setError = useRepoStore((s) => s.setError);
+  const addRepo = useRepoStore((s) => s.addRepo);
+  const updateRepo = useRepoStore((s) => s.updateRepo);
+  const removeRepo = useRepoStore((s) => s.removeRepo);
+  const { setActiveGraphId } = useGraphStore();
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [sourceMode, setSourceMode] = useState<SourceMode>("git");
+  const [detailRepoId, setDetailRepoId] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const detailRepo = useMemo(
+    () => repos.find((repo) => repo.repoId === detailRepoId) ?? null,
+    [repos, detailRepoId],
+  );
+
+  const refreshRemoteRepos = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await graphEndpoints.listGraphs();
+      setRepos(data.graphs ?? []);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "获取仓库列表失败";
+      setError(text);
+      message.error(text);
+    } finally {
+      setLoading(false);
+    }
+  }, [setLoading, setRepos, setError]);
+
+  useEffect(() => {
+    void refreshRemoteRepos();
+  }, [refreshRemoteRepos]);
+
+  useEffect(() => {
+    const analyzingRepos = repos.filter(
+      (repo) => repo.status === "analyzing" && !!repo.taskId,
+    );
+    if (analyzingRepos.length === 0) return;
+
+    const timer = window.setInterval(async () => {
+      const statusList = await Promise.all(
+        analyzingRepos.map(async (repo) => {
+          try {
+            const status = await graphEndpoints.getAnalysisStatus(repo.taskId!);
+            return { repo, status };
+          } catch {
+            return null;
+          }
+        }),
+      );
+
+      let hasCompleted = false;
+
+      for (const item of statusList) {
+        if (!item) continue;
+
+        const { repo, status } = item;
+        const patch: Partial<RepoInfo> = {
+          analysisStep: status.step,
+          analysisTotal: status.total,
+          analysisStage: status.stage,
+          analysisMessage: status.message,
+          analysisElapsedSeconds: status.elapsed_seconds,
+        };
+
+        if (status.status === "completed") {
+          hasCompleted = true;
+          updateRepo(repo.repoId, {
+            ...patch,
+            status: "completed",
+            graphId: status.graph_id || repo.graphId,
+            nodeCount: status.node_count ?? repo.nodeCount,
+            edgeCount: status.edge_count ?? repo.edgeCount,
+            taskId: undefined,
+            error: undefined,
+            lastAnalyzedAt: new Date().toISOString(),
+          });
+          message.success(`${repo.repoName} 分析完成`);
+          continue;
+        }
+
+        if (status.status === "failed") {
+          updateRepo(repo.repoId, {
+            ...patch,
+            status: "failed",
+            taskId: undefined,
+            error: status.error || status.message || "分析失败",
+            lastAnalyzedAt: new Date().toISOString(),
+          });
+          message.error(`${repo.repoName} 分析失败`);
+          continue;
+        }
+
+        if (status.status === "canceled") {
+          updateRepo(repo.repoId, {
+            ...patch,
+            status: "canceled",
+            taskId: undefined,
+            lastAnalyzedAt: new Date().toISOString(),
+          });
+          message.warning(`${repo.repoName} 已取消分析`);
+          continue;
+        }
+
+        updateRepo(repo.repoId, {
+          ...patch,
+          status: "analyzing",
+        });
+      }
+
+      if (hasCompleted) {
+        void refreshRemoteRepos();
+      }
+    }, 3000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [repos, updateRepo, refreshRemoteRepos]);
+
+  const handleSaveRepo = async (values: RepoFormValues) => {
+    setSubmitError(null);
+
+    const repoPath = sourceMode === "git" ? values.gitUrl : values.repoPath;
+    if (!repoPath) {
+      setSubmitError("仓库地址不能为空");
+      return;
+    }
+
+    const repoName = inferRepoName(repoPath, values.repoName);
+    const repoId = `repo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    addRepo({
+      repoId,
+      graphId: "",
+      repoName,
+      language: values.languages ?? [],
+      createdAt: new Date().toISOString(),
+      nodeCount: 0,
+      edgeCount: 0,
+      repoPath,
+      branch: values.branch,
+      sourceMode,
+      status: "saved",
+    });
+
+    message.success("仓库已保存，可在列表中发起分析");
+    setModalOpen(false);
+    form.resetFields();
+  };
+
+  const startAnalysis = async (repo: RepoInfo) => {
+    if (!repo.repoPath) {
+      message.error("缺少仓库路径，无法分析");
+      return;
+    }
+
+    try {
+      const response = await graphEndpoints.analyzeRepository({
+        repo_path: repo.repoPath,
+        repo_name: repo.repoName,
+        languages: repo.language.length > 0 ? repo.language : undefined,
+      });
+
+      updateRepo(repo.repoId, {
+        status: "analyzing",
+        taskId: response.task_id,
+        error: undefined,
+        analysisStep: 0,
+        analysisTotal: PIPELINE_STAGES.length,
+        analysisStage: "任务已创建",
+        analysisMessage: "等待调度执行",
+      });
+      message.success(`已开始分析: ${repo.repoName}`);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "分析任务提交失败";
+      updateRepo(repo.repoId, { status: "failed", error: text });
+      message.error(text);
+    }
+  };
+
+  const handleCancel = async (repo: RepoInfo) => {
+    if (!repo.taskId) {
+      message.warning("当前任务不存在或已结束");
+      return;
+    }
+
+    try {
+      await graphEndpoints.cancelAnalysis(repo.taskId);
+      updateRepo(repo.repoId, {
+        status: "canceled",
+        taskId: undefined,
+        analysisMessage: "已发送取消请求",
+        lastAnalyzedAt: new Date().toISOString(),
+      });
+      message.warning(`已取消: ${repo.repoName}`);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "取消失败");
+    }
+  };
+
+  const handleViewGraph = (repo: RepoInfo) => {
+    if (!repo.graphId) {
+      message.warning("该仓库尚未生成图谱");
+      return;
+    }
+
+    setActiveGraphId(repo.graphId);
+    navigate(`/architecture?graph_id=${repo.graphId}`);
+  };
+
+  const handleDelete = async (repo: RepoInfo) => {
+    try {
+      if (repo.graphId) {
+        await repoApi.deleteRepository(repo.graphId);
+      }
+      removeRepo(repo.repoId);
+      message.success("仓库已删除");
+      if (detailRepoId === repo.repoId) {
+        setDetailRepoId(null);
+      }
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "删除失败");
+    }
+  };
+
+  return (
+    <div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-end",
+          justifyContent: "space-between",
+          marginBottom: 24,
+        }}
+      >
         <div>
-          <div style={{ fontSize: 9, fontFamily: "'IBM Plex Mono'", color: 'var(--t-muted)', letterSpacing: '0.15em', marginBottom: 4 }}>
+          <div
+            style={{
+              fontSize: 9,
+              fontFamily: "'IBM Plex Mono'",
+              color: "var(--t-muted)",
+              letterSpacing: "0.15em",
+              marginBottom: 4,
+            }}
+          >
             系统 / 仓库
           </div>
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--t-primary)', fontFamily: "'Syne', sans-serif", letterSpacing: '-0.01em' }}>
+          <h2
+            style={{
+              margin: 0,
+              fontSize: 22,
+              fontWeight: 700,
+              color: "var(--t-primary)",
+              fontFamily: "'Syne', sans-serif",
+              letterSpacing: "-0.01em",
+            }}
+          >
             仓库管理
           </h2>
         </div>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => setModalOpen(true)}
-          style={{ height: 40, fontSize: 13, fontFamily: "'IBM Plex Mono'", letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 8 }}
+
+        <Space>
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={() => void refreshRemoteRepos()}
+            loading={loading}
+            style={{ fontFamily: "'IBM Plex Mono'" }}
+          >
+            刷新
+          </Button>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => setModalOpen(true)}
+            style={{ fontFamily: "'IBM Plex Mono'" }}
+          >
+            添加仓库
+          </Button>
+        </Space>
+      </div>
+
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="流程已拆分：先保存仓库，再在列表中点击“分析”执行任务；分析中可取消并查看实时进度。"
+      />
+
+      <div
+        style={{
+          background: "var(--s-raised)",
+          border: "1px solid var(--b-faint)",
+          borderRadius: "var(--radius-m)",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            padding: "14px 20px",
+            borderBottom: "1px solid var(--b-faint)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
         >
-          添加仓库
-        </Button>
-      </div>
-
-      {/* ── Pipeline info banner ──────────────────────────────────────────── */}
-      <div style={{
-        display:      'flex',
-        alignItems:   'center',
-        gap:          12,
-        padding:      '10px 16px',
-        marginBottom: 16,
-        background:   'rgba(0,212,255,0.04)',
-        border:       '1px solid rgba(0,212,255,0.12)',
-        borderRadius: 4,
-      }}>
-        <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#00d4ff', flexShrink: 0 }} />
-        <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10, color: '#3a6a7a', letterSpacing: '0.06em' }}>
-          分析流水线：13 步全自动分析（扫描 → 解析 → 模块检测 → 组件检测 → 依赖分析 → 调用图 → 事件分析 → 基础设施 → AI 分析 → 图谱构建 → 持久化 → 向量化）
-        </div>
-        <div style={{ marginLeft: 'auto', fontFamily: "'IBM Plex Mono'", fontSize: 9, color: '#2a4a5a', letterSpacing: '0.06em' }}>
-          AnalysisPipeline v2
-        </div>
-      </div>
-
-      {/* ── Repository table ──────────────────────────────────────────────── */}
-      <div style={{ background: 'var(--s-raised)', border: '1px solid var(--b-faint)', borderRadius: 'var(--radius-m)', overflow: 'hidden' }}>
-        {/* Header */}
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--b-faint)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10, color: 'var(--t-secondary)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+          <div
+            style={{
+              fontFamily: "'IBM Plex Mono'",
+              fontSize: 10,
+              color: "var(--t-secondary)",
+              letterSpacing: "0.1em",
+              textTransform: "uppercase",
+            }}
+          >
             仓库列表
           </div>
-          <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10, color: 'var(--t-muted)' }}>
+          <div
+            style={{
+              fontFamily: "'IBM Plex Mono'",
+              fontSize: 10,
+              color: "var(--t-muted)",
+            }}
+          >
             共 {repos.length} 个
           </div>
         </div>
 
-        {/* Empty state */}
         {repos.length === 0 && (
-          <div style={{ padding: '60px 40px', textAlign: 'center' }}>
-            <div style={{ fontSize: 48, opacity: 0.06, marginBottom: 16 }}>⬡</div>
-            <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 11, color: 'var(--t-muted)', letterSpacing: '0.1em', marginBottom: 12 }}>
+          <div style={{ padding: "60px 40px", textAlign: "center" }}>
+            <div style={{ fontSize: 48, opacity: 0.06, marginBottom: 16 }}>
+              ⬡
+            </div>
+            <div
+              style={{
+                fontFamily: "'IBM Plex Mono'",
+                fontSize: 11,
+                color: "var(--t-muted)",
+                letterSpacing: "0.1em",
+                marginBottom: 12,
+              }}
+            >
               暂无仓库
             </div>
-            <Button type="link" onClick={() => setModalOpen(true)} style={{ fontFamily: "'IBM Plex Mono'", fontSize: 11, color: 'var(--t-cyan)' }}>
-              添加第一个仓库 →
+            <Button
+              type="link"
+              onClick={() => setModalOpen(true)}
+              style={{ fontFamily: "'IBM Plex Mono'", fontSize: 11 }}
+            >
+              添加第一个仓库
             </Button>
           </div>
         )}
 
-        {/* Rows */}
         {repos.length > 0 && (
           <div>
-            {/* Column headers */}
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1.5fr 1.5fr', gap: 16, padding: '12px 20px', background: 'var(--s-float)', borderBottom: '1px solid var(--b-faint)' }}>
-              {['名称', '分支', '状态', '最近分析', '操作'].map(h => (
-                <div key={h} style={{ fontFamily: "'IBM Plex Mono'", fontSize: 9, color: 'var(--t-muted)', letterSpacing: '0.12em' }}>{h}</div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "2fr 1fr 1fr 1.2fr 1.8fr",
+                gap: 16,
+                padding: "12px 20px",
+                background: "var(--s-float)",
+                borderBottom: "1px solid var(--b-faint)",
+              }}
+            >
+              {["名称", "分支", "状态", "最近分析", "操作"].map((header) => (
+                <div
+                  key={header}
+                  style={{
+                    fontFamily: "'IBM Plex Mono'",
+                    fontSize: 9,
+                    color: "var(--t-muted)",
+                    letterSpacing: "0.12em",
+                  }}
+                >
+                  {header}
+                </div>
               ))}
             </div>
 
-            {repos.map((repo, i) => (
-              <div
-                key={repo.graphId || `repo-${i}`}
-                style={{
-                  display:             'grid',
-                  gridTemplateColumns: '2fr 1fr 1fr 1.5fr 1.5fr',
-                  gap:                 16,
-                  padding:             '16px 20px',
-                  borderBottom:        i < repos.length - 1 ? '1px solid var(--b-faint)' : 'none',
-                  transition:          'background 0.15s',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'var(--s-float)' }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
-              >
-                {/* Name */}
-                <div>
-                  <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 13, fontWeight: 500, color: 'var(--t-cyan)', marginBottom: 4 }}>
-                    {repo.repoName}
+            {repos.map((repo, index) => {
+              const isAnalyzing = repo.status === "analyzing";
+              const canAnalyze = !!repo.repoPath && !isAnalyzing;
+              const canView = !!repo.graphId;
+
+              return (
+                <div
+                  key={repo.repoId || `repo-${index}`}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "2fr 1fr 1fr 1.2fr 1.8fr",
+                    gap: 16,
+                    padding: "16px 20px",
+                    borderBottom:
+                      index < repos.length - 1
+                        ? "1px solid var(--b-faint)"
+                        : "none",
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        fontFamily: "'IBM Plex Mono'",
+                        fontSize: 13,
+                        color: "var(--t-cyan)",
+                        marginBottom: 4,
+                      }}
+                    >
+                      {repo.repoName}
+                    </div>
+                    <Space size={4} wrap>
+                      {(repo.language ?? []).slice(0, 3).map((lang) => (
+                        <Tag
+                          key={lang}
+                          style={{
+                            margin: 0,
+                            fontSize: 9,
+                            fontFamily: "'IBM Plex Mono'",
+                            background: "rgba(176,142,255,0.08)",
+                            border: "1px solid rgba(176,142,255,0.2)",
+                            color: "#b08eff",
+                          }}
+                        >
+                          {lang}
+                        </Tag>
+                      ))}
+                    </Space>
                   </div>
-                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                    {(repo.language ?? []).slice(0, 3).map(lang => (
-                      <Tag key={lang} style={{ margin: 0, fontSize: 9, fontFamily: "'IBM Plex Mono'", background: 'rgba(176,142,255,0.08)', border: '1px solid rgba(176,142,255,0.2)', color: '#b08eff', letterSpacing: '0.04em' }}>
-                        {lang}
-                      </Tag>
-                    ))}
-                    {(repo.language ?? []).length > 3 && (
-                      <span style={{ fontSize: 9, fontFamily: "'IBM Plex Mono'", color: 'var(--t-muted)' }}>
-                        +{(repo.language ?? []).length - 3}
-                      </span>
+
+                  <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 12 }}>
+                    {repo.branch || "-"}
+                  </div>
+
+                  <div>
+                    <StatusBadge status={repo.status} />
+                    {isAnalyzing && (
+                      <div
+                        style={{
+                          marginTop: 4,
+                          fontFamily: "'IBM Plex Mono'",
+                          fontSize: 10,
+                          color: "var(--t-muted)",
+                        }}
+                      >
+                        {repo.analysisStep ?? 0}/
+                        {repo.analysisTotal ?? PIPELINE_STAGES.length}
+                      </div>
                     )}
                   </div>
-                </div>
 
-                {/* Branch */}
-                <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 12, color: 'var(--t-secondary)' }}>
-                  {repo.gitCommit ? (
-                    <div>
-                      <div style={{ marginBottom: 2 }}>主分支</div>
-                      <div style={{ fontSize: 9, color: 'var(--t-muted)', letterSpacing: '0.02em' }}>{repo.gitCommit.slice(0, 7)}</div>
-                    </div>
-                  ) : <span style={{ color: 'var(--t-muted)' }}>—</span>}
-                </div>
-
-                {/* Status */}
-                <div><StatusBadge status={repo.graphId ? 'completed' : 'pending'} /></div>
-
-                {/* Last analysis */}
-                <div>
-                  <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 11, color: 'var(--t-secondary)', marginBottom: 2 }}>
-                    {new Date(repo.createdAt).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                  <div
+                    style={{
+                      fontFamily: "'IBM Plex Mono'",
+                      fontSize: 11,
+                      color: "var(--t-secondary)",
+                    }}
+                  >
+                    {formatTime(repo.lastAnalyzedAt || repo.createdAt)}
                   </div>
-                  <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 9, color: 'var(--t-muted)' }}>
-                    {repo.nodeCount.toLocaleString()} 节点 · {repo.edgeCount.toLocaleString()} 边
-                  </div>
-                </div>
 
-                {/* Actions */}
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <Button size="small" icon={<ReloadOutlined />} onClick={() => handleReanalyze(repo)} style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10 }}>重新分析</Button>
-                  <Button size="small" type="primary" icon={<EyeOutlined />} onClick={() => handleViewGraph(repo)} style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10 }}>查看</Button>
-                  <Popconfirm title="删除仓库" description="确定要删除此仓库吗？" onConfirm={() => handleDelete(repo.graphId)} okText="删除" cancelText="取消" okButtonProps={{ danger: true }}>
-                    <Button size="small" danger icon={<DeleteOutlined />} style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10 }} />
-                  </Popconfirm>
+                  <Space wrap size={6}>
+                    <Button
+                      size="small"
+                      icon={<PlayCircleOutlined />}
+                      onClick={() => void startAnalysis(repo)}
+                      disabled={!canAnalyze}
+                      style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10 }}
+                    >
+                      {repo.status === "completed" ? "重新分析" : "分析"}
+                    </Button>
+
+                    {isAnalyzing && (
+                      <Button
+                        size="small"
+                        danger
+                        icon={<PauseCircleOutlined />}
+                        onClick={() => void handleCancel(repo)}
+                        style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10 }}
+                      >
+                        取消
+                      </Button>
+                    )}
+
+                    <Button
+                      size="small"
+                      icon={<InfoCircleOutlined />}
+                      onClick={() => setDetailRepoId(repo.repoId)}
+                      style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10 }}
+                    >
+                      详情
+                    </Button>
+
+                    <Button
+                      size="small"
+                      type="primary"
+                      icon={<EyeOutlined />}
+                      onClick={() => handleViewGraph(repo)}
+                      disabled={!canView}
+                      style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10 }}
+                    >
+                      查看
+                    </Button>
+
+                    <Popconfirm
+                      title="删除仓库"
+                      description="确定要删除此仓库吗？"
+                      onConfirm={() => void handleDelete(repo)}
+                      okText="删除"
+                      cancelText="取消"
+                      okButtonProps={{ danger: true }}
+                    >
+                      <Button
+                        size="small"
+                        danger
+                        icon={<DeleteOutlined />}
+                        style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10 }}
+                      />
+                    </Popconfirm>
+                  </Space>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
 
-      {/* ── Add Repository Modal ──────────────────────────────────────────── */}
       <Modal
         open={modalOpen}
-        onCancel={handleCloseModal}
-        footer={null}
-        width={600}
-        styles={{
-          body:   { background: 'var(--s-raised)' },
-          header: { background: 'var(--s-float)', borderBottom: '1px solid var(--b-faint)' },
+        onCancel={() => {
+          setModalOpen(false);
+          form.resetFields();
+          setSubmitError(null);
         }}
-        title={
-          <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 11, color: 'var(--t-secondary)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-            ⬡ 添加仓库
-          </div>
-        }
+        onOk={() => void form.submit()}
+        okText="保存仓库"
+        cancelText="取消"
+        title="添加仓库"
       >
-        {/* Source mode selector */}
-        <div style={{ display: 'flex', gap: 4, marginBottom: 20, padding: 4, background: 'var(--s-float)', borderRadius: 'var(--radius-s)', border: '1px solid var(--b-faint)' }}>
-          {([
-            { key: 'git',   label: 'Git 仓库',  icon: <GithubOutlined /> },
-            { key: 'local', label: '本地路径',   icon: <FolderOutlined /> },
-            { key: 'zip',   label: 'ZIP 上传',   icon: <UploadOutlined /> },
-          ] as { key: SourceMode; label: string; icon: React.ReactNode }[]).map(item => (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => { setSourceMode(item.key); form.resetFields() }}
-              style={{
-                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                padding: '8px 0', border: 'none', borderRadius: 'calc(var(--radius-s) - 2px)',
-                cursor: 'pointer', fontFamily: "'IBM Plex Mono'", fontSize: 12, transition: 'all 0.15s',
-                background: sourceMode === item.key ? 'var(--a-cyan)' : 'transparent',
-                color:      sourceMode === item.key ? '#000' : 'var(--t-secondary)',
-                fontWeight: sourceMode === item.key ? 600 : 400,
-              }}
-            >
-              {item.icon} {item.label}
-            </button>
-          ))}
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          <Button
+            type={sourceMode === "git" ? "primary" : "default"}
+            icon={<GithubOutlined />}
+            onClick={() => {
+              setSourceMode("git");
+              form.resetFields();
+            }}
+          >
+            Git 仓库
+          </Button>
+          <Button
+            type={sourceMode === "local" ? "primary" : "default"}
+            icon={<FolderOutlined />}
+            onClick={() => {
+              setSourceMode("local");
+              form.resetFields();
+            }}
+          >
+            本地路径
+          </Button>
         </div>
 
-        <Form form={form} layout="vertical" onFinish={handleSubmit} requiredMark={false}>
-          {sourceMode === 'git' && (<>
-            <Form.Item name="gitUrl" label="Git 仓库地址" rules={[{ required: true, message: 'Git URL 不能为空' }]} style={{ marginBottom: 16 }}>
-              <Input placeholder="git@github.com:org/repo.git 或 https://github.com/org/repo.git" style={{ fontFamily: "'IBM Plex Mono'", fontSize: 12 }} />
-            </Form.Item>
-            <Form.Item name="branch" label="分支（可选，默认 HEAD）" style={{ marginBottom: 16 }}>
-              <Input placeholder="main / master / feature/xxx" style={{ fontFamily: "'IBM Plex Mono'" }} />
-            </Form.Item>
-          </>)}
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={handleSaveRepo}
+          requiredMark={false}
+        >
+          {sourceMode === "git" && (
+            <>
+              <Form.Item
+                name="gitUrl"
+                label="Git 仓库地址"
+                rules={[{ required: true, message: "Git URL 不能为空" }]}
+              >
+                <Input placeholder="git@github.com:org/repo.git 或 https://github.com/org/repo.git" />
+              </Form.Item>
+              <Form.Item name="branch" label="分支（可选）">
+                <Input placeholder="main / master / feature/xxx" />
+              </Form.Item>
+            </>
+          )}
 
-          {sourceMode === 'local' && (
-            <Form.Item name="repoPath" label="本地仓库路径" rules={[{ required: true, message: '路径不能为空' }]} style={{ marginBottom: 16 }}>
-              <Input placeholder="/path/to/your/repo" style={{ fontFamily: "'IBM Plex Mono'" }} />
+          {sourceMode === "local" && (
+            <Form.Item
+              name="repoPath"
+              label="本地仓库路径"
+              rules={[{ required: true, message: "路径不能为空" }]}
+            >
+              <Input placeholder="C:/path/to/repo" />
             </Form.Item>
           )}
 
-          {sourceMode === 'zip' && (
-            <Form.Item label="ZIP 压缩包" style={{ marginBottom: 16 }}>
-              <Upload accept=".zip" maxCount={1} fileList={zipFileList} beforeUpload={() => false} onChange={({ fileList }) => setZipFileList(fileList)}>
-                <Button icon={<UploadOutlined />} style={{ fontFamily: "'IBM Plex Mono'" }}>选择 ZIP 文件</Button>
-              </Upload>
-            </Form.Item>
-          )}
-
-          <Form.Item name="repoName" label="仓库名称（可选）" style={{ marginBottom: 16 }}>
-            <Input placeholder="自动从 URL / 路径 / 文件名检测" style={{ fontFamily: "'IBM Plex Mono'" }} />
+          <Form.Item name="repoName" label="仓库名称（可选）">
+            <Input placeholder="默认自动推断" />
           </Form.Item>
 
-          <Form.Item name="languages" label="编程语言（可选）" style={{ marginBottom: 20 }}>
-            <Select mode="multiple" placeholder="自动检测所有语言" options={LANGS.map(l => ({ value: l, label: l }))} style={{ fontFamily: "'IBM Plex Mono'" }} />
-          </Form.Item>
-
-          <Button
-            type="primary"
-            htmlType="submit"
-            loading={!!taskId && !finalResult}
-            size="large"
-            block
-            style={{ height: 44, fontSize: 13, fontFamily: "'IBM Plex Mono'", letterSpacing: '0.08em' }}
-          >
-            {taskId && !finalResult ? '分析中...' : '⚡ 开始分析'}
-          </Button>
-
-          {/* Real-time progress */}
-          {taskId && (
-            <RealTimeProgress
-              currentStep={currentStep}
-              completedSteps={completedSteps}
-              finalResult={finalResult}
-              isConnected={isConnected}
+          <Form.Item name="languages" label="编程语言（可选）">
+            <Select
+              mode="multiple"
+              placeholder="不选则分析时自动检测"
+              options={LANGS.map((lang) => ({ value: lang, label: lang }))}
             />
-          )}
+          </Form.Item>
 
-          {error && (
+          {submitError && (
             <Alert
               type="error"
-              message="分析失败"
-              description={<span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 12 }}>{error}</span>}
-              showIcon closable onClose={() => setError(null)}
-              style={{ marginTop: 16 }}
+              message="保存失败"
+              description={submitError}
+              showIcon
             />
           )}
         </Form>
       </Modal>
-    </div>
-  )
-}
 
-export default Repository
+      <Modal
+        open={!!detailRepo}
+        onCancel={() => setDetailRepoId(null)}
+        footer={null}
+        width={760}
+        title={detailRepo ? `仓库详情: ${detailRepo.repoName}` : "仓库详情"}
+      >
+        {detailRepo && (
+          <div>
+            <Descriptions
+              bordered
+              size="small"
+              column={2}
+              style={{ marginBottom: 16 }}
+            >
+              <Descriptions.Item label="状态">
+                <StatusBadge status={detailRepo.status} />
+              </Descriptions.Item>
+              <Descriptions.Item label="仓库名称">
+                {detailRepo.repoName}
+              </Descriptions.Item>
+              <Descriptions.Item label="仓库路径" span={2}>
+                {detailRepo.repoPath || "-"}
+              </Descriptions.Item>
+              <Descriptions.Item label="来源">
+                {detailRepo.sourceMode || "-"}
+              </Descriptions.Item>
+              <Descriptions.Item label="分支">
+                {detailRepo.branch || "-"}
+              </Descriptions.Item>
+              <Descriptions.Item label="图谱 ID" span={2}>
+                {detailRepo.graphId || "未生成"}
+              </Descriptions.Item>
+              <Descriptions.Item label="节点数">
+                {detailRepo.nodeCount}
+              </Descriptions.Item>
+              <Descriptions.Item label="边数">
+                {detailRepo.edgeCount}
+              </Descriptions.Item>
+              <Descriptions.Item label="创建时间">
+                {formatTime(detailRepo.createdAt)}
+              </Descriptions.Item>
+              <Descriptions.Item label="最近分析">
+                {formatTime(detailRepo.lastAnalyzedAt)}
+              </Descriptions.Item>
+            </Descriptions>
+
+            {detailRepo.status === "analyzing" && (
+              <AnalysisProgressPanel repo={detailRepo} />
+            )}
+
+            {detailRepo.status === "failed" && detailRepo.error && (
+              <Alert
+                type="error"
+                message="分析失败"
+                description={detailRepo.error}
+                showIcon
+              />
+            )}
+
+            {detailRepo.status === "canceled" && (
+              <Alert
+                type="warning"
+                message="分析已取消"
+                description={
+                  detailRepo.analysisMessage || "任务已取消，可重新发起分析"
+                }
+                showIcon
+              />
+            )}
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+};
+
+export default Repository;

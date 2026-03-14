@@ -161,6 +161,13 @@ class AnalyzeAsyncResponse(BaseModel):
     status:  str = "pending"
 
 
+class AnalyzeCancelResponse(BaseModel):
+    """POST /analyze/cancel/{task_id} 响应。"""
+    task_id: str
+    status: str
+    message: str
+
+
 class AnalysisStatusResponse(BaseModel):
     """GET /analyze/status/{task_id} 响应。"""
     task_id:         str
@@ -258,6 +265,7 @@ def root():
         "docs":    "/docs",
         "endpoints": [
             "POST   /analyze/repository  (异步分析，返回 task_id)",
+            "POST   /analyze/cancel/{task_id}  (取消分析任务)",
             "GET    /analyze/stream/{task_id}  (SSE 实时进度)",
             "GET    /analyze/status/{task_id}  (查询任务状态)",
             "POST   /analyze/upload-zip  (ZIP 上传分析)",
@@ -473,6 +481,13 @@ def analyze_status(task_id: str):
     if isinstance(info, Exception):
         return AnalysisStatusResponse(task_id=task_id, status="failed", error=str(info))
 
+    if result.state == "REVOKED":
+        return AnalysisStatusResponse(
+            task_id=task_id,
+            status="canceled",
+            message="任务已取消",
+        )
+
     return AnalysisStatusResponse(
         task_id=task_id,
         status=info.get("status", result.state.lower()),
@@ -486,6 +501,38 @@ def analyze_status(task_id: str):
         node_count=info.get("node_count"),
         edge_count=info.get("edge_count"),
         error=info.get("error"),
+    )
+
+
+@app.post("/analyze/cancel/{task_id}", response_model=AnalyzeCancelResponse, tags=["分析"])
+def analyze_cancel(task_id: str):
+    """取消分析任务。"""
+    result = AsyncResult(task_id, app=celery_app)
+    if result.info is None and result.state == "PENDING" and not _is_registered_task_id(task_id):
+        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+
+    if result.state in ("SUCCESS", "FAILURE", "REVOKED"):
+        final_state = "canceled" if result.state == "REVOKED" else result.state.lower()
+        return AnalyzeCancelResponse(
+            task_id=task_id,
+            status=final_state,
+            message="任务已结束，无法取消",
+        )
+
+    result.revoke(terminate=True)
+
+    try:
+        sync_redis.Redis.from_url(_REDIS_URL, decode_responses=True, socket_connect_timeout=2).publish(
+            f"progress:{task_id}",
+            json.dumps({"status": "canceled", "message": "任务已取消"}),
+        )
+    except Exception as exc:
+        logger.debug("取消任务时发布 canceled 事件失败 task_id=%s: %s", task_id, exc)
+
+    return AnalyzeCancelResponse(
+        task_id=task_id,
+        status="canceled",
+        message="取消请求已发送",
     )
 
 

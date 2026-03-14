@@ -158,14 +158,6 @@ const ImpactAnalysis: React.FC = () => {
     return { nodes, edges };
   }, [selectedNodeId, graph.data, impactResults]);
 
-  // Depth color mapping
-  const getDepthColor = (depth: number): string => {
-    if (depth === 0) return '#ff4568'; // Direct (red)
-    if (depth === 1) return '#ff8844'; // Primary (orange)
-    if (depth === 2) return '#ffc145'; // Secondary (amber)
-    return '#00d4ff'; // Tertiary+ (cyan)
-  };
-
   // ─── Render ───────────────────────────────────────────────────────────────────
 
   if (!activeRepo) {
