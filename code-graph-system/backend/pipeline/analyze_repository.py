@@ -42,7 +42,7 @@ import dataclasses
 import logging
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from backend.analyzer.call_graph_builder import CallGraphBuilder
 from backend.analyzer.component_detector import ComponentDetector
@@ -178,6 +178,7 @@ class AnalysisPipeline:
         languages: Optional[list[str]] = None,
         enable_ai: bool = False,
         enable_rag: bool = False,
+        on_progress: Optional[Callable[[dict], None]] = None,
     ) -> AnalysisResult:
         """执行完整分析流水线，返回 AnalysisResult。
 
@@ -207,12 +208,32 @@ class AnalysisPipeline:
         step_stats: dict[str, dict[str, Any]] = {}
         warnings: list[str] = []
 
+        def _emit(step: int, stage: str, message: str, log: str = "",
+                  status: str = "running", elapsed: float = 0.0) -> None:
+            """发布进度事件（忽略回调异常，避免中断分析）。"""
+            if on_progress is None:
+                return
+            try:
+                on_progress({
+                    "step":            step,
+                    "total":           13,
+                    "stage":           stage,
+                    "message":         message,
+                    "log":             log,
+                    "status":          status,
+                    "elapsed_seconds": round(elapsed, 3),
+                })
+            except Exception:
+                pass
+
         logger.info("=" * 60)
         logger.info("开始分析仓库: %s", path)
         logger.info("=" * 60)
 
         # ── Step 1: RepoScanner ────────────────────────────────────────
+        _emit(1, "RepoScanner", "扫描仓库文件...")
         logger.info("[1/13] RepoScanner: 扫描仓库文件...")
+        _step_t = time.time()
         scan_result = RepoScanner().scan(path, languages=languages)
         commit_sha: str = getattr(scan_result, "git_commit", "") or ""
         step_stats["1_scan"] = {
@@ -226,6 +247,9 @@ class AnalysisPipeline:
             scan_result.total_files,
             commit_sha[:8] if commit_sha else "(no git)",
         )
+        _emit(1, "RepoScanner", "扫描仓库文件",
+              log=f"→ {scan_result.total_files} 个文件  commit={commit_sha[:8] if commit_sha else '(no git)'}",
+              status="step_done", elapsed=time.time() - _step_t)
 
         if scan_result.total_files == 0:
             raise ValueError(
@@ -233,7 +257,9 @@ class AnalysisPipeline:
             )
 
         # ── Step 2: CodeParser ─────────────────────────────────────────
+        _emit(2, "CodeParser", "AST 解析代码结构...")
         logger.info("[2/13] CodeParser: AST 解析...")
+        _step_t = time.time()
         parsed_result: ParseResult = CodeParser().scan_repository(
             path, languages=languages
         )
@@ -243,13 +269,18 @@ class AnalysisPipeline:
             len(parsed_result.files), len(parsed_result.classes),
             len(parsed_result.functions), len(parsed_result.calls),
         )
+        _emit(2, "CodeParser", "AST 解析代码结构",
+              log=f"→ {len(parsed_result.files)} 文件 / {len(parsed_result.classes)} 类 / {len(parsed_result.functions)} 函数",
+              status="step_done", elapsed=time.time() - _step_t)
 
         parsed_files: dict[str, Any] = {
             pf.file_path: pf for pf in parsed_result.files
         }
 
         # ── Step 3: ModuleDetector ─────────────────────────────────────
+        _emit(3, "ModuleDetector", "识别模块/文件节点...")
         logger.info("[3/13] ModuleDetector: 识别模块/文件节点...")
+        _step_t = time.time()
         module_graph = ModuleDetector(path).detect(scan_result)
         step_stats["3_module"] = module_graph.stats
         logger.info(
@@ -257,9 +288,14 @@ class AnalysisPipeline:
             len(module_graph.modules), len(module_graph.files),
             len(module_graph.edges),
         )
+        _emit(3, "ModuleDetector", "识别模块/文件节点",
+              log=f"→ {len(module_graph.modules)} 模块 / {len(module_graph.files)} 文件节点",
+              status="step_done", elapsed=time.time() - _step_t)
 
         # ── Step 4: ComponentDetector ──────────────────────────────────
+        _emit(4, "ComponentDetector", "识别组件/类/函数节点...")
         logger.info("[4/13] ComponentDetector: 识别组件/类/函数节点...")
+        _step_t = time.time()
         component_graph = ComponentDetector().detect(parsed_files)
         step_stats["4_component"] = component_graph.stats
         logger.info(
@@ -267,9 +303,14 @@ class AnalysisPipeline:
             len(component_graph.components), len(component_graph.classes),
             len(component_graph.functions),
         )
+        _emit(4, "ComponentDetector", "识别组件/类/函数节点",
+              log=f"→ {len(component_graph.components)} 组件 / {len(component_graph.classes)} 类 / {len(component_graph.functions)} 函数",
+              status="step_done", elapsed=time.time() - _step_t)
 
         # ── Step 5: DependencyAnalyzer ─────────────────────────────────
+        _emit(5, "DependencyAnalyzer", "分析模块/服务依赖...")
         logger.info("[5/13] DependencyAnalyzer: 分析模块/服务依赖...")
+        _step_t = time.time()
         dep_graph = DependencyAnalyzer(path).analyze(
             module_graph, component_graph, parsed_result
         )
@@ -281,15 +322,25 @@ class AnalysisPipeline:
             len(dep_graph.module_deps), len(dep_graph.service_deps),
             len(dep_graph.circular_deps),
         )
+        _emit(5, "DependencyAnalyzer", "分析模块/服务依赖",
+              log=f"→ 模块依赖 {len(dep_graph.module_deps)} / 循环依赖 {len(dep_graph.circular_deps)}",
+              status="step_done", elapsed=time.time() - _step_t)
 
         # ── Step 6: CallGraphBuilder ───────────────────────────────────
+        _emit(6, "CallGraphBuilder", "构建函数调用图...")
         logger.info("[6/13] CallGraphBuilder: 构建函数调用图...")
+        _step_t = time.time()
         call_graph = CallGraphBuilder().build(component_graph, parsed_result)
         step_stats["6_callgraph"] = call_graph.stats
         logger.info("  → %d 条调用边", len(call_graph.edges))
+        _emit(6, "CallGraphBuilder", "构建函数调用图",
+              log=f"→ {len(call_graph.edges)} 条调用边",
+              status="step_done", elapsed=time.time() - _step_t)
 
         # ── Step 7: EventAnalyzer ──────────────────────────────────────
+        _emit(7, "EventAnalyzer", "分析事件流...")
         logger.info("[7/13] EventAnalyzer: 分析事件流...")
+        _step_t = time.time()
         event_graph = EventAnalyzer().analyze(parsed_result, component_graph)
         step_stats["7_event"] = {
             "events": len(event_graph.events),
@@ -301,9 +352,14 @@ class AnalysisPipeline:
             len(event_graph.events), len(event_graph.topics),
             len(event_graph.edges),
         )
+        _emit(7, "EventAnalyzer", "分析事件流",
+              log=f"→ {len(event_graph.events)} 事件 / {len(event_graph.topics)} Topic",
+              status="step_done", elapsed=time.time() - _step_t)
 
         # ── Step 8: InfraAnalyzer ──────────────────────────────────────
+        _emit(8, "InfraAnalyzer", "分析基础设施配置...")
         logger.info("[8/13] InfraAnalyzer: 分析基础设施配置...")
+        _step_t = time.time()
         infra_graph = InfraAnalyzer().analyze(path)
         step_stats["8_infra"] = infra_graph.stats
         logger.info(
@@ -311,11 +367,16 @@ class AnalysisPipeline:
             len(infra_graph.services), len(infra_graph.clusters),
             len(infra_graph.databases), len(infra_graph.containers),
         )
+        _emit(8, "InfraAnalyzer", "分析基础设施配置",
+              log=f"→ 服务 {len(infra_graph.services)} / 集群 {len(infra_graph.clusters)} / 数据库 {len(infra_graph.databases)}",
+              status="step_done", elapsed=time.time() - _step_t)
 
         # ── Step 9: RepoSummaryBuilder ─────────────────────────────────
         # Build a preliminary graph from static analyzers only, then feed it
         # to RepoSummaryBuilder to produce the AI-consumable summary.
         # The final graph (step 11) will include AI analyzer results on top.
+        _emit(9, "RepoSummaryBuilder", "构建 AI 分析摘要...")
+        _step_t = time.time()
         summary = None
         static_graph = None
         logger.info("[9/13] RepoSummaryBuilder: 构建 AI 分析摘要...")
@@ -349,15 +410,21 @@ class AnalysisPipeline:
                 summary.token_estimate,
                 " [截断]" if summary.truncated else "",
             )
+            _emit(9, "RepoSummaryBuilder", "构建 AI 分析摘要",
+                  log=f"→ {len(summary.functions)} 函数 / {len(summary.modules)} 模块  token≈{summary.token_estimate}",
+                  status="step_done", elapsed=time.time() - _step_t)
         except Exception:
             logger.warning("[9/13] RepoSummaryBuilder 失败，AI 步骤将跳过", exc_info=True)
             warnings.append("RepoSummaryBuilder 失败，AI 分析（步骤 10）已跳过")
             step_stats["9_summary"] = {"skipped": True}
+            _emit(9, "RepoSummaryBuilder", "构建 AI 分析摘要", log="→ 跳过（失败）", status="step_done", elapsed=0.0)
 
         # ── Step 10: AIGraphAgent (optional) ───────────────────────────
         # Replaces the previous 4 AI analyzers (AIArchitectureAnalyzer,
         # AIServiceDetector, AIBusinessFlowAnalyzer, AIDataLineageAnalyzer)
         # with a single AI agent that autonomously explores the codebase.
+        _emit(10, "AIGraphAgent", "AI 驱动的代码探索（LLM）...")
+        _step_t = time.time()
         ai_graph = None
 
         if enable_ai and summary is not None and static_graph is not None:
@@ -407,9 +474,14 @@ class AnalysisPipeline:
             reason = "enable_ai=False" if not enable_ai else "RepoSummaryBuilder 失败"
             logger.info("[10/13] AIGraphAgent: 跳过（%s）", reason)
             step_stats["10_ai_graph_agent"] = {"skipped": True}
+        _emit(10, "AIGraphAgent", "AI 驱动的代码探索",
+              log=f"→ {len(ai_graph.get('nodes', []))} 节点 / {ai_graph.get('meta', {}).get('tool_calls_used', 0)} 次工具调用" if ai_graph else "→ 跳过",
+              status="step_done", elapsed=time.time() - _step_t)
 
         # ── Step 11: GraphBuilder ──────────────────────────────────────
+        _emit(11, "GraphBuilder", "合并所有图谱，计算图论指标...")
         logger.info("[11/13] GraphBuilder: 合并所有图谱，计算图论指标...")
+        _step_t = time.time()
         builder = GraphBuilder()
 
         # Repository root node
@@ -444,19 +516,31 @@ class AnalysisPipeline:
             step_stats["11_builder"]["ai_edges"],
             "✓" if built.meta.get("metrics_available") else "✗（需安装 networkx）",
         )
+        _emit(11, "GraphBuilder", "合并所有图谱",
+              log=f"→ {built.node_count} 节点 / {built.edge_count} 边",
+              status="step_done", elapsed=time.time() - _step_t)
 
         # ── Step 12: GraphRepository ───────────────────────────────────
+        _emit(12, "GraphRepository", "持久化图谱...")
         logger.info("[12/13] GraphRepository: 持久化图谱...")
+        _step_t = time.time()
         graph_id: str = self._repo.save(built, repo_name=name)
         step_stats["12_repository"] = {"graph_id": graph_id}
         logger.info("  → 图谱 ID: %s", graph_id)
+        _emit(12, "GraphRepository", "持久化图谱",
+              log=f"→ graph_id={graph_id}",
+              status="step_done", elapsed=time.time() - _step_t)
 
         # ── Step 13: GraphRAGEngine (optional) ────────────────────────
+        _emit(13, "GraphRAGEngine", "向量化 Function/Component/API 节点...")
+        logger.info("[13/13] GraphRAGEngine: 向量化 Function/Component/API 节点...")
+        _step_t = time.time()
+        _rag_count = 0
         if enable_rag:
-            logger.info("[13/13] GraphRAGEngine: 向量化 Function/Component/API 节点...")
             try:
                 rag = self._rag_engine or self._build_rag_engine()
                 count: int = rag.embed_nodes(graph_id, built.nodes)
+                _rag_count = count
                 step_stats["13_rag"] = {"embedded_nodes": count}
                 logger.info("  → 向量化完成: %d 个节点", count)
             except Exception:
@@ -468,6 +552,9 @@ class AnalysisPipeline:
         else:
             logger.info("[13/13] GraphRAGEngine: 跳过（enable_rag=False）")
             step_stats["13_rag"] = {"skipped": True}
+        _emit(13, "GraphRAGEngine", "向量化节点",
+              log=f"→ {_rag_count} 个节点已向量化" if enable_rag else "→ 跳过",
+              status="step_done", elapsed=time.time() - _step_t)
 
         duration = round(time.time() - t0, 3)
         logger.info("=" * 60)
