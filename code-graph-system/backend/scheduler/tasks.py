@@ -96,7 +96,9 @@ def publish_progress(task_id: str, event: dict) -> None:
     """
     redis_client = None
     try:
-        redis_client = sync_redis.Redis.from_url(_REDIS_URL, decode_responses=True)
+        redis_client = sync_redis.Redis.from_url(
+            _REDIS_URL, decode_responses=True, socket_connect_timeout=3
+        )
         channel = f"progress:{task_id}"
         redis_client.publish(channel, json.dumps(event))
     except Exception as exc:
@@ -126,8 +128,6 @@ def analyze_repository(
     *,
     repo_name: str = "",
     languages: Optional[list[str]] = None,
-    enable_ai: bool = True,
-    enable_rag: bool = True,
 ) -> dict[str, Any]:
     """全量分析代码仓库，构建并持久化知识图谱（默认启用 AI + RAG）。
 
@@ -135,8 +135,6 @@ def analyze_repository(
         repo_path:  仓库根目录（本地绝对路径）。
         repo_name:  图谱名称，空字符串时使用目录名。
         languages:  限定语言，如 ``["python", "typescript"]``，None 自动探测。
-        enable_ai:  启用 LLM 语义增强（需 ANTHROPIC_API_KEY），默认 True。
-        enable_rag: 启用向量化索引（需安装 chromadb），默认 True。
 
     Returns::
 
@@ -165,17 +163,6 @@ def analyze_repository(
 
     t_start = time.time()
 
-    # ── 发布初始 pending 事件 ──────────────────────────────────────
-    publish_progress(task_id, {
-        "status": "pending",
-        "step": 0,
-        "total": 13,
-        "stage": "",
-        "message": "任务已排队，等待 Worker...",
-        "log": "",
-        "elapsed_seconds": 0.0,
-    })
-
     # ── 创建进度回调闭包 ───────────────────────────────────────────
     def on_progress_callback(event: dict) -> None:
         """包装 publish_progress，同时更新 Celery task state。"""
@@ -185,20 +172,31 @@ def analyze_repository(
         except Exception:
             pass
 
+    # ── 发布初始 pending 事件 ──────────────────────────────────────
+    on_progress_callback({
+        "status": "pending",
+        "step": 0,
+        "total": 13,
+        "stage": "",
+        "message": "任务已排队，等待 Worker...",
+        "log": "",
+        "elapsed_seconds": 0.0,
+    })
+
     pipeline, _ = _build_pipeline()
     try:
         result = pipeline.analyze(
             path,
             repo_name=repo_name,
             languages=languages,
-            enable_ai=enable_ai,
-            enable_rag=enable_rag,
+            enable_ai=True,
+            enable_rag=True,
             on_progress=on_progress_callback,
         )
     except ValueError as exc:
         # ValueError（如路径不存在）不重试，直接发送 failed 事件
         duration = round(time.time() - t_start, 3)
-        publish_progress(task_id, {
+        on_progress_callback({
             "status": "failed",
             "error": str(exc),
             "elapsed_seconds": duration,
@@ -215,7 +213,7 @@ def analyze_repository(
     duration = round(time.time() - t_start, 3)
 
     # ── 发布完成事件 ───────────────────────────────────────────────
-    publish_progress(task_id, {
+    on_progress_callback({
         "status": "completed",
         "graph_id": result.graph_id,
         "node_count": result.node_count,
