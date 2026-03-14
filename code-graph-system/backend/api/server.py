@@ -340,12 +340,10 @@ async def analyze_stream(task_id: str):
               data: {status: "failed", error}
     心跳:     : heartbeat  （每 15 秒）
     """
-    # 404 检测：检查任务是否存在于 Celery
-    # 注意：新提交的任务可能 state=PENDING 且 info=None，这是正常的
-    # 只有当任务完全不存在时才返回 404
+    # 404 检测：Celery 任务启动后立即设置 PROGRESS state，info 非 None 表示任务存在
     _check = AsyncResult(task_id, app=celery_app)
-    # 如果任务 ID 格式无效或任务已被清理，state 会是 PENDING 且 backend 中无记录
-    # 我们暂时允许所有任务 ID 通过，让 SSE 流自己处理超时
+    if _check.info is None and _check.state == "PENDING":
+        raise HTTPException(status_code=404, detail=f"任务不存在或尚未启动: {task_id}")
 
     async def event_generator():
         # 先发送当前持久化状态（断线重连恢复用）
@@ -422,14 +420,8 @@ async def analyze_stream(task_id: str):
 def analyze_status(task_id: str):
     """查询分析任务的最新状态（轮询 / 断线重连恢复用）。"""
     result = AsyncResult(task_id, app=celery_app)
-
-    # 如果任务是 PENDING 且没有 info，返回 pending 状态而不是 404
-    # 这允许客户端轮询尚未被 worker 接收的任务
     if result.info is None and result.state == "PENDING":
-        return AnalysisStatusResponse(
-            task_id=task_id,
-            status="pending",
-        )
+        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
 
     info = result.info or {}
     if isinstance(info, Exception):
