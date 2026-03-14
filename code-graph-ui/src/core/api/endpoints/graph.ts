@@ -6,7 +6,13 @@ import type {
   LineageGraphResponse,
   EventsGraphResponse,
   ServicesGraphResponse,
+  AnalyzeAsyncResponse,
+  AnalysisStatusResponse,
 } from '../../../types/api'
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
 // ─── Graph API Endpoints ──────────────────────────────────────────────────────
 
@@ -74,16 +80,30 @@ export const graphEndpoints = {
 
   /**
    * POST /analyze/repository
-   * Trigger repository analysis
+   * Trigger async repository analysis
    */
   async analyzeRepository(data: {
     repo_path: string
     repo_name?: string
     languages?: string[]
-    enable_ai?: boolean
-    enable_rag?: boolean
-  }): Promise<{ graph_id: string; message: string }> {
+  }): Promise<AnalyzeAsyncResponse> {
     return apiClient.post('/analyze/repository', data)
+  },
+
+  /**
+   * GET /analyze/status/{task_id}
+   * Get current analysis task status
+   */
+  async getAnalysisStatus(taskId: string): Promise<AnalysisStatusResponse> {
+    return apiClient.get(`/analyze/status/${taskId}`)
+  },
+
+  /**
+   * GET /analyze/stream/{task_id}
+   * Stream analysis progress via SSE
+   */
+  streamAnalysisProgress(taskId: string): EventSource {
+    return new EventSource(`${API_BASE_URL}/analyze/stream/${taskId}`)
   },
 }
 

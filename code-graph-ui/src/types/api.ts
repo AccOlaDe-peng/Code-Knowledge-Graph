@@ -14,8 +14,6 @@ export type RepoInfo = {
   repoPath?: string      // 原始路径或 Git URL
   branch?: string        // Git 分支
   sourceMode?: 'local' | 'git' | 'zip'  // 源模式
-  enableAi?: boolean     // AI 分析开关
-  enableRag?: boolean    // RAG 开关
 }
 
 // ─── GET /graph ───────────────────────────────────────────────────────────────
@@ -53,8 +51,6 @@ export type AnalyzeRepoRequest = {
   repoName?: string
   branch?: string
   languages?: string[]
-  enableAi?: boolean
-  enableRag?: boolean
 }
 
 export type AnalyzeRepoResponse = {
@@ -64,6 +60,42 @@ export type AnalyzeRepoResponse = {
   edgeCount: number
   duration: number
   stepStats: Record<string, number>
+}
+
+// ─── Async Analysis (SSE) ─────────────────────────────────────────────────────
+
+export type AnalyzeAsyncResponse = {
+  task_id: string
+  status: string
+}
+
+export type AnalysisProgressEvent = {
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'error'
+  step?: number
+  total?: number
+  stage?: string
+  message?: string
+  log?: string
+  elapsed_seconds?: number
+  graph_id?: string
+  node_count?: number
+  edge_count?: number
+  error?: string
+}
+
+export type AnalysisStatusResponse = {
+  task_id: string
+  status: string
+  step?: number
+  total?: number
+  stage?: string
+  message?: string
+  log?: string
+  elapsed_seconds?: number
+  graph_id?: string
+  node_count?: number
+  edge_count?: number
+  error?: string
 }
 
 // ─── POST /query ──────────────────────────────────────────────────────────────
