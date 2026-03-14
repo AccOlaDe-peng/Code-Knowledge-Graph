@@ -24,17 +24,23 @@ Celery 异步任务定义。
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+import redis as sync_redis
 from celery import Task
 from celery.utils.log import get_task_logger
 
 from backend.scheduler.celery_app import celery_app
 
 logger = get_task_logger(__name__)
+
+_REDIS_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +84,31 @@ def _build_pipeline():
     return AnalysisPipeline(repo, store), repo
 
 
+def publish_progress(task_id: str, event: dict) -> None:
+    """发布进度事件到 Redis Pub/Sub channel。
+
+    Args:
+        task_id: Celery 任务 ID
+        event: 进度事件字典，包含 status, step, total, stage, message, log, elapsed_seconds 等字段
+
+    Note:
+        Redis 连接失败时只记录警告，不抛出异常，确保任务继续执行。
+    """
+    redis_client = None
+    try:
+        redis_client = sync_redis.Redis.from_url(_REDIS_URL, decode_responses=True)
+        channel = f"progress:{task_id}"
+        redis_client.publish(channel, json.dumps(event))
+    except Exception as exc:
+        logger.warning("Failed to publish progress to Redis: %s", exc)
+    finally:
+        if redis_client is not None:
+            try:
+                redis_client.close()
+            except Exception:
+                pass
+
+
 # ---------------------------------------------------------------------------
 # Task 1: analyze_repository
 # ---------------------------------------------------------------------------
@@ -95,17 +126,17 @@ def analyze_repository(
     *,
     repo_name: str = "",
     languages: Optional[list[str]] = None,
-    enable_ai: bool = False,
-    enable_rag: bool = False,
+    enable_ai: bool = True,
+    enable_rag: bool = True,
 ) -> dict[str, Any]:
-    """全量分析代码仓库，构建并持久化知识图谱。
+    """全量分析代码仓库，构建并持久化知识图谱（默认启用 AI + RAG）。
 
     Args:
         repo_path:  仓库根目录（本地绝对路径）。
         repo_name:  图谱名称，空字符串时使用目录名。
         languages:  限定语言，如 ``["python", "typescript"]``，None 自动探测。
-        enable_ai:  启用 LLM 语义增强（需 ANTHROPIC_API_KEY）。
-        enable_rag: 启用向量化索引（需安装 chromadb）。
+        enable_ai:  启用 LLM 语义增强（需 ANTHROPIC_API_KEY），默认 True。
+        enable_rag: 启用向量化索引（需安装 chromadb），默认 True。
 
     Returns::
 
@@ -128,8 +159,31 @@ def analyze_repository(
     Raises:
         ValueError: 仓库路径不存在，或未找到可分析文件。
     """
+    task_id = self.request.id
     path = Path(repo_path).resolve()
-    logger.info("analyze_repository START  path=%s  task=%s", path, self.request.id)
+    logger.info("analyze_repository START  path=%s  task=%s", path, task_id)
+
+    t_start = time.time()
+
+    # ── 发布初始 pending 事件 ──────────────────────────────────────
+    publish_progress(task_id, {
+        "status": "pending",
+        "step": 0,
+        "total": 13,
+        "stage": "",
+        "message": "任务已排队，等待 Worker...",
+        "log": "",
+        "elapsed_seconds": 0.0,
+    })
+
+    # ── 创建进度回调闭包 ───────────────────────────────────────────
+    def on_progress_callback(event: dict) -> None:
+        """包装 publish_progress，同时更新 Celery task state。"""
+        publish_progress(task_id, event)
+        try:
+            self.update_state(state="PROGRESS", meta=event)
+        except Exception:
+            pass
 
     pipeline, _ = _build_pipeline()
     try:
@@ -139,25 +193,44 @@ def analyze_repository(
             languages=languages,
             enable_ai=enable_ai,
             enable_rag=enable_rag,
+            on_progress=on_progress_callback,
         )
     except ValueError as exc:
+        # ValueError（如路径不存在）不重试，直接发送 failed 事件
+        duration = round(time.time() - t_start, 3)
+        publish_progress(task_id, {
+            "status": "failed",
+            "error": str(exc),
+            "elapsed_seconds": duration,
+        })
         logger.error("analyze_repository FAILED (bad input): %s", exc)
         raise
     except Exception as exc:
+        # 其他异常会重试：不发送 failed 事件，让前端等待重试结果
         logger.error("analyze_repository FAILED: %s", exc, exc_info=True)
         raise self.retry(exc=exc)
 
     git_commit = _get_git_head(path)
     built = result.built
+    duration = round(time.time() - t_start, 3)
+
+    # ── 发布完成事件 ───────────────────────────────────────────────
+    publish_progress(task_id, {
+        "status": "completed",
+        "graph_id": result.graph_id,
+        "node_count": result.node_count,
+        "edge_count": result.edge_count,
+        "elapsed_seconds": duration,
+    })
 
     payload: dict[str, Any] = {
-        "task_id":          self.request.id,
+        "task_id":          task_id,
         "graph_id":         result.graph_id,
         "repo_name":        result.repo_name,
         "repo_path":        result.repo_path,
         "node_count":       result.node_count,
         "edge_count":       result.edge_count,
-        "duration_seconds": result.duration_seconds,
+        "duration_seconds": duration,
         "node_types":       built.meta.get("node_type_counts", {}),
         "edge_types":       built.meta.get("edge_type_counts", {}),
         "circular_deps":    len(result.circular_deps),
@@ -167,7 +240,7 @@ def analyze_repository(
     }
     logger.info(
         "analyze_repository DONE  graph=%s  nodes=%d  edges=%d  %.2fs",
-        result.graph_id, result.node_count, result.edge_count, result.duration_seconds,
+        result.graph_id, result.node_count, result.edge_count, duration,
     )
     return payload
 
