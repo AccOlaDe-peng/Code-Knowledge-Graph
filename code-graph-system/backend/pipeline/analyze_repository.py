@@ -417,7 +417,7 @@ class AnalysisPipeline:
             logger.warning("[9/13] RepoSummaryBuilder 失败，AI 步骤将跳过", exc_info=True)
             warnings.append("RepoSummaryBuilder 失败，AI 分析（步骤 10）已跳过")
             step_stats["9_summary"] = {"skipped": True}
-            _emit(9, "RepoSummaryBuilder", "构建 AI 分析摘要", log="→ 跳过（失败）", status="step_done", elapsed=0.0)
+            _emit(9, "RepoSummaryBuilder", "构建 AI 分析摘要", log="→ 跳过（失败）", status="step_done", elapsed=time.time() - _step_t)
 
         # ── Step 10: AIGraphAgent (optional) ───────────────────────────
         # Replaces the previous 4 AI analyzers (AIArchitectureAnalyzer,
