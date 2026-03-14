@@ -49,7 +49,6 @@ from celery.result import AsyncResult
 
 from backend.graph.code_graph import CodeGraph
 from backend.graph.graph_repository import GraphRepository
-from backend.pipeline.analyze_repository import AnalysisPipeline
 from backend.pipeline.graph_pipeline import GraphPipeline
 from backend.rag.graph_rag_engine import GraphRAGEngine
 from backend.rag.vector_store import VectorStore
@@ -71,7 +70,6 @@ logger = logging.getLogger(__name__)
 
 _graph_repo:    GraphRepository
 _vector_store:  VectorStore
-_pipeline:      AnalysisPipeline
 _rag_engine:    GraphRAGEngine
 _graph_pipeline: GraphPipeline
 _graph_storage: GraphStorage
@@ -80,12 +78,11 @@ _graph_storage: GraphStorage
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期：启动时初始化全局单例，关闭时释放 Neo4j 连接。"""
-    global _graph_repo, _vector_store, _pipeline, _rag_engine, _graph_pipeline, _graph_storage
+    global _graph_repo, _vector_store, _rag_engine, _graph_pipeline, _graph_storage
 
     logger.info("初始化服务组件...")
     _graph_repo     = GraphRepository()
     _vector_store   = VectorStore()
-    _pipeline       = AnalysisPipeline(_graph_repo, _vector_store)
     _rag_engine     = GraphRAGEngine(_graph_repo, _vector_store)
     # GraphPipeline 共享同一个 GraphRepository 实例，
     # 保证 Step 5 写入的 BuiltGraph 能被旧端点（GET /graph 等）直接读取
@@ -319,13 +316,17 @@ def analyze_repository(req: AnalyzeRequest):
                 shutil.rmtree(tmp_dir, ignore_errors=True)
             raise HTTPException(status_code=400, detail=str(e))
 
-    # 提交 Celery 任务
+    # 提交 Celery 任务（将 tmp_dir 传递给任务，由任务负责清理）
     job = celery_analyze.apply_async(
         args=[analyze_path],
-        kwargs={"repo_name": req.repo_name, "languages": req.languages},
+        kwargs={
+            "repo_name": req.repo_name,
+            "languages": req.languages,
+            "tmp_dir": tmp_dir,  # 传递临时目录路径，任务完成后清理
+        },
     )
     task_id: str = job.id
-    logger.info("任务已提交  task_id=%s  path=%s", task_id, analyze_path)
+    logger.info("任务已提交  task_id=%s  path=%s  tmp_dir=%s", task_id, analyze_path, tmp_dir)
 
     return AnalyzeAsyncResponse(task_id=task_id, status="pending")
 
@@ -350,6 +351,10 @@ async def analyze_stream(task_id: str):
         try:
             cur = AsyncResult(task_id, app=celery_app)
             if cur.info:
+                # 检查 info 是否为 Exception 对象（任务失败时）
+                if isinstance(cur.info, Exception):
+                    yield f'data: {json.dumps({"status": "failed", "error": str(cur.info)})}\n\n'
+                    return
                 yield f"data: {json.dumps(cur.info)}\n\n"
                 if cur.info.get("status") in ("completed", "failed"):
                     return
@@ -389,6 +394,9 @@ async def analyze_stream(task_id: str):
                     yield ": heartbeat\n\n"
                     last_hb = now
 
+        except (asyncio.CancelledError, GeneratorExit):
+            # 客户端断开连接，正常清理
+            pass
         except Exception as exc:
             err = json.dumps({"status": "error", "error": "stream_interrupted"})
             yield f"data: {err}\n\n"

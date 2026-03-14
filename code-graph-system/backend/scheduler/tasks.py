@@ -130,6 +130,7 @@ def analyze_repository(
     *,
     repo_name: str = "",
     languages: Optional[list[str]] = None,
+    tmp_dir: Optional[str] = None,
 ) -> dict[str, Any]:
     """全量分析代码仓库，构建并持久化知识图谱（默认启用 AI + RAG）。
 
@@ -137,6 +138,7 @@ def analyze_repository(
         repo_path:  仓库根目录（本地绝对路径）。
         repo_name:  图谱名称，空字符串时使用目录名。
         languages:  限定语言，如 ``["python", "typescript"]``，None 自动探测。
+        tmp_dir:    临时目录路径（Git 克隆时使用），任务完成后自动清理。
 
     Returns::
 
@@ -209,6 +211,15 @@ def analyze_repository(
         # 其他异常会重试：不发送 failed 事件，让前端等待重试结果
         logger.error("analyze_repository FAILED: %s", exc, exc_info=True)
         raise self.retry(exc=exc)
+    finally:
+        # 清理 Git 克隆的临时目录
+        if tmp_dir and Path(tmp_dir).exists():
+            import shutil
+            try:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                logger.info("Cleaned up tmp_dir: %s", tmp_dir)
+            except Exception as exc:
+                logger.warning("Failed to cleanup tmp_dir %s: %s", tmp_dir, exc)
 
     git_commit = _get_git_head(path)
     built = result.built
