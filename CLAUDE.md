@@ -61,7 +61,7 @@ celery -A backend.scheduler.celery_app worker --beat --loglevel=info  # Worker +
 
 ### 分析流水线（`backend/pipeline/analyze_repository.py`）
 
-`AnalysisPipeline.analyze(repo_path, *, repo_name, languages, enable_ai, enable_rag)` 按顺序执行 16 步，返回 `AnalysisResult`：
+`AnalysisPipeline.analyze(repo_path, *, repo_name, languages, enable_ai, enable_rag)` 按顺序执行 13 步，返回 `AnalysisResult`：
 
 | 步骤 | 类 | 说明 |
 |------|----|------|
@@ -74,15 +74,12 @@ celery -A backend.scheduler.celery_app worker --beat --loglevel=info  # Worker +
 | 7 | `EventAnalyzer` | Kafka/RabbitMQ 事件发布/订阅 |
 | 8 | `InfraAnalyzer` | Dockerfile/K8s/Terraform 基础设施 |
 | 9 | `RepoSummaryBuilder` | 构建静态图谱快照，供 AI 步骤使用 |
-| 10 | `AIArchitectureAnalyzer` | LLM 识别架构模式，生成 Layer 节点（可选） |
-| 11 | `AIServiceDetector` | LLM 识别微服务边界，补全 Service 节点（可选） |
-| 12 | `AIBusinessFlowAnalyzer` | LLM 识别业务流程，生成 BusinessFlow 节点（可选） |
-| 13 | `AIDataLineageAnalyzer` | LLM 追踪数据血缘，生成 reads/writes/transforms 边（可选） |
-| 14 | `GraphBuilder` | 合并所有图谱，计算 PageRank / 度指标 |
-| 15 | `GraphRepository` | 持久化 JSON / Neo4j |
-| 16 | `GraphRAGEngine` | 向量化节点到 ChromaDB（`enable_rag=True` 时运行） |
+| 10 | `AIGraphAgent` | AI 驱动的自主代码探索，识别架构模式（可选）<br/>替代原 AIArchitectureAnalyzer / AIServiceDetector /<br/>AIBusinessFlowAnalyzer / AIDataLineageAnalyzer |
+| 11 | `GraphBuilder` | 合并所有图谱，计算 PageRank / 度指标 |
+| 12 | `GraphRepository` | 持久化 JSON / Neo4j |
+| 13 | `GraphRAGEngine` | 向量化节点到 ChromaDB（`enable_rag=True` 时运行） |
 
-步骤 10–13 仅在 `enable_ai=True` 时运行，位于 `backend/analyzer/ai/`。任意步骤失败只记录警告，不中断整体流水线。
+步骤 10 仅在 `enable_ai=True` 时运行，位于 `backend/analyzer/ai/agent/`。任意步骤失败只记录警告，不中断整体流水线。
 
 ### 数据模型（双 schema 并存）
 
@@ -94,7 +91,7 @@ celery -A backend.scheduler.celery_app worker --beat --loglevel=info  # Worker +
 
 静态分析节点类型：`Repository`, `Module`, `File`, `Class`, `Function`, `Component`, `Service`, `API`, `DataObject`, `Table`, `Event`, `Topic`, `Pipeline`, `Cluster`, `Database`
 
-AI 分析节点类型（步骤 10–13，`enable_ai=True`）：`Layer`, `Flow`, `BusinessFlow`, `Domain`, `BoundedContext`, `DomainEntity`
+AI 分析节点类型（步骤 10，`enable_ai=True`）：`Layer`, `Flow`, `BusinessFlow`, `Domain`, `BoundedContext`, `DomainEntity`
 
 **旧 schema**（`backend/graph/schema.py`）— 仅 `test_basic.py` 和 `scripts/run_analysis.py` 仍在使用，**不要在新代码中引入**：
 - `NodeBase` 及其子类：`FunctionNode`、`ModuleNode`、`ComponentNode` 等
