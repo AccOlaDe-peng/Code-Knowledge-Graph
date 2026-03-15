@@ -167,10 +167,178 @@ class LLMClient:
             messages: 消息历史
             tools: 工具定义列表
             max_iterations: 最大迭代次数
-            tool_executor: 工具执行器（可选）
+            tool_executor: 工具执行器（可选），如果提供则执行工具
 
         Returns:
             ToolCallLoopResult
         """
-        # 具体实现在 Task 6 中完成
-        raise NotImplementedError("tool_call_loop 将在后续实现")
+        import json
+        import time
+        from backend.llm.types import ToolCallRecord
+
+        client = self._get_client()
+        tool_calls: list[ToolCallRecord] = []
+        iterations = 0
+        total_tokens = 0
+        errors: list[str] = []
+
+        # 复制消息历史
+        current_messages = list(messages)
+
+        while iterations < max_iterations:
+            iterations += 1
+            iteration_start = time.time()
+
+            try:
+                if self.provider == "anthropic":
+                    response = client.messages.create(
+                        model=self.model,
+                        max_tokens=self.max_tokens,
+                        temperature=self.temperature,
+                        system=system,
+                        messages=current_messages,
+                        tools=tools,
+                    )
+
+                    # 检查停止原因
+                    if response.stop_reason == "end_turn":
+                        # 提取最终消息
+                        final_message = None
+                        for block in response.content:
+                            if hasattr(block, 'text'):
+                                final_message = block.text
+                                break
+
+                        return ToolCallLoopResult(
+                            status="completed",
+                            final_message=final_message,
+                            tool_calls=tool_calls,
+                            total_tokens=total_tokens,
+                            iterations=iterations,
+                        )
+
+                    # 提取工具调用
+                    tool_uses = [
+                        block for block in response.content
+                        if hasattr(block, 'type') and block.type == "tool_use"
+                    ]
+
+                    if not tool_uses:
+                        errors.append("LLM 响应中没有工具调用")
+                        continue
+
+                    # 添加 assistant 消息
+                    current_messages.append({"role": "assistant", "content": response.content})
+
+                    # 执行工具
+                    tool_results = []
+                    for tool_use in tool_uses:
+                        tool_name = tool_use.name
+                        tool_input = dict(tool_use.input)
+
+                        tool_output = {}
+                        success = True
+                        error_msg = None
+
+                        if tool_executor and hasattr(tool_executor, tool_name):
+                            try:
+                                result = getattr(tool_executor, tool_name)(**tool_input)
+                                tool_output = result if isinstance(result, dict) else {"result": result}
+                            except Exception as e:
+                                success = False
+                                error_msg = str(e)
+                                tool_output = {"error": error_msg}
+
+                        tool_calls.append(ToolCallRecord(
+                            iteration=iterations,
+                            tool_name=tool_name,
+                            tool_input=tool_input,
+                            tool_output=tool_output,
+                            success=success,
+                            execution_time_ms=int((time.time() - iteration_start) * 1000),
+                            error=error_msg,
+                        ))
+
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tool_use.id,
+                            "content": json.dumps(tool_output, ensure_ascii=False),
+                        })
+
+                    # 添加工具结果
+                    current_messages.append({"role": "user", "content": tool_results})
+
+                else:  # OpenAI 兼容接口
+                    # OpenAI tool call 实现（简化版）
+                    openai_messages = [{"role": "system", "content": system}] + current_messages
+
+                    response = client.chat.completions.create(
+                        model=self.model,
+                        messages=openai_messages,
+                        tools=[{"type": "function", "function": t} for t in tools],
+                        tool_choice="auto",
+                    )
+
+                    message = response.choices[0].message
+
+                    if not message.tool_calls:
+                        return ToolCallLoopResult(
+                            status="completed",
+                            final_message=message.content,
+                            tool_calls=tool_calls,
+                            total_tokens=total_tokens,
+                            iterations=iterations,
+                        )
+
+                    # 处理工具调用
+                    current_messages.append({"role": "assistant", "content": message.content or "", "tool_calls": [
+                        {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                        for tc in message.tool_calls
+                    ]})
+
+                    for tool_call in message.tool_calls:
+                        tool_name = tool_call.function.name
+                        tool_input = json.loads(tool_call.function.arguments)
+
+                        tool_output = {}
+                        success = True
+                        error_msg = None
+
+                        if tool_executor and hasattr(tool_executor, tool_name):
+                            try:
+                                result = getattr(tool_executor, tool_name)(**tool_input)
+                                tool_output = result if isinstance(result, dict) else {"result": result}
+                            except Exception as e:
+                                success = False
+                                error_msg = str(e)
+                                tool_output = {"error": error_msg}
+
+                        tool_calls.append(ToolCallRecord(
+                            iteration=iterations,
+                            tool_name=tool_name,
+                            tool_input=tool_input,
+                            tool_output=tool_output,
+                            success=success,
+                            execution_time_ms=int((time.time() - iteration_start) * 1000),
+                            error=error_msg,
+                        ))
+
+                        current_messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps(tool_output, ensure_ascii=False),
+                        })
+
+            except Exception as e:
+                errors.append(f"迭代 {iterations} 出错: {str(e)}")
+                logger.error(f"tool_call_loop 迭代 {iterations} 出错: {e}", exc_info=True)
+
+        # 达到最大迭代次数
+        return ToolCallLoopResult(
+            status="max_iterations",
+            final_message=None,
+            tool_calls=tool_calls,
+            total_tokens=total_tokens,
+            iterations=iterations,
+            errors=errors,
+        )
