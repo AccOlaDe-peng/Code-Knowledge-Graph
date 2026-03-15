@@ -532,12 +532,21 @@ class AIPipeline:
 
         # 解析调用边
         for call in data.get("calls", []):
-            edges.append(GraphEdge(
-                from_=call.get("from", ""),
-                to=call.get("to", ""),
-                type="calls",
-                properties={},
-            ))
+            from_id = call.get("from", "")
+            to_id = call.get("to", "")
+            if not from_id or not to_id:
+                continue
+
+            edges.append(
+                GraphEdge.model_validate(
+                    {
+                        "from": from_id,
+                        "to": to_id,
+                        "type": "calls",
+                        "properties": {},
+                    }
+                )
+            )
 
         return nodes, edges
 
