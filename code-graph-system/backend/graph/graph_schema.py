@@ -60,6 +60,14 @@ class NodeType(str, Enum):
     BOUNDED_CONTEXT = "BoundedContext" # DDD bounded context
     DOMAIN_ENTITY = "DomainEntity"     # DDD entity / aggregate root / value object
 
+    # ── AI 分析新增类型 ──────────────────────────────────────────────
+    API_ENDPOINT = "APIEndpoint"       # HTTP API endpoint
+    EVENT_HANDLER = "EventHandler"     # Event handler / consumer
+    DATA_SOURCE = "DataSource"         # Data source (database, API, file)
+    DATA_SINK = "DataSink"             # Data sink (database, API, file, log)
+    EXTERNAL_API = "ExternalAPI"       # External service / API
+    MESSAGE_QUEUE = "MessageQueue"     # Message queue (Kafka, RabbitMQ)
+
 
 class EdgeType(str, Enum):
     """边（关系）类型。
@@ -101,6 +109,10 @@ class EdgeType(str, Enum):
     FLOW_STEP = "flow_step"    # Step within a business / use-case flow
     TRANSFORMS = "transforms"  # Data transformation between entities
     PART_OF = "part_of"        # Entity is part of an aggregate or bounded context
+
+    # ── AI 分析新增关系 ────────────────────────────────────────────────
+    ASYNC_CALLS = "async_calls"  # Asynchronous function call
+    HANDLES = "handles"          # API endpoint handled by function
 
 
 # ---------------------------------------------------------------------------
