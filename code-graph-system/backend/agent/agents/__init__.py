@@ -3,5 +3,11 @@
 from backend.agent.agents.module_detector import ModuleDetectorAgent
 from backend.agent.agents.architecture import ArchitectureAgent
 from backend.agent.agents.call_graph import CallGraphAgent
+from backend.agent.agents.data_lineage import DataLineageAgent
 
-__all__ = ["ModuleDetectorAgent", "ArchitectureAgent", "CallGraphAgent"]
+__all__ = [
+    "ModuleDetectorAgent",
+    "ArchitectureAgent",
+    "CallGraphAgent",
+    "DataLineageAgent",
+]
