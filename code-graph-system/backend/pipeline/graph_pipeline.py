@@ -1,19 +1,18 @@
 """
-GraphPipeline — 新版代码知识图谱分析流水线。
+GraphPipeline — 代码知识图谱分析流水线。
 
 流程
 ----
     Step 1  scan_repo    — RepoScanner 扫描仓库，收集文件列表和 Git 信息
-    Step 2  parse_code   — CodeParser  AST 解析每个文件，提取类/函数/调用/导入
-    Step 3  ai_analyze   — LLM 逐文件分析，每个文件返回 {"nodes":[], "edges":[]}
-    Step 4  build_graph  — CodeGraphBuilder 合并所有文件级图，去重节点和边
-    Step 5  export_graph — 将最终图谱写入 graph.json，返回 GraphPipelineResult
+    Step 2  ai_analyze   — AgentOrchestrator AI 分析，生成图谱节点和边
+    Step 3  build_graph  — GraphBuilder 合并图谱
+    Step 4  export_graph — 将最终图谱写入 graph.json，返回 GraphPipelineResult
 
 与旧 AnalysisPipeline 的关系
 -----------------------------
-- 保留所有现有模块（RepoScanner / CodeParser / GraphRepository 等）不变。
-- 不替换旧流水线，两者并存；旧流水线仍可通过 /analyze/repository 调用。
-- 新流水线专注于 AI 逐文件分析 → JSON Graph 输出，不依赖 NetworkX / ChromaDB。
+- 不再使用 Tree-sitter AST 解析，完全由 AI 驱动
+- 专注于 AI 分析 → JSON Graph 输出
+- 可选启用 RAG 向量化
 
 输出
 ----
@@ -37,9 +36,6 @@ GraphPipeline — 新版代码知识图谱分析流水线。
 
     # 启用 AI（需配置 ANTHROPIC_API_KEY / OPENAI_API_KEY）
     result = pipeline.run("/path/to/repo", enable_ai=True)
-
-    # 限定语言
-    result = pipeline.run("/path/to/repo", languages=["python"])
 """
 
 from __future__ import annotations
@@ -49,40 +45,20 @@ import json
 import logging
 import re
 import time
+import warnings as _warnings
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
-from backend.ai.llm_client import LLMClient, get_default_client
-from backend.graph.code_graph_builder import CodeGraphBuilder
-from backend.graph.graph_builder import BuiltGraph
+from backend.agent.orchestrator import AgentOrchestrator
+from backend.graph.graph_builder import BuiltGraph, GraphBuilder
 from backend.graph.graph_repository import GraphRepository
 from backend.graph.graph_schema import GraphEdge, GraphNode
-from backend.parser.code_parser import CodeParser, ParsedFile
+from backend.llm.client import LLMClient
+from backend.rag.graph_rag_engine import GraphRAGEngine
+from backend.rag.vector_store import VectorStore
 from backend.scanner.repo_scanner import RepoScanner, ScanResult
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-# 单文件 AI prompt 的最大字符数（超出则截断）
-_MAX_FILE_CONTEXT_CHARS: int = 6_000
-
-# AI 分析时每批并发的最大文件数（顺序处理，批次仅用于日志）
-_AI_BATCH_SIZE: int = 20
-
-# 跳过 AI 分析的文件大小上限（bytes）
-_MAX_FILE_SIZE_FOR_AI: int = 200_000
-
-# LLM 调用失败时的最大重试次数
-_LLM_MAX_RETRIES: int = 2
-
-# 重试间隔（秒）
-_LLM_RETRY_DELAYS = (1.0, 2.0)
-
-# 最大 LLM 响应字符数（防止超长无效响应）
-_MAX_RESPONSE_CHARS: int = 32_000
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +102,7 @@ class GraphPipelineResult:
         if self.warnings:
             lines.append(f"警告 ({len(self.warnings)}):")
             for w in self.warnings:
-                lines.append(f"  ⚠ {w}")
+                lines.append(f"  - {w}")
         return "\n".join(lines)
 
 
@@ -136,23 +112,19 @@ class GraphPipelineResult:
 
 
 class GraphPipeline:
-    """新版代码知识图谱分析流水线（5 步）。
+    """代码知识图谱分析流水线（AI 驱动）。
 
     步骤：
         1. scan_repo   — 扫描仓库文件
-        2. parse_code  — AST 解析
-        3. ai_analyze  — AI 逐文件分析（可选）
-        4. build_graph — 合并图谱
-        5. export_graph — 持久化 graph.json
+        2. ai_analyze  — AI 分析（使用 AgentOrchestrator）
+        3. build_graph — 合并图谱
+        4. export_graph — 持久化 graph.json
 
     示例::
 
         pipeline = GraphPipeline()
 
-        # 纯静态分析（无 AI）
-        result = pipeline.run("/path/to/repo")
-
-        # 启用 AI 逐文件分析
+        # 启用 AI 分析
         result = pipeline.run("/path/to/repo", enable_ai=True)
 
         print(result.summary())
@@ -162,20 +134,24 @@ class GraphPipeline:
         self,
         graph_repo: Optional[GraphRepository] = None,
         llm_client: Optional[LLMClient] = None,
+        vector_store: Optional[VectorStore] = None,
+        rag_engine: Optional[GraphRAGEngine] = None,
         output_dir: str = "./data/graphs",
     ) -> None:
         """
         Args:
             graph_repo: 图谱持久化仓库（默认 ``./data/graphs``）。
-                        同时用于写入 BuiltGraph 兼容格式，保证旧端点可读。
             llm_client: LLM 客户端（None 则按需从环境变量创建）。
+            vector_store: 向量存储（用于 RAG）。
+            rag_engine: GraphRAG 引擎。
             output_dir: graph.json 输出目录。
         """
         self._output_dir = Path(output_dir)
         self._output_dir.mkdir(parents=True, exist_ok=True)
-        # 优先使用传入的 repo，否则指向同一目录（保证 index.json 共享）
-        self._repo       = graph_repo or GraphRepository(output_dir)
-        self._llm        = llm_client   # 懒加载，enable_ai=True 时才初始化
+        self._repo = graph_repo or GraphRepository(output_dir)
+        self._llm = llm_client
+        self._vector_store = vector_store
+        self._rag_engine = rag_engine
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -187,16 +163,19 @@ class GraphPipeline:
         *,
         repo_name: str = "",
         languages: Optional[list[str]] = None,
-        enable_ai: bool = False,
+        enable_ai: bool = True,
+        enable_rag: bool = False,
+        on_progress: Optional[Callable[[dict], None]] = None,
     ) -> GraphPipelineResult:
-        """执行完整的 5 步分析流水线。
+        """执行完整的 4 步分析流水线。
 
         Args:
             repo_path:  仓库根目录（本地路径）。
             repo_name:  图谱名称；空字符串时使用目录名。
-            languages:  限定分析语言，例如 ``["python", "typescript"]``；
-                        None 表示自动探测所有支持语言。
-            enable_ai:  启用 AI 逐文件分析（需配置 LLM API Key）。
+            languages:  限定分析语言（已忽略，由 AI 自动检测）。
+            enable_ai:  启用 AI 分析（默认 True）。
+            enable_rag: 启用向量化（需安装 chromadb）。
+            on_progress: 进度回调函数。
 
         Returns:
             GraphPipelineResult。
@@ -204,14 +183,17 @@ class GraphPipeline:
         Raises:
             ValueError: 仓库路径不存在，或未找到任何可分析文件。
         """
+        if languages is not None:
+            logger.warning("languages 参数已忽略，AI 分析会自动检测语言")
+
         path = Path(repo_path).resolve()
         if not path.exists():
             raise ValueError(f"仓库路径不存在: {path}")
 
-        name     = repo_name or path.name
-        t0       = time.time()
-        stats:   dict[str, dict[str, Any]] = {}
-        warnings: list[str] = []
+        name = repo_name or path.name
+        t0 = time.time()
+        stats: dict[str, dict[str, Any]] = {}
+        warnings_list: list[str] = []
 
         logger.info("=" * 60)
         logger.info("GraphPipeline 开始: %s", path)
@@ -223,38 +205,38 @@ class GraphPipeline:
 
         if scan_result.total_files == 0:
             raise ValueError(
-                "未找到可分析的源码文件，请检查仓库路径或语言过滤条件"
+                "未找到可分析的源码文件，请检查仓库路径"
             )
 
-        # ── Step 2: parse_code ────────────────────────────────────────
-        parsed_files, step2_stats = self._step_parse(path, scan_result, languages)
-        stats["2_parse"] = step2_stats
-
-        # ── Step 3: ai_analyze ────────────────────────────────────────
-        builder = CodeGraphBuilder()
+        # ── Step 2: ai_analyze ────────────────────────────────────────
+        nodes: list[GraphNode] = []
+        edges: list[GraphEdge] = []
 
         if enable_ai:
-            step3_stats, ai_warnings = self._step_ai_analyze(
-                parsed_files, path, name, builder
+            nodes, edges, step2_stats, ai_warnings = self._step_ai_analyze(
+                path, scan_result, on_progress
             )
-            warnings.extend(ai_warnings)
+            warnings_list.extend(ai_warnings)
         else:
-            logger.info("[3/5] ai_analyze: 跳过（enable_ai=False）")
-            step3_stats = {"skipped": True}
+            logger.info("[2/4] ai_analyze: 跳过（enable_ai=False）")
+            step2_stats = {"skipped": True}
+            warnings_list.append("AI 分析未启用，图谱将为空")
 
-        stats["3_ai"] = step3_stats
+        stats["2_ai"] = step2_stats
 
-        # ── Step 4: build_graph ───────────────────────────────────────
-        graph, step4_stats = self._step_build(
-            builder, scan_result, parsed_files, name
+        # ── Step 3: build_graph ───────────────────────────────────────
+        graph, built, step3_stats = self._step_build(nodes, edges, name)
+        stats["3_build"] = step3_stats
+
+        # ── Step 4: export_graph ──────────────────────────────────────
+        graph_id, output_path, step4_stats = self._step_export(
+            built, graph, name, scan_result
         )
-        stats["4_build"] = step4_stats
+        stats["4_export"] = step4_stats
 
-        # ── Step 5: export_graph ──────────────────────────────────────
-        graph_id, output_path, step5_stats = self._step_export(
-            graph, name, scan_result
-        )
-        stats["5_export"] = step5_stats
+        # ── Step 5 (optional): RAG ─────────────────────────────────────
+        if enable_rag:
+            self._step_rag(graph_id, built, stats, warnings_list)
 
         duration = round(time.time() - t0, 3)
         logger.info("=" * 60)
@@ -272,7 +254,7 @@ class GraphPipeline:
             edge_count=len(graph["edges"]),
             step_stats=stats,
             duration_seconds=duration,
-            warnings=warnings,
+            warnings=warnings_list,
         )
 
     # ------------------------------------------------------------------
@@ -285,15 +267,15 @@ class GraphPipeline:
         languages: Optional[list[str]],
     ) -> tuple[ScanResult, dict[str, Any]]:
         """Step 1 — 扫描仓库，收集文件列表和 Git 信息。"""
-        logger.info("[1/5] scan_repo: 扫描仓库文件...")
+        logger.info("[1/4] scan_repo: 扫描仓库文件...")
         t = time.time()
 
         scan_result = RepoScanner().scan(path, languages=languages)
         commit = getattr(scan_result, "git_commit", "") or ""
 
         stats = {
-            "files":      scan_result.total_files,
-            "languages":  getattr(scan_result, "language_stats", {}),
+            "files": scan_result.total_files,
+            "languages": getattr(scan_result, "language_stats", {}),
             "commit_sha": commit[:8] if commit else "(none)",
             "duration_s": round(time.time() - t, 3),
         }
@@ -306,203 +288,147 @@ class GraphPipeline:
         return scan_result, stats
 
     # ------------------------------------------------------------------
-    # Step 2: parse_code
-    # ------------------------------------------------------------------
-
-    def _step_parse(
-        self,
-        repo_path: Path,
-        scan_result: ScanResult,
-        languages: Optional[list[str]],
-    ) -> tuple[list[ParsedFile], dict[str, Any]]:
-        """Step 2 — AST 解析，提取类/函数/调用/导入。"""
-        logger.info("[2/5] parse_code: AST 解析...")
-        t = time.time()
-
-        parse_result = CodeParser().scan_repository(repo_path, languages=languages)
-        parsed_files = parse_result.files
-
-        stats = {
-            **parse_result.stats,
-            "duration_s": round(time.time() - t, 3),
-        }
-        logger.info(
-            "  → %d 文件 / %d 类 / %d 函数 / %d 调用",
-            len(parsed_files),
-            len(parse_result.classes),
-            len(parse_result.functions),
-            len(parse_result.calls),
-        )
-        return parsed_files, stats
-
-    # ------------------------------------------------------------------
-    # Step 3: ai_analyze
+    # Step 2: ai_analyze
     # ------------------------------------------------------------------
 
     def _step_ai_analyze(
         self,
-        parsed_files: list[ParsedFile],
         repo_path: Path,
-        repo_name: str,
-        builder: CodeGraphBuilder,
-    ) -> tuple[dict[str, Any], list[str]]:
-        """Step 3 — LLM 逐文件分析，将每个文件的图加入 builder。
-
-        每个文件独立调用 LLM，失败时记录警告并继续。
-        返回 (step_stats, warnings)。
-        """
-        logger.info("[3/5] ai_analyze: AI 逐文件分析（%d 文件）...", len(parsed_files))
+        scan_result: ScanResult,
+        on_progress: Optional[Callable[[dict], None]],
+    ) -> tuple[list[GraphNode], list[GraphEdge], dict[str, Any], list[str]]:
+        """Step 2 — 使用 AgentOrchestrator 进行 AI 分析。"""
+        logger.info("[2/4] ai_analyze: AI 代码分析...")
         t = time.time()
 
-        llm = self._get_llm()
-        if not llm.is_available():
-            msg = "LLM 不可用（未配置 API Key），AI 分析步骤跳过"
-            logger.warning("  ⚠ %s", msg)
-            return {"skipped": True, "reason": msg}, [msg]
+        warnings_list: list[str] = []
+        nodes: list[GraphNode] = []
+        edges: list[GraphEdge] = []
 
-        success = failed = skipped = 0
-        warnings: list[str] = []
+        try:
+            llm_client = self._get_llm()
+            if not llm_client or not llm_client.is_available():
+                msg = "LLM 不可用（未配置 API Key），跳过 AI 分析"
+                logger.warning("  ⚠ %s", msg)
+                return nodes, edges, {"skipped": True, "reason": msg}, [msg]
 
-        for i, pf in enumerate(parsed_files):
-            file_rel = _relative(pf.file_path, repo_path)
+            orchestrator = AgentOrchestrator(
+                repo_path=str(repo_path),
+                llm_client=llm_client,
+                max_iterations=30,
+                on_progress=on_progress,
+            )
 
-            # 跳过过大文件
-            try:
-                size = Path(pf.file_path).stat().st_size
-                if size > _MAX_FILE_SIZE_FOR_AI:
-                    logger.debug("  跳过大文件 (%d bytes): %s", size, file_rel)
-                    skipped += 1
-                    continue
-            except OSError:
-                pass
+            result = orchestrator.run_architecture_analysis()
 
-            # 跳过无实质内容的文件
-            if not pf.classes and not pf.functions:
-                skipped += 1
-                continue
+            nodes = result.nodes
+            edges = result.edges
 
-            if (i + 1) % _AI_BATCH_SIZE == 0 or i == 0:
-                logger.info(
-                    "  AI 分析进度: %d/%d 文件 (成功=%d 失败=%d 跳过=%d)",
-                    i + 1, len(parsed_files), success, failed, skipped,
-                )
+            stats = {
+                "nodes": len(nodes),
+                "edges": len(edges),
+                "status": result.status,
+                "duration_s": round(time.time() - t, 3),
+            }
 
-            # 构建 prompt 并调用 LLM
-            system_prompt, user_prompt = _build_file_prompt(pf, repo_name, file_rel)
-            raw = _call_llm_with_retry(llm, system_prompt, user_prompt)
+            logger.info(
+                "  → %d 节点 / %d 边  status=%s",
+                len(nodes), len(edges), result.status
+            )
 
-            if not raw:
-                failed += 1
-                warnings.append(f"AI 分析失败（LLM 无响应）: {file_rel}")
-                continue
+            if result.status == "partial":
+                warnings_list.append("部分 Agent 分析失败")
 
-            # 解析 LLM 返回的 JSON Graph
-            file_graph = _extract_json_graph(raw)
-            if file_graph is None:
-                failed += 1
-                warnings.append(f"AI 返回无效 JSON: {file_rel}")
-                continue
+            return nodes, edges, stats, warnings_list
 
-            # 注入 file 字段（LLM 可能省略）
-            _inject_file_field(file_graph, file_rel, pf.language)
-
-            try:
-                builder.add_graph(file_graph)
-                success += 1
-                logger.debug(
-                    "  ✓ %s → +%d nodes / +%d edges",
-                    file_rel,
-                    len(file_graph.get("nodes", [])),
-                    len(file_graph.get("edges", [])),
-                )
-            except Exception as exc:
-                failed += 1
-                warnings.append(f"add_graph 失败 ({file_rel}): {exc}")
-
-        stats = {
-            "files_total":   len(parsed_files),
-            "files_success": success,
-            "files_failed":  failed,
-            "files_skipped": skipped,
-            "duration_s":    round(time.time() - t, 3),
-        }
-        logger.info(
-            "  → AI 分析完成: 成功=%d 失败=%d 跳过=%d",
-            success, failed, skipped,
-        )
-        return stats, warnings
+        except Exception as exc:
+            logger.error("  ⚠ AI 分析失败: %s", exc)
+            warnings_list.append(f"AI 分析失败: {exc}")
+            return nodes, edges, {"error": str(exc)}, warnings_list
 
     # ------------------------------------------------------------------
-    # Step 4: build_graph
+    # Step 3: build_graph
     # ------------------------------------------------------------------
 
     def _step_build(
         self,
-        builder: CodeGraphBuilder,
-        scan_result: ScanResult,
-        parsed_files: list[ParsedFile],
+        nodes: list[GraphNode],
+        edges: list[GraphEdge],
         repo_name: str,
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
-        """Step 4 — 合并所有文件级图，补充静态分析节点。
-
-        若 AI 分析未运行（enable_ai=False）或结果为空，
-        则从 ParsedFile 构建基础静态图（repository/module/file/class/function 节点）。
-        """
-        logger.info("[4/5] build_graph: 合并图谱...")
+    ) -> tuple[dict[str, Any], BuiltGraph, dict[str, Any]]:
+        """Step 3 — 构建图谱。"""
+        logger.info("[3/4] build_graph: 构建图谱...")
         t = time.time()
 
-        # 若 builder 为空（AI 未运行），从静态解析结果填充基础图
-        if builder.stats["node_count"] == 0:
-            logger.info("  AI 图为空，从静态解析结果构建基础图...")
-            _populate_static_graph(builder, scan_result, parsed_files, repo_name)
+        builder = GraphBuilder()
 
-        graph = builder.build()
-        s = builder.stats
+        # 添加仓库根节点
+        repo_node = GraphNode(
+            id=f"repository:{repo_name}",
+            type="Repository",
+            name=repo_name,
+            properties={},
+        )
+        builder.add_node(repo_node)
+
+        # 添加 AI 分析结果
+        for node in nodes:
+            builder.add_node(node)
+        for edge in edges:
+            builder.add_edge(edge)
+
+        built = builder.build()
+
+        graph = {
+            "nodes": [n.model_dump() for n in built.nodes],
+            "edges": [e.model_dump() for e in built.edges],
+        }
 
         stats = {
-            **s,
+            "node_count": built.node_count,
+            "edge_count": built.edge_count,
+            "node_types": built.meta.get("node_type_counts", {}),
+            "edge_types": built.meta.get("edge_type_counts", {}),
             "duration_s": round(time.time() - t, 3),
         }
+
         logger.info(
-            "  → %d 节点 / %d 边  node_types=%s",
-            s["node_count"], s["edge_count"], s["node_types"],
+            "  → %d 节点 / %d 边  types=%s",
+            built.node_count, built.edge_count, stats["node_types"]
         )
-        return graph, stats
+
+        return graph, built, stats
 
     # ------------------------------------------------------------------
-    # Step 5: export_graph
+    # Step 4: export_graph
     # ------------------------------------------------------------------
 
     def _step_export(
         self,
+        built: BuiltGraph,
         graph: dict[str, Any],
         repo_name: str,
         scan_result: ScanResult,
     ) -> tuple[str, Path, dict[str, Any]]:
-        """Step 5 — 将图谱写入 graph.json 并更新索引。
-
-        同时通过 GraphRepository 写入 BuiltGraph 兼容格式，
-        保证 GET /graph、GET /callgraph 等旧端点可以正常读取。
-        """
-        logger.info("[5/5] export_graph: 持久化 graph.json...")
+        """Step 4 — 将图谱写入 graph.json 并更新索引。"""
+        logger.info("[4/4] export_graph: 持久化图谱...")
         t = time.time()
 
-        graph_id    = _safe_filename(repo_name)
+        graph_id = _safe_filename(repo_name)
         output_path = self._output_dir / f"{graph_id}.json"
-        commit      = getattr(scan_result, "git_commit", "") or ""
-        now         = _utc_now()
+        commit = getattr(scan_result, "git_commit", "") or ""
+        now = _utc_now()
 
-        # ── 1. 写入标准 JSON Graph 格式（新格式，供 /graph/data 等端点使用）──
+        # 更新 meta
+        built.meta["graph_id"] = graph_id
+        built.meta["repo_name"] = repo_name
+        built.meta["git_commit"] = commit
+        built.meta["created_at"] = now
+        built.meta["pipeline"] = "GraphPipeline"
+
+        # 写入 JSON
         payload = {
-            "meta": {
-                "graph_id":    graph_id,
-                "repo_name":   repo_name,
-                "node_count":  len(graph["nodes"]),
-                "edge_count":  len(graph["edges"]),
-                "git_commit":  commit,
-                "pipeline":    "GraphPipeline",
-                "created_at":  now,
-            },
+            "meta": built.meta,
             "nodes": graph["nodes"],
             "edges": graph["edges"],
         }
@@ -511,360 +437,76 @@ class GraphPipeline:
             encoding="utf-8",
         )
 
-        # ── 2. 同步写入 GraphRepository（BuiltGraph 兼容格式）──────────────
-        # 将新格式节点/边转换为 GraphNode / GraphEdge Pydantic 模型，
-        # 再通过 GraphRepository._save_json 写入，保证旧端点（GET /graph、
-        # GET /callgraph、GET /lineage 等）能正常读取。
+        # 同步写入 GraphRepository
         try:
-            built = _new_graph_to_built(
-                graph, graph_id, repo_name, commit, now
-            )
             self._repo._save_json(built, graph_id, repo_name)
             logger.debug("  → GraphRepository 同步写入完成: %s", graph_id)
         except Exception as exc:
-            logger.warning("  ⚠ GraphRepository 同步写入失败（不影响主流程）: %s", exc)
+            logger.warning("  ⚠ GraphRepository 同步写入失败: %s", exc)
 
         stats = {
-            "graph_id":    graph_id,
+            "graph_id": graph_id,
             "output_path": str(output_path),
-            "size_bytes":  output_path.stat().st_size,
-            "duration_s":  round(time.time() - t, 3),
+            "size_bytes": output_path.stat().st_size,
+            "duration_s": round(time.time() - t, 3),
         }
         logger.info("  → 已写入: %s (%d bytes)", output_path, stats["size_bytes"])
+
         return graph_id, output_path, stats
+
+    # ------------------------------------------------------------------
+    # Step 5: RAG (optional)
+    # ------------------------------------------------------------------
+
+    def _step_rag(
+        self,
+        graph_id: str,
+        built: BuiltGraph,
+        stats: dict[str, dict[str, Any]],
+        warnings_list: list[str],
+    ) -> None:
+        """Step 5 — 向量化节点（可选）。"""
+        logger.info("[5/5] rag: 向量化节点...")
+        t = time.time()
+
+        try:
+            rag_engine = self._get_rag_engine()
+            count = rag_engine.embed_nodes(graph_id, built.nodes)
+            stats["5_rag"] = {
+                "embedded_nodes": count,
+                "duration_s": round(time.time() - t, 3),
+            }
+            logger.info("  → 已向量化 %d 个节点", count)
+        except Exception as exc:
+            logger.warning("  ⚠ 向量化失败: %s", exc)
+            warnings_list.append(f"向量化失败: {exc}")
+            stats["5_rag"] = {"skipped": True, "reason": str(exc)}
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _get_llm(self) -> LLMClient:
+    def _get_llm(self) -> Optional[LLMClient]:
         """懒加载 LLM 客户端。"""
         if self._llm is None:
-            self._llm = get_default_client()
+            try:
+                self._llm = LLMClient.from_env()
+            except Exception as exc:
+                logger.warning("LLM 客户端初始化失败: %s", exc)
+                return None
         return self._llm
 
-
-# ---------------------------------------------------------------------------
-# Prompt builder
-# ---------------------------------------------------------------------------
-
-
-def _build_file_prompt(
-    pf: ParsedFile,
-    repo_name: str,
-    file_rel: str,
-) -> tuple[str, str]:
-    """为单个文件构建 (system_prompt, user_prompt) 元组。
-
-    system_prompt 包含完整的输出格式规范。
-    user_prompt 包含文件的结构化摘要（类/函数/调用/导入），
-    不包含原始源码（避免超出 context window）。
-    """
-    system = (
-        "You are a code analysis expert. Analyze the provided file summary "
-        "and extract the code structure as a JSON graph.\n\n"
-        "OUTPUT RULES:\n"
-        "1. Return ONLY a valid JSON object. No prose. No markdown. No code fences.\n"
-        "2. The JSON must match this exact schema:\n\n"
-        '{\n'
-        '  "nodes": [\n'
-        '    {\n'
-        '      "id":   "<type>:<qualified_name>",\n'
-        '      "type": "<function|class|api|module|database|table>",\n'
-        '      "file": "<relative file path>"\n'
-        '    }\n'
-        '  ],\n'
-        '  "edges": [\n'
-        '    {\n'
-        '      "from": "<node id>",\n'
-        '      "to":   "<node id>",\n'
-        '      "type": "<contains|calls|imports|reads|writes>"\n'
-        '    }\n'
-        '  ]\n'
-        '}\n\n'
-        "Node id format:\n"
-        '  function: "function:<module>.<name>"  e.g. "function:service.user.create"\n'
-        '  class:    "class:<module>.<name>"     e.g. "class:service.UserService"\n'
-        '  api:      "api:<METHOD>:<path>"       e.g. "api:POST:/users"\n'
-        '  module:   "module:<path>"             e.g. "module:service/user"\n'
-        '  table:    "table:<name>"              e.g. "table:users"\n\n'
-        "Edge types:\n"
-        "  contains — class contains method, module contains class/function\n"
-        "  calls    — function calls another function\n"
-        "  imports  — module imports another module\n"
-        "  reads    — function reads from a table/database\n"
-        "  writes   — function writes to a table/database\n\n"
-        "Rules:\n"
-        "- Only emit nodes and edges with clear evidence from the file summary.\n"
-        "- Do not invent names — use exact names from the summary.\n"
-        "- Emit contains edges from each class to its methods.\n"
-        "- Emit calls edges only when a function explicitly calls another.\n"
-        "- If no meaningful structure exists, return {\"nodes\": [], \"edges\": []}."
-    )
-
-    # 构建用户 prompt：文件结构化摘要
-    lines: list[str] = [
-        f"Repository: {repo_name}",
-        f"File: {file_rel}",
-        f"Language: {pf.language}",
-        "",
-    ]
-
-    # 导入
-    if pf.imports:
-        lines.append("## Imports")
-        for imp in pf.imports[:20]:
-            lines.append(f"  import {imp.module}")
-        lines.append("")
-
-    # 类
-    if pf.classes:
-        lines.append("## Classes")
-        for cls in pf.classes:
-            bases = f"({', '.join(cls.base_classes)})" if cls.base_classes else ""
-            lines.append(f"  class {cls.name}{bases}  [line {cls.line_start}]")
-            for method in cls.methods[:15]:
-                params = _format_params(method.parameters)
-                lines.append(f"    def {method.name}({params})  [line {method.line_start}]")
-                # 方法内调用
-                for call in method.calls[:8]:
-                    lines.append(f"      calls: {call.callee}")
-        lines.append("")
-
-    # 模块级函数
-    if pf.functions:
-        lines.append("## Functions")
-        for fn in pf.functions[:20]:
-            params = _format_params(fn.parameters)
-            lines.append(f"  def {fn.name}({params})  [line {fn.line_start}]")
-            for call in fn.calls[:8]:
-                lines.append(f"    calls: {call.callee}")
-        lines.append("")
-
-    user = "\n".join(lines)
-
-    # 截断保护
-    if len(user) > _MAX_FILE_CONTEXT_CHARS:
-        user = user[:_MAX_FILE_CONTEXT_CHARS] + "\n... (truncated)"
-
-    return system, user
-
-
-def _format_params(parameters: list[Any]) -> str:
-    """将参数列表格式化为简短字符串。"""
-    names = []
-    for p in parameters[:6]:
-        name = getattr(p, "name", str(p))
-        if name not in ("self", "cls"):
-            names.append(name)
-    suffix = ", ..." if len(parameters) > 6 else ""
-    return ", ".join(names) + suffix
-
-
-# ---------------------------------------------------------------------------
-# LLM call with retry
-# ---------------------------------------------------------------------------
-
-
-def _call_llm_with_retry(
-    llm: LLMClient,
-    system: str,
-    user: str,
-) -> str:
-    """调用 LLM，失败时线性退避重试。返回原始文本；全部失败时返回空字符串。"""
-    last_error: Optional[Exception] = None
-
-    for attempt in range(_LLM_MAX_RETRIES + 1):
-        try:
-            text = llm.complete(user, system=system)
-            return text or ""
-        except Exception as exc:
-            last_error = exc
-            if attempt < _LLM_MAX_RETRIES:
-                delay = _LLM_RETRY_DELAYS[min(attempt, len(_LLM_RETRY_DELAYS) - 1)]
-                logger.debug(
-                    "LLM 重试 %d/%d (%.1fs): %s",
-                    attempt + 1, _LLM_MAX_RETRIES + 1, delay, exc,
-                )
-                time.sleep(delay)
-
-    logger.warning("LLM 全部重试失败: %s", last_error)
-    return ""
-
-
-# ---------------------------------------------------------------------------
-# JSON extraction
-# ---------------------------------------------------------------------------
-
-
-def _extract_json_graph(text: str) -> Optional[dict[str, Any]]:
-    """从 LLM 响应文本中提取 {"nodes": [...], "edges": [...]} 字典。
-
-    处理：Markdown 代码围栏、前后散文、嵌套大括号。
-    返回 None 表示无法提取有效 JSON。
-    """
-    if len(text) > _MAX_RESPONSE_CHARS:
-        text = text[:_MAX_RESPONSE_CHARS]
-
-    # 1. 直接解析
-    stripped = text.strip()
-    parsed = _try_parse(stripped)
-    if parsed is not None:
-        return parsed
-
-    # 2. 去除 markdown 代码围栏
-    fence = re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", text, re.IGNORECASE)
-    if fence:
-        parsed = _try_parse(fence.group(1))
-        if parsed is not None:
-            return parsed
-
-    # 3. 找最外层 { … }
-    start = text.find("{")
-    if start == -1:
-        return None
-
-    depth = 0
-    for i, ch in enumerate(text[start:], start):
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                parsed = _try_parse(text[start: i + 1])
-                if parsed is not None:
-                    return parsed
-                break
-
-    return None
-
-
-def _try_parse(text: str) -> Optional[dict[str, Any]]:
-    """尝试解析 JSON 字符串，返回含 nodes/edges 键的字典，否则返回 None。"""
-    try:
-        obj = json.loads(text.strip())
-        if isinstance(obj, dict) and ("nodes" in obj or "edges" in obj):
-            return obj
-    except (json.JSONDecodeError, ValueError):
-        pass
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Static graph population (fallback when AI is disabled / empty)
-# ---------------------------------------------------------------------------
-
-
-def _populate_static_graph(
-    builder: CodeGraphBuilder,
-    scan_result: ScanResult,
-    parsed_files: list[ParsedFile],
-    repo_name: str,
-) -> None:
-    """当 AI 分析未运行时，从静态解析结果构建基础图。
-
-    生成节点：repository / module / file / class / function
-    生成边：contains / calls / imports
-    """
-    from backend.graph.code_graph import CodeEdge, CodeNode
-
-    nodes: list[dict[str, Any]] = []
-    edges: list[dict[str, Any]] = []
-
-    # Repository 根节点
-    repo_id = f"repository:{repo_name}"
-    nodes.append({"id": repo_id, "type": "repository", "file": ""})
-
-    # 已见模块集合（避免重复）
-    seen_modules: set[str] = set()
-
-    for pf in parsed_files:
-        file_rel = _relative(pf.file_path, scan_result.repo_path)
-        module_path = str(Path(file_rel).parent).replace("\\", "/")
-        if module_path == ".":
-            module_path = ""
-
-        # Module 节点
-        if module_path and module_path not in seen_modules:
-            seen_modules.add(module_path)
-            mod_id = f"module:{module_path}"
-            nodes.append({"id": mod_id, "type": "module", "file": ""})
-            edges.append({"from": repo_id, "to": mod_id, "type": "contains"})
-
-        # File 节点
-        file_id = f"file:{file_rel}"
-        nodes.append({"id": file_id, "type": "file", "file": file_rel})
-        if module_path:
-            edges.append({"from": f"module:{module_path}", "to": file_id, "type": "contains"})
-        else:
-            edges.append({"from": repo_id, "to": file_id, "type": "contains"})
-
-        # Import 边（file → module）
-        for imp in pf.imports:
-            imp_mod = imp.module.replace(".", "/").lstrip("/")
-            if imp_mod:
-                target_id = f"module:{imp_mod}"
-                edges.append({"from": file_id, "to": target_id, "type": "imports"})
-
-        # Class 节点
-        for cls in pf.classes:
-            cls_id = f"class:{module_path}.{cls.name}" if module_path else f"class:{cls.name}"
-            nodes.append({
-                "id":   cls_id,
-                "type": "class",
-                "file": file_rel,
-            })
-            edges.append({"from": file_id, "to": cls_id, "type": "contains"})
-
-            # Method 节点
-            for method in cls.methods:
-                fn_id = f"function:{module_path}.{cls.name}.{method.name}" if module_path \
-                    else f"function:{cls.name}.{method.name}"
-                nodes.append({
-                    "id":   fn_id,
-                    "type": "function",
-                    "file": file_rel,
-                })
-                edges.append({"from": cls_id, "to": fn_id, "type": "contains"})
-
-        # Module-level Function 节点
-        for fn in pf.functions:
-            fn_id = f"function:{module_path}.{fn.name}" if module_path else f"function:{fn.name}"
-            nodes.append({
-                "id":   fn_id,
-                "type": "function",
-                "file": file_rel,
-            })
-            edges.append({"from": file_id, "to": fn_id, "type": "contains"})
-
-    builder.add_graph({"nodes": nodes, "edges": edges})
+    def _get_rag_engine(self) -> GraphRAGEngine:
+        """获取或创建 RAG 引擎。"""
+        if self._rag_engine is None:
+            vs = self._vector_store or VectorStore()
+            self._rag_engine = GraphRAGEngine(self._repo, vs)
+        return self._rag_engine
 
 
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
-
-
-def _inject_file_field(
-    graph: dict[str, Any],
-    file_rel: str,
-    language: str,
-) -> None:
-    """为图中每个缺少 file 字段的节点注入文件路径和语言信息（原地修改）。"""
-    for node in graph.get("nodes", []):
-        if isinstance(node, dict):
-            if not node.get("file"):
-                node["file"] = file_rel
-            if not node.get("language"):
-                node["language"] = language
-
-
-def _relative(abs_path: str, base: Any) -> str:
-    """将绝对路径转为相对于 base 的路径字符串。"""
-    try:
-        return str(Path(abs_path).relative_to(Path(str(base)))).replace("\\", "/")
-    except ValueError:
-        return abs_path
 
 
 def _safe_filename(name: str) -> str:
@@ -877,128 +519,6 @@ def _utc_now() -> str:
     """返回当前 UTC 时间的 ISO 8601 字符串。"""
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat()
-
-
-def _new_graph_to_built(
-    graph: dict[str, Any],
-    graph_id: str,
-    repo_name: str,
-    commit: str,
-    created_at: str,
-) -> BuiltGraph:
-    """将新格式 JSON Graph 转换为 BuiltGraph（供 GraphRepository 写入）。
-
-    新格式节点字段：id, type, name, file, line, module, language
-    旧格式 GraphNode 字段：id, type, name, properties（dict）
-
-    转换规则：
-    - type 做首字母大写规范化（"function" → "Function"）以匹配 NodeType 枚举
-    - file / line / module / language 写入 properties
-    - 边的 "from" 键映射到 GraphEdge.from_
-    """
-    # 节点类型首字母大写映射（新格式小写 → 旧格式 PascalCase）
-    _TYPE_MAP: dict[str, str] = {
-        "repository": "Repository",
-        "module":     "Module",
-        "file":       "File",
-        "class":      "Class",
-        "function":   "Function",
-        "api":        "API",
-        "database":   "Database",
-        "table":      "Table",
-        "service":    "Service",
-        "component":  "Component",
-        "event":      "Event",
-        "topic":      "Topic",
-    }
-
-    nodes: list[GraphNode] = []
-    for raw in graph.get("nodes") or []:
-        if not isinstance(raw, dict) or not raw.get("id"):
-            continue
-        raw_type = raw.get("type", "")
-        node_type = _TYPE_MAP.get(raw_type.lower(), raw_type.capitalize() or "Function")
-        props: dict[str, Any] = {}
-        for field in ("file", "line", "module", "language"):
-            val = raw.get(field)
-            if val is not None:
-                props[field] = val
-        # 保留原始 properties（如有）
-        if isinstance(raw.get("properties"), dict):
-            props.update(raw["properties"])
-        nodes.append(GraphNode(
-            id=raw["id"],
-            type=node_type,
-            name=raw.get("name") or raw["id"].rsplit(":", 1)[-1].rsplit(".", 1)[-1],
-            properties=props,
-        ))
-
-    edges: list[GraphEdge] = []
-    for raw in graph.get("edges") or []:
-        if not isinstance(raw, dict):
-            continue
-        from_id = raw.get("from", "")
-        to_id   = raw.get("to", "")
-        etype   = raw.get("type", "")
-        if not from_id or not to_id or not etype or from_id == to_id:
-            continue
-        edges.append(GraphEdge(
-            from_=from_id,
-            to=to_id,
-            type=etype,
-            properties={},
-        ))
-
-    # 统计
-    node_type_counts: dict[str, int] = {}
-    for n in nodes:
-        node_type_counts[n.type] = node_type_counts.get(n.type, 0) + 1
-    edge_type_counts: dict[str, int] = {}
-    for e in edges:
-        edge_type_counts[e.type] = edge_type_counts.get(e.type, 0) + 1
-
-    meta: dict[str, Any] = {
-        "graph_id":         graph_id,
-        "repo_name":        repo_name,
-        "repo_path":        "",
-        "git_commit":       commit,
-        "node_count":       len(nodes),
-        "edge_count":       len(edges),
-        "node_type_counts": node_type_counts,
-        "edge_type_counts": edge_type_counts,
-        "created_at":       created_at,
-        "pipeline":         "GraphPipeline",
-    }
-    return BuiltGraph(nodes=nodes, edges=edges, meta=meta, metrics={})
-
-
-def _update_index(
-    storage_dir: Path,
-    graph_id: str,
-    repo_name: str,
-    meta: dict[str, Any],
-) -> None:
-    """更新 index.json（与 GraphRepository 格式兼容）。"""
-    index_path = storage_dir / "index.json"
-    index: dict[str, Any] = {}
-    if index_path.exists():
-        try:
-            index = json.loads(index_path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-
-    index[graph_id] = {
-        "graph_id":   graph_id,
-        "repo_name":  repo_name,
-        "node_count": meta.get("node_count", 0),
-        "edge_count": meta.get("edge_count", 0),
-        "created_at": meta.get("created_at", ""),
-        "pipeline":   "GraphPipeline",
-    }
-    index_path.write_text(
-        json.dumps(index, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -1016,24 +536,27 @@ if __name__ == "__main__":
     )
 
     ap = argparse.ArgumentParser(
-        description="GraphPipeline — 代码知识图谱分析（新版）",
+        description="GraphPipeline — 代码知识图谱分析（AI 驱动）",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
   python -m backend.pipeline.graph_pipeline /path/to/repo
-  python -m backend.pipeline.graph_pipeline . --enable-ai
-  python -m backend.pipeline.graph_pipeline . --languages python typescript
+  python -m backend.pipeline.graph_pipeline . --enable-rag
         """,
     )
     ap.add_argument("repo_path", help="仓库根目录路径")
     ap.add_argument("--repo-name", default="", help="图谱名称（默认使用目录名）")
     ap.add_argument(
         "--languages", nargs="+", default=None,
-        help="限定分析语言，例如 --languages python typescript",
+        help="（已忽略）限定分析语言",
     )
     ap.add_argument(
-        "--enable-ai", action="store_true",
-        help="启用 AI 逐文件分析（需配置 LLM API Key）",
+        "--no-ai", action="store_true",
+        help="禁用 AI 分析（不推荐，图谱将为空）",
+    )
+    ap.add_argument(
+        "--enable-rag", action="store_true",
+        help="启用向量化索引",
     )
     ap.add_argument(
         "--output-dir", default="./data/graphs",
@@ -1047,7 +570,8 @@ if __name__ == "__main__":
             args.repo_path,
             repo_name=args.repo_name,
             languages=args.languages,
-            enable_ai=args.enable_ai,
+            enable_ai=not args.no_ai,
+            enable_rag=args.enable_rag,
         )
         print()
         print(result.summary())
