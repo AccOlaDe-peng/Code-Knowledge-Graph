@@ -6,6 +6,7 @@ from backend.agent.agents.call_graph import CallGraphAgent
 from backend.agent.agents.data_lineage import DataLineageAgent
 from backend.agent.agents.api_endpoint import APIEndpointAgent
 from backend.agent.agents.cross_module import CrossModuleAgent
+from backend.agent.agents.module_scanner import ModuleScannerAgent
 
 __all__ = [
     "ModuleDetectorAgent",
@@ -14,4 +15,5 @@ __all__ = [
     "DataLineageAgent",
     "APIEndpointAgent",
     "CrossModuleAgent",
+    "ModuleScannerAgent",
 ]
