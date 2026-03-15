@@ -290,24 +290,17 @@ const formatTime = (value?: string): string => {
   });
 };
 
-const mapGraphSummaryToRepoInfo = (graph: {
-  graphId: string;
-  repoName: string;
-  language: string[];
-  createdAt: string;
-  nodeCount: number;
-  edgeCount: number;
-}): RepoInfo => ({
-  repoId: graph.graphId,
-  graphId: graph.graphId,
-  repoName: graph.repoName || graph.graphId,
-  language: graph.language || [],
-  createdAt: graph.createdAt || new Date().toISOString(),
-  nodeCount: graph.nodeCount || 0,
-  edgeCount: graph.edgeCount || 0,
-  repoPath: "",
-  status: "completed",
-  lastAnalyzedAt: graph.createdAt,
+const normalizeRepoInfo = (repo: RepoInfo): RepoInfo => ({
+  ...repo,
+  repoId: repo.repoId || repo.graphId,
+  graphId: repo.graphId || repo.repoId,
+  repoName: repo.repoName || repo.graphId || repo.repoId,
+  language: repo.language || [],
+  createdAt: repo.createdAt || new Date().toISOString(),
+  nodeCount: repo.nodeCount || 0,
+  edgeCount: repo.edgeCount || 0,
+  status: repo.status || "completed",
+  lastAnalyzedAt: repo.lastAnalyzedAt || repo.createdAt,
 });
 
 const fetchReposWithDedup = async (force = false): Promise<RepoInfo[]> => {
@@ -326,7 +319,7 @@ const fetchReposWithDedup = async (force = false): Promise<RepoInfo[]> => {
 
   repoListInFlight = (async () => {
     const response = await graphEndpoints.listGraphs();
-    const repos = response.graphs.map(mapGraphSummaryToRepoInfo);
+    const repos = response.graphs.map(normalizeRepoInfo);
     repoListCache = { at: Date.now(), repos };
     return repos;
   })();
@@ -535,13 +528,21 @@ const Repository: React.FC = () => {
   };
 
   const handleCancel = async (repo: RepoInfo) => {
-    if (!repo.taskId) {
+    let taskId = repo.taskId;
+    if (!taskId && repo.status === "analyzing") {
+      const latestRepos = await fetchReposWithDedup(true);
+      setRepos(latestRepos);
+      const latest = latestRepos.find((r) => r.repoId === repo.repoId);
+      taskId = latest?.taskId;
+    }
+
+    if (!taskId) {
       message.warning("当前任务不存在或已结束");
       return;
     }
 
     try {
-      await graphEndpoints.cancelAnalysis(repo.taskId);
+      await graphEndpoints.cancelAnalysis(taskId);
       updateRepo(repo.repoId, {
         status: "canceled",
         taskId: undefined,
