@@ -1,0 +1,31 @@
+"""LLM 类型定义。"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass
+class ToolCallRecord:
+    """单次工具调用记录。"""
+
+    iteration: int                     # 所属迭代
+    tool_name: str                     # 工具名称
+    tool_input: dict[str, Any]         # 输入参数
+    tool_output: dict[str, Any]        # 输出结果
+    success: bool                      # 是否成功
+    execution_time_ms: int = 0         # 执行时间
+    error: str | None = None           # 错误信息
+
+
+@dataclass
+class ToolCallLoopResult:
+    """tool_call_loop 的返回结果。"""
+
+    status: str                        # "completed" | "max_iterations" | "error"
+    final_message: str | None          # 最终 LLM 消息（JSON 格式）
+    tool_calls: list[ToolCallRecord] = field(default_factory=list)
+    total_tokens: int = 0              # 总 Token 消耗
+    iterations: int = 0                # 实际迭代次数
+    errors: list[str] = field(default_factory=list)

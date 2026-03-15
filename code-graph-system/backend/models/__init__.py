@@ -12,6 +12,11 @@ from backend.models.discovery import (
     DataFlowDiscovery,
     DiscoveryRegistry,
 )
+from backend.models.agent_output import (
+    AgentError,
+    AgentOutput,
+    IntermediateGraph,
+)
 
 __all__ = [
     "ModuleDiscovery",
@@ -24,4 +29,7 @@ __all__ = [
     "CallChainDiscovery",
     "DataFlowDiscovery",
     "DiscoveryRegistry",
+    "AgentError",
+    "AgentOutput",
+    "IntermediateGraph",
 ]
