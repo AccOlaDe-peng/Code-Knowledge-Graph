@@ -12,9 +12,14 @@
     7  EventAnalyzer         — 事件发布/订阅（Kafka / RabbitMQ / EventBus）
     8  InfraAnalyzer         — Dockerfile / Kubernetes / Terraform 基础设施
     9  RepoSummaryBuilder    — 构建 AI 分析所需的仓库摘要（静态图谱快照）
-    10 AIGraphAgent          — AI 驱动的自主代码探索，识别架构模式（可选）
-                               替代原 AIArchitectureAnalyzer / AIServiceDetector /
-                               AIBusinessFlowAnalyzer / AIDataLineageAnalyzer
+    10 AgentOrchestrator     — AI 驱动的多 Agent 分析系统（可选）
+                               包含 6 个专业 Agent：
+                               - ModuleDetectorAgent: 模块检测
+                               - ArchitectureAgent: 架构分析
+                               - CallGraphAgent: 调用图分析
+                               - DataLineageAgent: 数据血缘分析
+                               - APIEndpointAgent: API 端点分析
+                               - CrossModuleAgent: 跨模块分析
     11 GraphBuilder          — 合并所有分析器输出，计算 PageRank / 度指标
     12 GraphRepository       — 持久化为 JSON（可选 Neo4j 双写）
     13 GraphRAGEngine        — 向量化 Function/Component/API 节点到 ChromaDB（可选）
@@ -419,64 +424,102 @@ class AnalysisPipeline:
             step_stats["9_summary"] = {"skipped": True}
             _emit(9, "RepoSummaryBuilder", "构建 AI 分析摘要", log="→ 跳过（失败）", status="step_done", elapsed=time.time() - _step_t)
 
-        # ── Step 10: AIGraphAgent (optional) ───────────────────────────
-        # Replaces the previous 4 AI analyzers (AIArchitectureAnalyzer,
-        # AIServiceDetector, AIBusinessFlowAnalyzer, AIDataLineageAnalyzer)
-        # with a single AI agent that autonomously explores the codebase.
-        _emit(10, "AIGraphAgent", "AI 驱动的代码探索（LLM）...")
+        # ── Step 10: AgentOrchestrator (optional) ───────────────────────────
+        # Multi-agent AI analysis system with 6 specialized agents:
+        # - ModuleDetectorAgent: Module detection
+        # - ArchitectureAgent: Architecture analysis
+        # - CallGraphAgent: Call graph analysis
+        # - DataLineageAgent: Data lineage tracking
+        # - APIEndpointAgent: API endpoint analysis
+        # - CrossModuleAgent: Cross-module dependency analysis
+        _emit(10, "AgentOrchestrator", "AI 多 Agent 分析系统...")
         _step_t = time.time()
         ai_graph = None
 
-        if enable_ai and summary is not None and static_graph is not None:
-            logger.info("[10/13] AIGraphAgent: AI 驱动的代码探索...")
+        if enable_ai:
+            logger.info("[10/13] AgentOrchestrator: AI 多 Agent 分析...")
             try:
-                from backend.ai.llm_client import get_default_client
-                from backend.analyzer.ai.agent.graph_agent import AIGraphAgent
+                from backend.agent.orchestrator import AgentOrchestrator
+                from backend.llm.client import LLMClient
+                import os
 
-                # Get LLM client
-                llm_client = get_default_client()
+                # Get LLM configuration from environment
+                provider = os.environ.get("LLM_PROVIDER", "anthropic")
+                api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY")
+                base_url = os.environ.get("LLM_BASE_URL")
 
-                if not llm_client.is_available():
-                    reason = llm_client.availability_reason()
-                    logger.warning("LLM 客户端不可用，跳过 AI 分析: %s", reason)
-                    warnings.append(f"LLM 客户端不可用（{reason}），AI 分析已跳过")
-                    step_stats["10_ai_graph_agent"] = {"skipped": True}
+                if not api_key:
+                    logger.warning("未配置 LLM API Key，跳过 AI 分析")
+                    warnings.append("未配置 LLM API Key（ANTHROPIC_API_KEY / OPENAI_API_KEY），AI 分析已跳过")
+                    step_stats["10_agent_orchestrator"] = {"skipped": True, "reason": "no_api_key"}
                 else:
-                    # Run AIGraphAgent (reuse static_graph from step 9)
-                    agent = AIGraphAgent(
-                        llm_client=llm_client._get_client(),  # Get underlying Anthropic client
-                        repo_path=str(path),
-                        static_graph=static_graph,
-                        max_tool_calls=20,
+                    # Create LLM client
+                    llm_client = LLMClient(
+                        provider=provider,
+                        api_key=api_key,
+                        base_url=base_url,
                     )
-                    ai_graph = agent.analyze(summary)
 
-                    step_stats["10_ai_graph_agent"] = {
-                        "nodes": len(ai_graph.get("nodes", [])),
-                        "edges": len(ai_graph.get("edges", [])),
-                        "tool_calls": ai_graph.get("meta", {}).get("tool_calls_used", 0),
+                    # Create orchestrator and run all agents
+                    orchestrator = AgentOrchestrator(
+                        repo_path=str(path),
+                        llm_client=llm_client,
+                        max_iterations=20,
+                        on_progress=lambda event: logger.debug(
+                            f"  [{event.get('agent', '?')}] {event.get('status', '?')}: {event.get('message', '')}"
+                        ),
+                    )
+
+                    result = orchestrator.run_all(
+                        enable_architecture=True,
+                        enable_call_graph=True,
+                        enable_data_lineage=True,
+                        enable_api_endpoint=True,
+                        enable_cross_module=True,
+                    )
+
+                    # Convert OrchestratorResult to ai_graph format
+                    ai_graph = {
+                        "nodes": [node.model_dump() for node in result.nodes],
+                        "edges": [edge.model_dump() for edge in result.edges],
+                        "meta": {
+                            "status": result.status,
+                            **result.meta,
+                        },
+                    }
+
+                    step_stats["10_agent_orchestrator"] = {
+                        "nodes": len(result.nodes),
+                        "edges": len(result.edges),
+                        "status": result.status,
+                        "total_agents": result.meta.get("total_agents", 0),
+                        "successful_agents": result.meta.get("successful_agents", 0),
+                        "agent_outputs": {
+                            name: {"status": output.status, "nodes": len(output.nodes), "edges": len(output.edges)}
+                            for name, output in result.agent_outputs.items()
+                        },
                     }
                     logger.info(
-                        "  → %d 节点 / %d 边 / %d 次工具调用",
-                        len(ai_graph.get("nodes", [])),
-                        len(ai_graph.get("edges", [])),
-                        ai_graph.get("meta", {}).get("tool_calls_used", 0),
+                        "  → %d 节点 / %d 边 / %d/%d Agent 成功",
+                        len(result.nodes),
+                        len(result.edges),
+                        result.meta.get("successful_agents", 0),
+                        result.meta.get("total_agents", 0),
                     )
 
-            except ImportError:
-                logger.warning("AIGraphAgent 模块导入失败，步骤 10 跳过", exc_info=True)
-                warnings.append("AIGraphAgent 导入失败，AI 分析已跳过")
-                step_stats["10_ai_graph_agent"] = {"skipped": True}
-            except Exception:
-                logger.warning("[10/13] AIGraphAgent 失败，跳过", exc_info=True)
-                warnings.append("AIGraphAgent 分析失败，已跳过")
-                step_stats["10_ai_graph_agent"] = {"skipped": True}
+            except ImportError as e:
+                logger.warning("AgentOrchestrator 模块导入失败，步骤 10 跳过: %s", e, exc_info=True)
+                warnings.append("AgentOrchestrator 导入失败，AI 分析已跳过")
+                step_stats["10_agent_orchestrator"] = {"skipped": True, "reason": "import_error"}
+            except Exception as e:
+                logger.warning("[10/13] AgentOrchestrator 失败，跳过: %s", e, exc_info=True)
+                warnings.append(f"AgentOrchestrator 分析失败，已跳过: {e}")
+                step_stats["10_agent_orchestrator"] = {"skipped": True, "reason": "error"}
         else:
-            reason = "enable_ai=False" if not enable_ai else "RepoSummaryBuilder 失败"
-            logger.info("[10/13] AIGraphAgent: 跳过（%s）", reason)
-            step_stats["10_ai_graph_agent"] = {"skipped": True}
-        _emit(10, "AIGraphAgent", "AI 驱动的代码探索",
-              log=f"→ {len(ai_graph.get('nodes', []))} 节点 / {ai_graph.get('meta', {}).get('tool_calls_used', 0)} 次工具调用" if ai_graph else "→ 跳过",
+            logger.info("[10/13] AgentOrchestrator: 跳过（enable_ai=False）")
+            step_stats["10_agent_orchestrator"] = {"skipped": True, "reason": "disabled"}
+        _emit(10, "AgentOrchestrator", "AI 多 Agent 分析",
+              log=f"→ {len(ai_graph.get('nodes', []))} 节点 / {len(ai_graph.get('edges', []))} 边" if ai_graph else "→ 跳过",
               status="step_done", elapsed=time.time() - _step_t)
 
         # ── Step 11: GraphBuilder ──────────────────────────────────────
