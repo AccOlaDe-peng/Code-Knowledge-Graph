@@ -26,15 +26,27 @@ pip install -r requirements.txt           # 完整功能
 # 启动 API 服务器（访问 http://localhost:8000/docs）
 python -m uvicorn backend.api.server:app --host 0.0.0.0 --port 8000 --reload
 
-# 命令行分析代码仓库（直接使用 pipeline 模块）
-python -m backend.pipeline.analyze_repository /path/to/repo
-python -m backend.pipeline.analyze_repository /path/to/repo --enable-ai
-python -m backend.pipeline.analyze_repository /path/to/repo --languages python typescript
-python -m backend.pipeline.analyze_repository /path/to/repo --json   # JSON 输出
+# AI 分析代码仓库（新方式）
+python -m backend.pipeline.ai_analyze /path/to/repo
+python -m backend.pipeline.ai_analyze /path/to/repo --name my-project --enable-rag
+python -m backend.pipeline.ai_analyze /path/to/repo --verbose --json
 
-# 运行测试（注意：test_basic.py 中部分测试仍依赖旧 schema，会 fail）
-pytest backend/tests/test_basic.py -v
-pytest backend/tests/test_basic.py::test_language_loader -v
+# 环境变量配置
+export LLM_PROVIDER=anthropic  # 或 openai, minimax, ollama
+export ANTHROPIC_API_KEY=your-key
+export OPENAI_API_KEY=your-key
+export MINIMAX_API_KEY=your-key
+export MINIMAX_GROUP_ID=your-group-id
+
+# 运行测试
+pytest backend/tests/test_ai_analysis_models.py -v
+pytest backend/tests/test_module_scanner_agent.py -v
+pytest backend/tests/test_ai_pipeline.py -v
+pytest backend/tests/test_ai_pipeline_e2e.py -v  # 需要 LLM API Key
+
+# Agent 系统测试
+pytest backend/tests/test_agent_orchestrator.py -v
+pytest backend/tests/test_agent_*.py -v
 
 # 检查依赖状态
 python scripts/check_deps.py
@@ -51,51 +63,54 @@ celery -A backend.scheduler.celery_app worker --beat --loglevel=info  # Worker +
 ```
 代码仓库
   → RepoScanner       扫描文件 + Git 信息
-  → CodeParser        Tree-sitter AST 解析
-  → [Analyzers]       各类分析器（见流水线步骤）
-  → GraphBuilder      合并 → BuiltGraph（含 PageRank/度指标）
+  → AIModuleScanner   AI 识别模块边界
+  → AICodeAnalyzer    AI 代码分析（多 Agent 并行）
+  → GraphBuilder      合并图谱 + PageRank
   → GraphRepository   持久化 JSON / Neo4j
-  → VectorStore       向量化写入 ChromaDB（可选）
-  → GraphRAGEngine    向量检索 + 图展开 + LLM 回答（查询时用）
+  → GraphRAGEngine    向量化写入 ChromaDB（可选）
 ```
 
-### 分析流水线（`backend/pipeline/analyze_repository.py`）
+### 分析流水线（`backend/pipeline/ai_analyze.py`）
 
-`AnalysisPipeline.analyze(repo_path, *, repo_name, languages, enable_ai, enable_rag)` 按顺序执行 13 步，返回 `AnalysisResult`：
+`AIPipeline.analyze(repo_path, *, repo_name, enable_rag)` 执行 6 步 AI 驱动分析，返回 `AnalysisResult`：
 
 | 步骤 | 类 | 说明 |
 |------|----|------|
 | 1 | `RepoScanner` | 扫描文件，识别语言 |
-| 2 | `CodeParser` | AST 解析，提取类/函数/调用 |
-| 3 | `ModuleDetector` | 目录级模块节点 + File 节点 + contains 边 |
-| 4 | `ComponentDetector` | 组件/类/函数节点 + implements/contains 边 |
-| 5 | `DependencyAnalyzer` | 模块/服务依赖 + 循环依赖检测 |
-| 6 | `CallGraphBuilder` | 函数调用图（calls 边） |
-| 7 | `EventAnalyzer` | Kafka/RabbitMQ 事件发布/订阅 |
-| 8 | `InfraAnalyzer` | Dockerfile/K8s/Terraform 基础设施 |
-| 9 | `RepoSummaryBuilder` | 构建静态图谱快照，供 AI 步骤使用 |
-| 10 | `AIGraphAgent` | AI 驱动的自主代码探索，识别架构模式（可选）<br/>替代原 AIArchitectureAnalyzer / AIServiceDetector /<br/>AIBusinessFlowAnalyzer / AIDataLineageAnalyzer |
-| 11 | `GraphBuilder` | 合并所有图谱，计算 PageRank / 度指标 |
-| 12 | `GraphRepository` | 持久化 JSON / Neo4j |
-| 13 | `GraphRAGEngine` | 向量化节点到 ChromaDB（`enable_rag=True` 时运行） |
+| 2 | `ModuleScannerAgent` | AI 识别模块边界 |
+| 3 | `AgentOrchestrator` | AI 代码分析（多 Agent 并行） |
+| 4 | `GraphBuilder` | 合并图谱，计算 PageRank / 度指标 |
+| 5 | `GraphRepository` | 持久化 JSON / Neo4j |
+| 6 | `GraphRAGEngine` | 向量化（可选） |
 
-步骤 10 仅在 `enable_ai=True` 时运行，位于 `backend/analyzer/ai/agent/`。任意步骤失败只记录警告，不中断整体流水线。
+任意步骤失败只记录警告，不中断整体流水线。
 
-### 数据模型（双 schema 并存）
+**注意**：旧的 `AnalysisPipeline`（13 步 AST 分析）现已弃用，内部封装为 `AIPipeline` 的包装器以保持向后兼容。
 
-**新 schema**（`backend/graph/graph_schema.py`）— 当前流水线和所有新代码使用：
+### 多 Agent 系统（`backend/agent/`）
+
+`AgentOrchestrator` 协调 6 个专业 Agent 进行 AI 代码分析：
+
+| Agent | 职责 |
+|-------|------|
+| `ModuleDetectorAgent` | 模块检测 |
+| `ArchitectureAgent` | 架构分析（分层、边界上下文） |
+| `CallGraphAgent` | 调用图分析 |
+| `DataLineageAgent` | 数据血缘追踪 |
+| `APIEndpointAgent` | API 端点分析 |
+| `CrossModuleAgent` | 跨模块依赖分析 |
+
+每个 Agent 共享 `SharedKnowledgeBase`，通过 `AgentContext` 访问仓库路径和配置。Agent 使用 LLM 工具（`read_file`、`search_code`、`list_directory` 等）自主探索代码，输出 `GraphNode` / `GraphEdge`。
+
+### 数据模型
+
+**Schema**（`backend/graph/graph_schema.py`）— 当前流水线和所有新代码使用：
 - `GraphNode(id, type, name, properties)` — 通用节点
 - `GraphEdge(from_, to, type, properties)` — 通用边（`from_` 是 Python 属性名，序列化为 `"from"`）
 - `NodeType` / `EdgeType` — 枚举定义所有合法类型
 - `GraphSchema.validate_graph()` — 三层验证（节点/边/引用完整性）
 
-静态分析节点类型：`Repository`, `Module`, `File`, `Class`, `Function`, `Component`, `Service`, `API`, `DataObject`, `Table`, `Event`, `Topic`, `Pipeline`, `Cluster`, `Database`
-
-AI 分析节点类型（步骤 10，`enable_ai=True`）：`Layer`, `Flow`, `BusinessFlow`, `Domain`, `BoundedContext`, `DomainEntity`
-
-**旧 schema**（`backend/graph/schema.py`）— 仅 `test_basic.py` 和 `scripts/run_analysis.py` 仍在使用，**不要在新代码中引入**：
-- `NodeBase` 及其子类：`FunctionNode`、`ModuleNode`、`ComponentNode` 等
-- `CodeGraph`、`AnalysisRequest`、`GraphQueryRequest`
+节点类型：`Repository`, `Module`, `File`, `Class`, `Function`, `Component`, `Service`, `API`, `DataObject`, `Table`, `Event`, `Topic`, `Pipeline`, `Cluster`, `Database`, `Layer`, `Flow`, `BusinessFlow`, `Domain`, `BoundedContext`, `DomainEntity`
 
 **`BuiltGraph`**（`backend/graph/graph_builder.py`）— 流水线输出容器：
 - `nodes: list[GraphNode]`，`edges: list[GraphEdge]`
@@ -184,17 +199,20 @@ AI 分析缓存（`backend/ai/cache/`）：commit SHA 不变则跳过 LLM 调用
 
 | 变量 | 说明 |
 |------|------|
-| `ANTHROPIC_API_KEY` | 启用 AI 分析步骤（步骤 10–13）时必须 |
-| `LLM_PROVIDER` | `anthropic`（默认）/ `openai` / `ollama` |
+| `LLM_PROVIDER` | `anthropic`（默认）/ `openai` / `minimax` / `ollama` |
+| `ANTHROPIC_API_KEY` | LLM_PROVIDER=anthropic 时必须 |
+| `OPENAI_API_KEY` | LLM_PROVIDER=openai 时使用 |
+| `MINIMAX_API_KEY` | LLM_PROVIDER=minimax 时必须 |
+| `MINIMAX_GROUP_ID` | LLM_PROVIDER=minimax 时必须 |
 | `NEO4J_URI` | 可选，如 `bolt://localhost:7687` |
 | `CELERY_BROKER_URL` | 默认 `redis://localhost:6379/0` |
 | `CELERY_RESULT_BACKEND` | 默认 `redis://localhost:6379/1` |
 
-## 添加新 Analyzer
+## 添加新 Agent
 
-1. 在 `backend/analyzer/` 创建新模块，实现 `analyze(...)` 方法，返回带 `nodes`/`edges` 属性的 graph 对象（duck typing）
-2. 在 `AnalysisPipeline.analyze()` 中按步骤顺序调用，通过 `builder.merge_graph(new_graph)` 合并到主图
-3. 将统计写入 `step_stats[f"{N}_<name>"]`
+1. 在 `backend/agent/` 创建新 Agent 类，继承 `BaseAgent`
+2. 实现 `run()` 方法，返回 `AgentResult`（包含 `nodes`/`edges`）
+3. 在 `AgentOrchestrator` 中注册新 Agent
 
 `GraphBuilder.merge_graph()` 通过 duck typing 自动提取 `GraphNode` / `GraphEdge`；后 merge 的同 ID 节点覆盖前者。
 
