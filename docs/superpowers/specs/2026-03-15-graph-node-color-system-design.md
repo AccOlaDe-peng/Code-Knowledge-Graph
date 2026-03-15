@@ -10,7 +10,7 @@
 
 ### 1.1 现状
 
-后端 `graph_schema.py` 定义了 **27 种节点类型** 和 **18 种边类型**：
+后端 `graph_schema.py` 定义了 **27 种节点类型** 和 **22 种边类型**：
 
 **节点类型（27 种）**：
 
@@ -20,7 +20,7 @@
 | V2 AI 分析 | Layer, Flow, BusinessFlow, Domain, BoundedContext, DomainEntity | 6 |
 | 新增 AI | APIEndpoint, EventHandler, DataSource, DataSink, ExternalAPI, MessageQueue | 6 |
 
-**边类型（18 种）**：
+**边类型（22 种）**：
 
 | 分组 | 类型 | 数量 |
 |------|------|------|
@@ -73,6 +73,33 @@ APIEndpoint, EventHandler, DataSource, DataSink, ExternalAPI, MessageQueue
 | DataSink | ❌ 缺失 | 需添加 |
 | ExternalAPI | ❌ 缺失 | 需添加 |
 | MessageQueue | ❌ 缺失 | 需添加 |
+
+**边类型审计表**：
+
+| 后端类型 | 前端颜色定义 | 状态 |
+|----------|--------------|------|
+| contains | ✅ 已有 | - |
+| imports | ✅ 已有 | - |
+| defines | ❌ 缺失 | 需添加 |
+| calls | ✅ 已有 | - |
+| depends_on | ✅ 已有 | - |
+| implements | ❌ 缺失 | 需添加 |
+| reads | ✅ 已有 | - |
+| writes | ✅ 已有 | - |
+| produces | ✅ 已有 | - |
+| consumes | ✅ 已有 | - |
+| publishes | ✅ 已有 | - |
+| subscribes | ✅ 已有 | - |
+| deployed_on | ❌ 缺失 | 需添加 |
+| uses | ❌ 缺失 | 需添加 |
+| routes_to | ❌ 缺失 | 需添加 |
+| triggers | ❌ 缺失 | 需添加 |
+| belongs_to | ❌ 缺失 | 需添加 |
+| flow_step | ❌ 缺失 | 需添加 |
+| transforms | ❌ 缺失 | 需添加 |
+| part_of | ❌ 缺失 | 需添加 |
+| async_calls | ❌ 缺失 | 需添加 |
+| handles | ❌ 缺失 | 需添加 |
 
 未定义类型的节点回退到灰色默认样式 `#6b7a9d`，导致：
 1. 架构图部分节点颜色无法区分
