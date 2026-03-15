@@ -17,8 +17,16 @@ from backend.models.agent_output import (
     AgentOutput,
     IntermediateGraph,
 )
+from backend.models.ai_analysis import (
+    ModuleInfo,
+    ModulePlan,
+    AIAnalysisConfig,
+    FailedModule,
+    AIAnalysisResult,
+)
 
 __all__ = [
+    # Discovery types
     "ModuleDiscovery",
     "FileDiscovery",
     "LayerDiscovery",
@@ -29,7 +37,14 @@ __all__ = [
     "CallChainDiscovery",
     "DataFlowDiscovery",
     "DiscoveryRegistry",
+    # Agent output types
     "AgentError",
     "AgentOutput",
     "IntermediateGraph",
+    # AI analysis types
+    "ModuleInfo",
+    "ModulePlan",
+    "AIAnalysisConfig",
+    "FailedModule",
+    "AIAnalysisResult",
 ]
