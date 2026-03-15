@@ -60,20 +60,16 @@ const LANGS = [
   "csharp",
 ];
 
+/**
+ * AI 分析流水线阶段定义（与后端 AIPipeline 同步）
+ */
 const PIPELINE_STAGES = [
-  "扫描仓库",
-  "解析代码 AST",
-  "模块检测",
-  "组件检测",
-  "依赖分析",
-  "构建调用图",
-  "事件分析",
-  "基础设施分析",
-  "生成仓库摘要",
-  "AI 深度分析",
-  "图谱构建",
-  "图谱持久化",
-  "向量化索引",
+  { key: "scanner",         label: "扫描文件",      desc: "扫描代码仓库文件" },
+  { key: "module_scanner",  label: "模块识别",      desc: "AI 识别模块边界" },
+  { key: "code_analyzer",   label: "代码分析",      desc: "AI 深度分析代码结构" },
+  { key: "graph_builder",   label: "构建图谱",      desc: "合并节点与边" },
+  { key: "repository",      label: "持久化存储",    desc: "保存图谱到存储" },
+  { key: "rag",             label: "向量化索引",    desc: "构建向量索引（可选）" },
 ];
 
 const getStatusConfig = (status?: RepoInfo["status"]) => {
@@ -157,9 +153,16 @@ const StatusBadge: React.FC<{ status?: RepoInfo["status"] }> = ({ status }) => {
 
 const AnalysisProgressPanel: React.FC<{ repo: RepoInfo }> = ({ repo }) => {
   const total = repo.analysisTotal ?? PIPELINE_STAGES.length;
-  const step = repo.analysisStep ?? 0;
+  const currentStage = repo.analysisStage ?? "";
+
+  // 根据当前阶段 key 找到索引
+  const currentStageIndex = PIPELINE_STAGES.findIndex(s => s.key === currentStage);
+  const step = currentStageIndex >= 0 ? currentStageIndex + 1 : 0;
   const percent =
     total > 0 ? Math.min(100, Math.round((step / total) * 100)) : 0;
+
+  // 当前阶段信息
+  const currentStageInfo = PIPELINE_STAGES.find(s => s.key === currentStage);
 
   return (
     <div>
@@ -184,8 +187,13 @@ const AnalysisProgressPanel: React.FC<{ repo: RepoInfo }> = ({ repo }) => {
           当前进度: {step}/{total}
         </div>
         <div style={{ fontSize: 12, color: "var(--t-secondary)" }}>
-          {repo.analysisStage || "等待调度"}
+          {currentStageInfo ? `${currentStageInfo.label}` : (repo.analysisStage || "等待调度")}
         </div>
+        {currentStageInfo && (
+          <div style={{ marginTop: 2, fontSize: 10, color: "var(--t-muted)" }}>
+            {currentStageInfo.desc}
+          </div>
+        )}
         {repo.analysisMessage && (
           <div style={{ marginTop: 4, fontSize: 11, color: "var(--t-muted)" }}>
             {repo.analysisMessage}
@@ -204,29 +212,34 @@ const AnalysisProgressPanel: React.FC<{ repo: RepoInfo }> = ({ repo }) => {
         }}
       >
         <Timeline
-          items={PIPELINE_STAGES.map((name, index) => {
+          items={PIPELINE_STAGES.map((stage, index) => {
             const stageIndex = index + 1;
-            const color =
-              stageIndex < step
-                ? "#00f084"
-                : stageIndex === step
-                  ? "#00d4ff"
-                  : "#3d4a5d";
+            const isCompleted = stageIndex < step;
+            const isCurrent = stageIndex === step;
+            const color = isCompleted
+              ? "#00f084"
+              : isCurrent
+                ? "#00d4ff"
+                : "#3d4a5d";
             return {
               color,
               children: (
-                <span
-                  style={{
-                    fontFamily: "'IBM Plex Mono'",
-                    fontSize: 11,
-                    color:
-                      stageIndex <= step
-                        ? "var(--t-secondary)"
-                        : "var(--t-muted)",
-                  }}
-                >
-                  {stageIndex}. {name}
-                </span>
+                <div>
+                  <span
+                    style={{
+                      fontFamily: "'IBM Plex Mono'",
+                      fontSize: 11,
+                      color: stageIndex <= step ? "var(--t-secondary)" : "var(--t-muted)",
+                    }}
+                  >
+                    {stageIndex}. {stage.label}
+                  </span>
+                  {(isCompleted || isCurrent) && (
+                    <div style={{ fontSize: 10, color: "var(--t-muted)", marginTop: 2 }}>
+                      {stage.desc}
+                    </div>
+                  )}
+                </div>
               ),
             };
           })}
@@ -270,6 +283,7 @@ const Repository: React.FC = () => {
   const removeRepo = useRepoStore((s) => s.removeRepo);
   const setRepos = useRepoStore((s) => s.setRepos);
   const { setActiveGraphId } = useGraphStore();
+  const setActiveRepo = useRepoStore((s) => s.setActiveRepo);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [sourceMode, setSourceMode] = useState<SourceMode>("git");
@@ -398,89 +412,6 @@ const Repository: React.FC = () => {
     });
   }, [detailRepo, detailTaskId, currentStep, finalResult, updateRepo]);
 
-  useEffect(() => {
-    const analyzingRepos = repos.filter(
-      (repo) =>
-        repo.status === "analyzing" &&
-        !!repo.taskId &&
-        repo.taskId !== detailTaskId,
-    );
-    if (analyzingRepos.length === 0) return;
-
-    const timer = window.setInterval(async () => {
-      const statusList = await Promise.all(
-        analyzingRepos.map(async (repo) => {
-          try {
-            const status = await graphEndpoints.getAnalysisStatus(repo.taskId!);
-            return { repo, status };
-          } catch {
-            return null;
-          }
-        }),
-      );
-
-      for (const item of statusList) {
-        if (!item) continue;
-
-        const { repo, status } = item;
-        const patch: Partial<RepoInfo> = {
-          analysisStep: status.step,
-          analysisTotal: status.total,
-          analysisStage: status.stage,
-          analysisMessage: status.message,
-          analysisElapsedSeconds: status.elapsed_seconds,
-        };
-
-        if (status.status === "completed") {
-          updateRepo(repo.repoId, {
-            ...patch,
-            status: "completed",
-            graphId: status.graph_id || repo.graphId,
-            nodeCount: status.node_count ?? repo.nodeCount,
-            edgeCount: status.edge_count ?? repo.edgeCount,
-            taskId: undefined,
-            error: undefined,
-            lastAnalyzedAt: new Date().toISOString(),
-          });
-          message.success(`${repo.repoName} 分析完成`);
-          continue;
-        }
-
-        if (status.status === "failed") {
-          updateRepo(repo.repoId, {
-            ...patch,
-            status: "failed",
-            taskId: undefined,
-            error: status.error || status.message || "分析失败",
-            lastAnalyzedAt: new Date().toISOString(),
-          });
-          message.error(`${repo.repoName} 分析失败`);
-          continue;
-        }
-
-        if (status.status === "canceled") {
-          updateRepo(repo.repoId, {
-            ...patch,
-            status: "canceled",
-            taskId: undefined,
-            lastAnalyzedAt: new Date().toISOString(),
-          });
-          message.warning(`${repo.repoName} 已取消分析`);
-          continue;
-        }
-
-        updateRepo(repo.repoId, {
-          ...patch,
-          status: "analyzing",
-        });
-      }
-    }, 10000);
-
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, [repos, detailTaskId, updateRepo]);
-
   const handleSaveRepo = async (values: RepoFormValues) => {
     setSubmitError(null);
 
@@ -538,7 +469,7 @@ const Repository: React.FC = () => {
         error: undefined,
         analysisStep: 0,
         analysisTotal: PIPELINE_STAGES.length,
-        analysisStage: "任务已创建",
+        analysisStage: "pending",
         analysisMessage: "等待调度执行",
       });
       message.success(`已开始分析: ${repo.repoName}`);
@@ -575,6 +506,7 @@ const Repository: React.FC = () => {
       return;
     }
 
+    setActiveRepo(repo);
     setActiveGraphId(repo.graphId);
     navigate(`/architecture?graph_id=${repo.graphId}`);
   };
