@@ -37,6 +37,24 @@ from backend.scanner.repo_scanner import RepoScanner, ScanResult
 
 logger = logging.getLogger(__name__)
 
+# 支持完整 function calling 的 LLM 提供商
+# 这些提供商可以使用 AgentOrchestrator 进行深度分析
+FULL_TOOL_CALLING_PROVIDERS = {
+    "openai",       # GPT-4, GPT-3.5
+    "anthropic",    # Claude
+    "google",       # Gemini
+    "mistral",      # Mistral
+    "deepseek",     # DeepSeek
+    "groq",         # Groq (Llama, Mixtral)
+    "together",     # Together AI
+    "fireworks",    # Fireworks AI
+    "cohere",       # Cohere
+    "qwen",         # 阿里通义千问
+    "zhipu",        # 智谱 GLM
+    "moonshot",     # Moonshot Kimi
+    "baichuan",     # 百川
+}
+
 
 class AIPipeline:
     """AI 驱动的代码分析流水线。
@@ -279,7 +297,14 @@ class AIPipeline:
         llm_client: LLMClient,
         on_progress: Optional[Callable[[dict], None]] = None,
     ) -> tuple[list[GraphNode], list[GraphEdge]]:
-        """分析单个模块（使用简化方法，兼容不支持 function calling 的 LLM）。"""
+        """分析单个模块。
+
+        自动选择分析方法：
+        - 支持 function calling 的提供商（OpenAI、Anthropic、DeepSeek 等）：
+          使用 AgentOrchestrator 进行深度分析
+        - 不支持的提供商（MiniMax、Ollama 等）：
+          使用简化的 complete() 方法
+        """
         self._emit_progress(
             on_progress, "module_analysis", "start",
             f"分析模块: {module.name}",
@@ -287,11 +312,77 @@ class AIPipeline:
         )
 
         try:
-            # 读取模块中的文件内容
-            files_content = self._read_module_files(repo_path, module.files[:10])  # 限制文件数
+            # 根据提供商能力选择分析方法
+            if llm_client.provider in FULL_TOOL_CALLING_PROVIDERS:
+                logger.info(
+                    "提供商 %s 支持 function calling，使用 AgentOrchestrator 深度分析",
+                    llm_client.provider,
+                )
+                nodes, edges = self._analyze_with_agents(
+                    repo_path, module, llm_client, on_progress
+                )
+            else:
+                logger.info(
+                    "提供商 %s 不完全支持 function calling，使用简化分析方法",
+                    llm_client.provider,
+                )
+                nodes, edges = self._analyze_with_complete(
+                    repo_path, module, llm_client, on_progress
+                )
 
-            # 使用 LLM 直接分析
-            prompt = f"""请分析以下代码模块，提取类、函数、调用关系。
+            self._emit_progress(
+                on_progress, "module_analysis", "complete",
+                f"模块分析完成: {module.name}",
+                module_id=module.id,
+            )
+
+            return nodes, edges
+
+        except Exception as e:
+            logger.error("模块 %s 分析失败: %s", module.id, e)
+            return [], []
+
+    def _analyze_with_agents(
+        self,
+        repo_path: Path,
+        module: ModuleInfo,
+        llm_client: LLMClient,
+        on_progress: Optional[Callable[[dict], None]] = None,
+    ) -> tuple[list[GraphNode], list[GraphEdge]]:
+        """使用 AgentOrchestrator 进行深度分析。
+
+        适用于支持完整 function calling 的提供商。
+        Agent 可以使用工具（read_file、search_code 等）自主探索代码。
+        """
+        context = AgentContext(
+            repo_path=str(repo_path),
+            module_id=module.id,
+            shared_knowledge=SharedKnowledgeBase(),
+        )
+
+        orchestrator = AgentOrchestrator(
+            context=context,
+            llm_client=llm_client,
+        )
+
+        # 运行架构分析
+        result = orchestrator.run_architecture_analysis()
+
+        return result.nodes, result.edges
+
+    def _analyze_with_complete(
+        self,
+        repo_path: Path,
+        module: ModuleInfo,
+        llm_client: LLMClient,
+        on_progress: Optional[Callable[[dict], None]] = None,
+    ) -> tuple[list[GraphNode], list[GraphEdge]]:
+        """使用简化的 complete() 方法分析（兼容不支持 function calling 的 LLM）。"""
+        # 读取模块中的文件内容
+        files_content = self._read_module_files(repo_path, module.files[:10])  # 限制文件数
+
+        # 使用 LLM 直接分析
+        prompt = f"""请分析以下代码模块，提取类、函数、调用关系。
 
 模块名称: {module.name}
 模块职责: {module.purpose}
@@ -316,26 +407,14 @@ class AIPipeline:
 
 只输出 JSON，不要其他解释。"""
 
-            response = llm_client.complete(
-                prompt=prompt,
-                system="你是一个代码分析专家，擅长提取代码结构和调用关系。",
-                max_tokens=4096,
-            )
+        response = llm_client.complete(
+            prompt=prompt,
+            system="你是一个代码分析专家，擅长提取代码结构和调用关系。",
+            max_tokens=4096,
+        )
 
-            # 解析响应
-            nodes, edges = self._parse_module_analysis(response, module)
-
-            self._emit_progress(
-                on_progress, "module_analysis", "complete",
-                f"模块分析完成: {module.name}",
-                module_id=module.id,
-            )
-
-            return nodes, edges
-
-        except Exception as e:
-            logger.error("模块 %s 分析失败: %s", module.id, e)
-            return [], []
+        # 解析响应
+        return self._parse_module_analysis(response, module)
 
     def _read_module_files(self, repo_path: Path, files: list[str]) -> str:
         """读取模块文件内容。"""
