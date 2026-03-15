@@ -480,7 +480,10 @@ class AIPipeline:
         return "\n".join(contents)
 
     def _parse_module_analysis(self, response: str, module: ModuleInfo) -> tuple[list[GraphNode], list[GraphEdge]]:
-        """解析模块分析响应。"""
+        """解析模块分析响应。
+
+        支持 MiniMax 等包含思考块的响应格式。
+        """
         import json
 
         nodes = []
@@ -489,19 +492,45 @@ class AIPipeline:
         if not response:
             return nodes, edges
 
-        # 提取 JSON
+        # 提取 JSON - 支持多种格式
         content = response.strip()
+
+        # 1. 尝试提取 ```json 代码块
         if "```json" in content:
-            content = content.split("```json")[1].split("```")[0]
+            try:
+                json_content = content.split("```json")[1].split("```")[0]
+                content = json_content.strip()
+            except IndexError:
+                pass
+
+        # 2. 尝试提取最后一个 ``` 代码块（MiniMax 可能在思考后输出）
         elif "```" in content:
             parts = content.split("```")
-            if len(parts) >= 2:
-                content = parts[1]
+            # 找到最后一个代码块
+            for i in range(len(parts) - 1, 0, -1):
+                part = parts[i].strip()
+                if part.startswith("json\n"):
+                    part = part[5:]
+                if part.startswith("{") and "functions" in part:
+                    content = part
+                    break
+            else:
+                # 没找到有效的 JSON 块，尝试倒数第二个
+                if len(parts) >= 2:
+                    content = parts[-2].strip()
+                    if content.startswith("json\n"):
+                        content = content[5:]
+
+        # 3. 尝试直接提取 JSON 对象
+        if not content.startswith("{"):
+            start_idx = content.find("{")
+            if start_idx >= 0:
+                content = content[start_idx:]
 
         try:
             data = json.loads(content.strip())
-        except json.JSONDecodeError:
-            logger.warning("解析模块分析响应失败")
+        except json.JSONDecodeError as e:
+            logger.warning("解析模块分析响应失败: %s, 响应前100字符: %s", e, content[:100])
             return nodes, edges
 
         # 解析函数节点

@@ -379,6 +379,11 @@ const Repository: React.FC = () => {
     void syncReposFromBackend({ force: true, notify: true });
   }, [syncReposFromBackend]);
 
+  // 页面加载时同步后端状态，修复刷新页面后状态不同步的问题
+  useEffect(() => {
+    void syncReposFromBackend({ force: true });
+  }, [syncReposFromBackend]);
+
   useEffect(() => {
     // 切换任务后清空去重标记，允许新任务事件正常落库。
     lastAppliedStreamEventRef.current = "";
