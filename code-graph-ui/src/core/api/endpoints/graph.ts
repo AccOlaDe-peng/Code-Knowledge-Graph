@@ -36,7 +36,22 @@ export const graphEndpoints = {
         nodeCount: g.node_count as number,
         edgeCount: g.edge_count as number,
         gitCommit: g.git_commit as string | undefined,
-        status: "completed",
+        status:
+          (g.status as string | undefined as
+            | "saved"
+            | "analyzing"
+            | "completed"
+            | "failed"
+            | "canceled"
+            | undefined) ?? "completed",
+        taskId: g.task_id as string | undefined,
+        analysisStage: g.stage as string | undefined,
+        analysisStep: g.step as number | undefined,
+        analysisTotal: g.total as number | undefined,
+        analysisMessage: g.message as string | undefined,
+        error: g.error as string | undefined,
+        repoPath: g.repo_path as string | undefined,
+        lastAnalyzedAt: g.updated_at as string | undefined,
       })),
     };
   },

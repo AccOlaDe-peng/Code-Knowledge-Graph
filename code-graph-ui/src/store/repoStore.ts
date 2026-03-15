@@ -17,54 +17,17 @@ interface RepoState {
   setError: (error: string | null) => void;
 }
 
-const mergeRemoteRepos = (
-  current: RepoInfo[],
-  incoming: RepoInfo[],
-): RepoInfo[] => {
-  const byGraphId = new Map<string, RepoInfo>();
-  for (const repo of current) {
-    if (repo.graphId) byGraphId.set(repo.graphId, repo);
-  }
-
-  const normalizedIncoming = incoming.map((repo) => {
-    const existing = repo.graphId ? byGraphId.get(repo.graphId) : undefined;
-    const status: RepoInfo["status"] =
-      existing?.status === "analyzing" ? "analyzing" : "completed";
-
-    return {
+const dedupeRepos = (incoming: RepoInfo[]): RepoInfo[] => {
+  const byKey = new Map<string, RepoInfo>();
+  for (const repo of incoming) {
+    const key = repo.graphId || repo.repoId;
+    if (!key) continue;
+    byKey.set(key, {
       ...repo,
-      repoId: existing?.repoId ?? repo.repoId ?? repo.graphId,
-      status,
-      taskId: existing?.status === "analyzing" ? existing.taskId : undefined,
-      analysisStep:
-        existing?.status === "analyzing" ? existing.analysisStep : undefined,
-      analysisTotal:
-        existing?.status === "analyzing" ? existing.analysisTotal : undefined,
-      analysisStage:
-        existing?.status === "analyzing" ? existing.analysisStage : undefined,
-      analysisMessage:
-        existing?.status === "analyzing" ? existing.analysisMessage : undefined,
-      analysisElapsedSeconds:
-        existing?.status === "analyzing"
-          ? existing.analysisElapsedSeconds
-          : undefined,
-      error: existing?.status === "failed" ? existing.error : undefined,
-      lastAnalyzedAt: repo.createdAt,
-    };
-  });
-
-  const incomingKeys = new Set(normalizedIncoming.map((r) => r.repoId));
-  const localOnly = current.filter((repo) => {
-    if (incomingKeys.has(repo.repoId)) return false;
-    if (!repo.graphId) return true;
-    return (
-      repo.status === "analyzing" ||
-      repo.status === "failed" ||
-      repo.status === "canceled"
-    );
-  });
-
-  return [...localOnly, ...normalizedIncoming];
+      repoId: repo.repoId || repo.graphId,
+    });
+  }
+  return Array.from(byKey.values());
 };
 
 export const useRepoStore = create<RepoState>()(
@@ -76,7 +39,17 @@ export const useRepoStore = create<RepoState>()(
       error: null,
 
       setRepos: (repos) =>
-        set((state) => ({ repos: mergeRemoteRepos(state.repos, repos) })),
+        set((state) => {
+          const nextRepos = dedupeRepos(repos);
+          const nextActiveRepo = state.activeRepo
+            ? (nextRepos.find((r) => r.repoId === state.activeRepo?.repoId) ??
+              null)
+            : null;
+          return {
+            repos: nextRepos,
+            activeRepo: nextActiveRepo,
+          };
+        }),
 
       setActiveRepo: (repo) => set({ activeRepo: repo }),
 

@@ -32,9 +32,14 @@ class ModuleScannerAgent(BaseAgent):
 
     该 Agent 不使用 tool_call_loop，而是直接使用 complete 方法，
     因为模块扫描只需要分析目录结构，不需要读取文件内容。
+
+    对于大型仓库，会分批分析文件，然后合并结果。
     """
 
     agent_type = "module_scanner"
+
+    # 每批最大文件数量，避免 Prompt 过长导致 LLM 返回空响应
+    BATCH_SIZE = 200
 
     def __init__(self, context: AgentContext, llm_client: LLMClient):
         """初始化 ModuleScannerAgent。
