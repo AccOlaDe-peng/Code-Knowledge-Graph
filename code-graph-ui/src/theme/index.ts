@@ -1,131 +1,21 @@
 import type { ThemeConfig } from 'antd';
 import { theme } from 'antd';
 
-// ─── Node Type Colors ─────────────────────────────────────────────────────────
+// ─── Re-export from new color modules ────────────────────────────────────────
 
-/**
- * Semantic color palette for graph node types.
- * Each type has a primary color, background, and border variant.
- */
-export const NodeTypeColors = {
-  Module: {
-    primary: '#00d4ff',    // 蓝 - Cyan
-    bg: '#0f2838',
-    border: '#00d4ff',
-    text: '#33dcff',
-    dim: 'rgba(0,212,255,0.1)',
-  },
-  Service: {
-    primary: '#00f084',    // 绿 - Green
-    bg: '#0f2a1d',
-    border: '#00f084',
-    text: '#33f59a',
-    dim: 'rgba(0,240,132,0.1)',
-  },
-  API: {
-    primary: '#44aaff',    // 青 - Light Blue
-    bg: '#0f2235',
-    border: '#44aaff',
-    text: '#66bbff',
-    dim: 'rgba(68,170,255,0.1)',
-  },
-  Function: {
-    primary: '#a8b0c8',    // 灰 - Gray
-    bg: '#1e2028',
-    border: '#a8b0c8',
-    text: '#c0c6dc',
-    dim: 'rgba(168,176,200,0.1)',
-  },
-  Table: {
-    primary: '#b08eff',    // 紫 - Purple
-    bg: '#1f1830',
-    border: '#b08eff',
-    text: '#c8a8ff',
-    dim: 'rgba(176,142,255,0.1)',
-  },
-  Event: {
-    primary: '#ffc145',    // 橙 - Amber/Orange
-    bg: '#282010',
-    border: '#ffc145',
-    text: '#ffd166',
-    dim: 'rgba(255,193,69,0.1)',
-  },
-  // Additional types
-  Component: {
-    primary: '#00f084',
-    bg: '#0f2a1d',
-    border: '#00f084',
-    text: '#33f59a',
-    dim: 'rgba(0,240,132,0.1)',
-  },
-  Class: {
-    primary: '#b08eff',
-    bg: '#1f1830',
-    border: '#b08eff',
-    text: '#c8a8ff',
-    dim: 'rgba(176,142,255,0.1)',
-  },
-  Database: {
-    primary: '#9d7dff',
-    bg: '#1d1630',
-    border: '#9d7dff',
-    text: '#b899ff',
-    dim: 'rgba(157,125,255,0.1)',
-  },
-  Cluster: {
-    primary: '#44aaff',
-    bg: '#0f2235',
-    border: '#44aaff',
-    text: '#66bbff',
-    dim: 'rgba(68,170,255,0.1)',
-  },
-  Infrastructure: {
-    primary: '#a0a8b8',
-    bg: '#1d1e22',
-    border: '#a0a8b8',
-    text: '#b8c0d0',
-    dim: 'rgba(160,168,184,0.1)',
-  },
-} as const;
+// New color system
+export { getNodeTypeColor, NODE_TYPE_COLORS } from './nodeTypeColors'
+export { getEdgeTypeColor, EDGE_TYPE_COLORS } from './edgeTypeColors'
+export { generateNodeColor, generateEdgeColor, BASE_HUES } from './colorGenerator'
+export type { NodeTypeColorScheme } from './colorGenerator'
 
-export type NodeTypeName = keyof typeof NodeTypeColors;
+// Backward compatibility aliases
+export { NODE_TYPE_COLORS as NodeTypeColors } from './nodeTypeColors'
+export { EDGE_TYPE_COLORS as EdgeTypeColors } from './edgeTypeColors'
 
-/**
- * Get color scheme for a node type.
- */
-export function getNodeTypeColor(type: string) {
-  return NodeTypeColors[type as NodeTypeName] ?? {
-    primary: '#9ba8c8',
-    bg: '#1a1d26',
-    border: '#6b7a9d',
-    text: '#b0bcd8',
-    dim: 'rgba(155,168,200,0.1)',
-  };
-}
-
-// ─── Edge Type Colors ─────────────────────────────────────────────────────────
-
-export const EdgeTypeColors = {
-  calls: '#33f59a',       // Green - function calls (提亮)
-  depends_on: '#33dcff',  // Cyan - module dependencies (提亮)
-  imports: '#c8a8ff',     // Purple - imports (提亮)
-  contains: '#6b7a9d',    // Gray - containment (提亮)
-  reads: '#ffd166',       // Amber - data reads (提亮)
-  writes: '#ff8888',      // Red - data writes (提亮)
-  produces: '#ffe066',    // Yellow - event production (提亮)
-  consumes: '#ffaa66',    // Orange - event consumption (提亮)
-  publishes: '#66bbff',   // Light blue - message publishing (提亮)
-  subscribes: '#99e877',  // Light green - message subscription (提亮)
-} as const;
-
-export type EdgeTypeName = keyof typeof EdgeTypeColors;
-
-/**
- * Get color for an edge type.
- */
-export function getEdgeTypeColor(type: string): string {
-  return EdgeTypeColors[type as EdgeTypeName] ?? '#6b7a9d';
-}
+// Type alias for backward compatibility
+export type NodeTypeName = string
+export type EdgeTypeName = string
 
 // ─── Ant Design Theme Configuration ───────────────────────────────────────────
 
@@ -334,12 +224,15 @@ export const antdTheme: ThemeConfig = {
 
 // ─── CSS Variable Exports ─────────────────────────────────────────────────────
 
+import { NODE_TYPE_COLORS } from './nodeTypeColors'
+import { EDGE_TYPE_COLORS } from './edgeTypeColors'
+
 /**
  * Export node type colors as CSS custom properties.
  * Can be injected into :root for global access.
  */
 export function generateNodeTypeCSS(): string {
-  return Object.entries(NodeTypeColors)
+  return Object.entries(NODE_TYPE_COLORS)
     .map(([type, colors]) => {
       const prefix = `--node-${type.toLowerCase()}`;
       return `
@@ -356,7 +249,7 @@ export function generateNodeTypeCSS(): string {
  * Export edge type colors as CSS custom properties.
  */
 export function generateEdgeTypeCSS(): string {
-  return Object.entries(EdgeTypeColors)
+  return Object.entries(EDGE_TYPE_COLORS)
     .map(([type, color]) => `  --edge-${type.replace('_', '-')}: ${color};`)
     .join('\n');
 }

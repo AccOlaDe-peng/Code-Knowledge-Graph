@@ -4,18 +4,56 @@ import { useGraphStore } from '../../store/graphStore'
 import GraphViewer, { type LayoutName } from '../../components/GraphViewer'
 import NodeDetailPanel from '../../components/NodeDetailPanel'
 import type { GraphNode, GraphEdge } from '../../types/graph'
+import { getNodeTypeColor } from '../../theme'
 
-// ─── Node type filter config ──────────────────────────────────────────────────
+// ─── Node type filter groups ──────────────────────────────────────────────────
 
-const NODE_FILTERS = [
-  { type: 'all',           label: '全部',   color: '#6e7a99' },
-  { type: 'Module',        label: '模块',   color: '#00d4ff' },
-  { type: 'Component',     label: '组件',   color: '#00f084' },
-  { type: 'Service',       label: '服务',   color: '#7ed957' },
-  { type: 'API',           label: '接口',   color: '#ff6b6b' },
-  { type: 'Function',      label: '函数',   color: '#ffc145' },
-  { type: 'Class',         label: '类',     color: '#b08eff' },
-]
+/**
+ * 分组定义：按语义分组排序
+ */
+const NODE_TYPE_GROUPS: Record<string, string[]> = {
+  '代码结构': ['Repository', 'Module', 'File'],
+  '代码元素': ['Class', 'Function', 'Component'],
+  '服务层': ['Service', 'API', 'APIEndpoint'],
+  '数据层': ['Database', 'Table', 'DataObject', 'DataSource', 'DataSink'],
+  '事件层': ['Event', 'Topic', 'EventHandler', 'MessageQueue'],
+  '流程层': ['Flow', 'BusinessFlow', 'Pipeline'],
+  '架构层': ['Layer', 'Domain', 'BoundedContext', 'DomainEntity'],
+  '外部': ['ExternalAPI', 'Cluster', 'Infrastructure'],
+}
+
+/**
+ * 根据类型计数动态生成过滤器选项
+ */
+function buildFilterOptions(typeCounts: Record<string, number>) {
+  const allCount = Object.values(typeCounts).reduce((a, b) => a + b, 0)
+
+  const options: Array<{ type: string; label: string; color: string; count: number }> = [
+    { type: 'all', label: '全部', color: '#6e7a99', count: allCount },
+  ]
+
+  // 按分组顺序添加有数据的类型
+  for (const [, types] of Object.entries(NODE_TYPE_GROUPS)) {
+    for (const type of types) {
+      const count = typeCounts[type] ?? 0
+      if (count > 0) {
+        const color = getNodeTypeColor(type).primary
+        options.push({ type, label: type, color, count })
+      }
+    }
+  }
+
+  // 添加未知类型（不在预定义分组中但有数据）
+  const knownTypes = new Set(Object.values(NODE_TYPE_GROUPS).flat())
+  for (const [type, count] of Object.entries(typeCounts)) {
+    if (!knownTypes.has(type) && count > 0) {
+      const color = getNodeTypeColor(type).primary
+      options.push({ type, label: type, color, count })
+    }
+  }
+
+  return options
+}
 
 const LAYOUTS: { name: LayoutName; label: string; icon: string }[] = [
   { name: 'force',  label: '力导向', icon: '⊛' },
@@ -161,6 +199,10 @@ const Architecture: React.FC = () => {
     return counts
   }, [allNodes])
 
+  // ── Build filter options dynamically ────────────────────────────────────────
+
+  const filterOptions = useMemo(() => buildFilterOptions(typeCounts), [typeCounts])
+
   // ── Filter nodes and edges ────────────────────────────────────────────────
 
   const { filteredNodes, filteredEdges } = useMemo(() => {
@@ -257,20 +299,16 @@ const Architecture: React.FC = () => {
         }}>
           {/* Node type filters */}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {NODE_FILTERS.map(f => {
-              const count = f.type === 'all' ? allNodes.length : (typeCounts[f.type] ?? 0)
-              if (f.type !== 'all' && count === 0) return null
-              return (
-                <FilterChip
-                  key={f.type}
-                  label={f.label}
-                  color={f.color}
-                  active={activeFilter === f.type}
-                  count={count}
-                  onClick={() => setActiveFilter(f.type)}
-                />
-              )
-            })}
+            {filterOptions.map(f => (
+              <FilterChip
+                key={f.type}
+                label={f.label}
+                color={f.color}
+                active={activeFilter === f.type}
+                count={f.count}
+                onClick={() => setActiveFilter(f.type)}
+              />
+            ))}
           </div>
 
           {/* Layout switcher */}
