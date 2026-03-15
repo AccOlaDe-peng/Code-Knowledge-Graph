@@ -60,16 +60,20 @@ const LANGS = [
   "csharp",
 ];
 
+const REPO_LIST_CACHE_WINDOW_MS = 1200;
+let repoListInFlight: Promise<RepoInfo[]> | null = null;
+let repoListCache: { at: number; repos: RepoInfo[] } | null = null;
+
 /**
  * AI 分析流水线阶段定义（与后端 AIPipeline 同步）
  */
 const PIPELINE_STAGES = [
-  { key: "scanner",         label: "扫描文件",      desc: "扫描代码仓库文件" },
-  { key: "module_scanner",  label: "模块识别",      desc: "AI 识别模块边界" },
-  { key: "code_analyzer",   label: "代码分析",      desc: "AI 深度分析代码结构" },
-  { key: "graph_builder",   label: "构建图谱",      desc: "合并节点与边" },
-  { key: "repository",      label: "持久化存储",    desc: "保存图谱到存储" },
-  { key: "rag",             label: "向量化索引",    desc: "构建向量索引（可选）" },
+  { key: "scanner", label: "扫描文件", desc: "扫描代码仓库文件" },
+  { key: "module_scanner", label: "模块识别", desc: "AI 识别模块边界" },
+  { key: "code_analyzer", label: "代码分析", desc: "AI 深度分析代码结构" },
+  { key: "graph_builder", label: "构建图谱", desc: "合并节点与边" },
+  { key: "repository", label: "持久化存储", desc: "保存图谱到存储" },
+  { key: "rag", label: "向量化索引", desc: "构建向量索引（可选）" },
 ];
 
 const getStatusConfig = (status?: RepoInfo["status"]) => {
@@ -156,13 +160,15 @@ const AnalysisProgressPanel: React.FC<{ repo: RepoInfo }> = ({ repo }) => {
   const currentStage = repo.analysisStage ?? "";
 
   // 根据当前阶段 key 找到索引
-  const currentStageIndex = PIPELINE_STAGES.findIndex(s => s.key === currentStage);
+  const currentStageIndex = PIPELINE_STAGES.findIndex(
+    (s) => s.key === currentStage,
+  );
   const step = currentStageIndex >= 0 ? currentStageIndex + 1 : 0;
   const percent =
     total > 0 ? Math.min(100, Math.round((step / total) * 100)) : 0;
 
   // 当前阶段信息
-  const currentStageInfo = PIPELINE_STAGES.find(s => s.key === currentStage);
+  const currentStageInfo = PIPELINE_STAGES.find((s) => s.key === currentStage);
 
   return (
     <div>
@@ -187,7 +193,9 @@ const AnalysisProgressPanel: React.FC<{ repo: RepoInfo }> = ({ repo }) => {
           当前进度: {step}/{total}
         </div>
         <div style={{ fontSize: 12, color: "var(--t-secondary)" }}>
-          {currentStageInfo ? `${currentStageInfo.label}` : (repo.analysisStage || "等待调度")}
+          {currentStageInfo
+            ? `${currentStageInfo.label}`
+            : repo.analysisStage || "等待调度"}
         </div>
         {currentStageInfo && (
           <div style={{ marginTop: 2, fontSize: 10, color: "var(--t-muted)" }}>
@@ -229,13 +237,22 @@ const AnalysisProgressPanel: React.FC<{ repo: RepoInfo }> = ({ repo }) => {
                     style={{
                       fontFamily: "'IBM Plex Mono'",
                       fontSize: 11,
-                      color: stageIndex <= step ? "var(--t-secondary)" : "var(--t-muted)",
+                      color:
+                        stageIndex <= step
+                          ? "var(--t-secondary)"
+                          : "var(--t-muted)",
                     }}
                   >
                     {stageIndex}. {stage.label}
                   </span>
                   {(isCompleted || isCurrent) && (
-                    <div style={{ fontSize: 10, color: "var(--t-muted)", marginTop: 2 }}>
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: "var(--t-muted)",
+                        marginTop: 2,
+                      }}
+                    >
                       {stage.desc}
                     </div>
                   )}
@@ -273,6 +290,54 @@ const formatTime = (value?: string): string => {
   });
 };
 
+const mapGraphSummaryToRepoInfo = (graph: {
+  graphId: string;
+  repoName: string;
+  language: string[];
+  createdAt: string;
+  nodeCount: number;
+  edgeCount: number;
+}): RepoInfo => ({
+  repoId: graph.graphId,
+  graphId: graph.graphId,
+  repoName: graph.repoName || graph.graphId,
+  language: graph.language || [],
+  createdAt: graph.createdAt || new Date().toISOString(),
+  nodeCount: graph.nodeCount || 0,
+  edgeCount: graph.edgeCount || 0,
+  repoPath: "",
+  status: "completed",
+  lastAnalyzedAt: graph.createdAt,
+});
+
+const fetchReposWithDedup = async (force = false): Promise<RepoInfo[]> => {
+  const now = Date.now();
+  if (
+    !force &&
+    repoListCache &&
+    now - repoListCache.at < REPO_LIST_CACHE_WINDOW_MS
+  ) {
+    return repoListCache.repos;
+  }
+
+  if (!force && repoListInFlight) {
+    return repoListInFlight;
+  }
+
+  repoListInFlight = (async () => {
+    const response = await graphEndpoints.listGraphs();
+    const repos = response.graphs.map(mapGraphSummaryToRepoInfo);
+    repoListCache = { at: Date.now(), repos };
+    return repos;
+  })();
+
+  try {
+    return await repoListInFlight;
+  } finally {
+    repoListInFlight = null;
+  }
+};
+
 const Repository: React.FC = () => {
   const navigate = useNavigate();
   const [form] = Form.useForm<RepoFormValues>();
@@ -300,36 +365,25 @@ const Repository: React.FC = () => {
   const lastAppliedStreamEventRef = useRef<string>("");
 
   // 从后端同步仓库列表
-  const syncReposFromBackend = useCallback(async () => {
-    try {
-      const response = await graphEndpoints.listGraphs();
-      // 将后端图谱数据转换为前端仓库格式
-      const backendRepos: RepoInfo[] = response.graphs.map((graph) => ({
-        repoId: graph.graphId,
-        graphId: graph.graphId,
-        repoName: graph.repoName || graph.graphId,
-        language: graph.language || [],
-        createdAt: graph.createdAt || new Date().toISOString(),
-        nodeCount: graph.nodeCount || 0,
-        edgeCount: graph.edgeCount || 0,
-        repoPath: graph.repoPath || "",
-        status: "completed",
-        lastAnalyzedAt: graph.lastAnalyzedAt || graph.createdAt,
-      }));
-      setRepos(backendRepos);
-      message.success(`已同步 ${backendRepos.length} 个仓库`);
-    } catch (error) {
-      message.error("同步失败: " + (error instanceof Error ? error.message : "未知错误"));
-    }
-  }, [setRepos]);
-
-  // 组件挂载时自动同步
-  useEffect(() => {
-    syncReposFromBackend();
-  }, [syncReposFromBackend]);
+  const syncReposFromBackend = useCallback(
+    async (options?: { force?: boolean; notify?: boolean }) => {
+      try {
+        const backendRepos = await fetchReposWithDedup(Boolean(options?.force));
+        setRepos(backendRepos);
+        if (options?.notify) {
+          message.success(`已同步 ${backendRepos.length} 个仓库`);
+        }
+      } catch (error) {
+        message.error(
+          "同步失败: " + (error instanceof Error ? error.message : "未知错误"),
+        );
+      }
+    },
+    [setRepos],
+  );
 
   const refreshLocalRepos = useCallback(() => {
-    syncReposFromBackend();
+    void syncReposFromBackend({ force: true, notify: true });
   }, [syncReposFromBackend]);
 
   useEffect(() => {

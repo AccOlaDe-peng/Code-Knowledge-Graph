@@ -32,6 +32,10 @@ httpClient.interceptors.response.use(
 
 export default httpClient;
 
+const GRAPH_LIST_CACHE_WINDOW_MS = 1200;
+let graphListInFlight: Promise<GraphListResponse> | null = null;
+let graphListCache: { at: number; data: GraphListResponse } | null = null;
+
 // ─── Graph API ────────────────────────────────────────────────────────────────
 
 export const graphApi = {
@@ -41,21 +45,43 @@ export const graphApi = {
    * With graphId → returns full graph (nodes + edges + metrics).
    */
   async listGraphs(): Promise<GraphListResponse> {
-    const raw: { graphs: Record<string, unknown>[] } =
-      await httpClient.get("/graph");
-    return {
-      graphs: (raw.graphs ?? []).map((g) => ({
-        repoId: g.graph_id as string,
-        graphId: g.graph_id as string,
-        repoName: g.repo_name as string,
-        language: (g.languages ?? g.language ?? []) as string[],
-        createdAt: g.created_at as string,
-        nodeCount: g.node_count as number,
-        edgeCount: g.edge_count as number,
-        gitCommit: g.git_commit as string | undefined,
-        status: "completed" as const,
-      })),
-    };
+    const now = Date.now();
+    if (
+      graphListCache &&
+      now - graphListCache.at < GRAPH_LIST_CACHE_WINDOW_MS
+    ) {
+      return graphListCache.data;
+    }
+
+    if (graphListInFlight) {
+      return graphListInFlight;
+    }
+
+    graphListInFlight = (async () => {
+      const raw: { graphs: Record<string, unknown>[] } =
+        await httpClient.get("/graph");
+      const data: GraphListResponse = {
+        graphs: (raw.graphs ?? []).map((g) => ({
+          repoId: g.graph_id as string,
+          graphId: g.graph_id as string,
+          repoName: g.repo_name as string,
+          language: (g.languages ?? g.language ?? []) as string[],
+          createdAt: g.created_at as string,
+          nodeCount: g.node_count as number,
+          edgeCount: g.edge_count as number,
+          gitCommit: g.git_commit as string | undefined,
+          status: "completed" as const,
+        })),
+      };
+      graphListCache = { at: Date.now(), data };
+      return data;
+    })();
+
+    try {
+      return await graphListInFlight;
+    } finally {
+      graphListInFlight = null;
+    }
   },
 
   getGraph(graphId: string): Promise<GraphDetailResponse> {
@@ -101,9 +127,7 @@ export const graphApi = {
    * Full JSON Graph from GraphStorage (new pipeline format).
    * Nodes have lowercase types: function, class, module, file, api, database, table
    */
-  getGraphData(
-    repoId: string,
-  ): Promise<{
+  getGraphData(repoId: string): Promise<{
     repo_id: string;
     node_count: number;
     edge_count: number;
@@ -117,9 +141,7 @@ export const graphApi = {
    * GET /graph/call
    * Call subgraph (calls edges + related nodes).
    */
-  getCallSubgraph(
-    repoId: string,
-  ): Promise<{
+  getCallSubgraph(repoId: string): Promise<{
     repo_id: string;
     node_count: number;
     edge_count: number;

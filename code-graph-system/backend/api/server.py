@@ -113,6 +113,12 @@ async def lifespan(app: FastAPI):
     # 保证 Step 5 写入的 BuiltGraph 能被旧端点（GET /graph 等）直接读取
     _graph_pipeline = GraphPipeline(graph_repo=_graph_repo)
     _graph_storage  = GraphStorage()
+
+    # 同步已有图谱到仓库状态存储
+    from backend.store.repo_status_store import get_repo_status_store
+    status_store = get_repo_status_store()
+    graphs = _graph_repo.list_graphs()
+    status_store.sync_from_graphs(graphs)
     logger.info("服务启动完成")
 
     yield
@@ -360,6 +366,19 @@ def analyze_repository(req: AnalyzeRequest):
     )
     task_id: str = job.id
     _register_task_id(task_id)
+
+    # 在状态存储中注册分析任务（使用 repo_name 或路径名作为 repo_id）
+    from backend.store.repo_status_store import get_repo_status_store
+    from pathlib import Path
+    repo_id = req.repo_name or Path(analyze_path).name
+    status_store = get_repo_status_store()
+    status_store.set_analyzing(
+        repo_id,
+        task_id=task_id,
+        repo_name=req.repo_name or Path(analyze_path).name,
+        repo_path=analyze_path,
+    )
+
     logger.info("任务已提交  task_id=%s  path=%s  tmp_dir=%s", task_id, analyze_path, tmp_dir)
 
     return AnalyzeAsyncResponse(task_id=task_id, status="pending")
@@ -520,6 +539,13 @@ def analyze_cancel(task_id: str):
         )
 
     result.revoke(terminate=True)
+
+    # 更新状态存储
+    from backend.store.repo_status_store import get_repo_status_store
+    status_store = get_repo_status_store()
+    repo = status_store.get_by_task_id(task_id)
+    if repo:
+        status_store.set_canceled(repo["repo_id"])
 
     try:
         sync_redis.Redis.from_url(_REDIS_URL, decode_responses=True, socket_connect_timeout=2).publish(
@@ -682,15 +708,36 @@ def get_graph(
     """
     获取图谱信息。
 
-    - 不传 `graph_id`：返回所有图谱摘要列表
+    - 不传 `graph_id`：返回所有图谱摘要列表（包含正在分析的仓库）
     - 传入 `graph_id`：返回该图谱的节点和边（可按 `node_type` 过滤）
     """
     if graph_id is None:
-        graphs = _graph_repo.list_graphs()
-        # 补充 git_commit 字段（GraphPipeline 写入的 meta 中含此字段）
-        for g in graphs:
-            if "git_commit" not in g:
-                g["git_commit"] = g.get("git_commit", "")
+        from backend.store.repo_status_store import get_repo_status_store
+
+        # 从状态存储获取所有仓库（包括正在分析的）
+        status_store = get_repo_status_store()
+        all_repos = status_store.list_all()
+
+        # 转换为前端期望的格式
+        graphs = []
+        for repo in all_repos:
+            graph_info = {
+                "graph_id": repo.get("graph_id", "") or repo.get("repo_id", ""),
+                "repo_name": repo.get("repo_name", ""),
+                "node_count": repo.get("node_count", 0),
+                "edge_count": repo.get("edge_count", 0),
+                "created_at": repo.get("created_at", ""),
+                "status": repo.get("status", "completed"),
+                "task_id": repo.get("task_id"),
+                "stage": repo.get("stage", ""),
+                "step": repo.get("step", 0),
+                "total": repo.get("total", 6),
+                "message": repo.get("message", ""),
+                "error": repo.get("error"),
+                "repo_path": repo.get("repo_path", ""),
+            }
+            graphs.append(graph_info)
+
         return {"graphs": graphs, "total": len(graphs)}
 
     built = _load_or_404(graph_id)

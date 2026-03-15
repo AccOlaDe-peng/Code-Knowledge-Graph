@@ -37,6 +37,7 @@ from celery import Task
 from celery.utils.log import get_task_logger
 
 from backend.scheduler.celery_app import celery_app
+from backend.store.repo_status_store import get_repo_status_store
 
 logger = get_task_logger(__name__)
 
@@ -113,6 +114,21 @@ def publish_progress(task_id: str, event: dict) -> None:
         logger.warning("Failed to publish progress to Redis: %s", exc)
 
 
+def _stage_to_step(stage: str) -> int:
+    """将阶段名称转换为步骤编号。"""
+    stage_map = {
+        "pending": 0,
+        "scanner": 1,
+        "module_scanner": 2,
+        "code_analyzer": 3,
+        "graph_builder": 4,
+        "repository": 5,
+        "rag": 6,
+        "completed": 6,
+    }
+    return stage_map.get(stage, 0)
+
+
 # ---------------------------------------------------------------------------
 # Task 1: analyze_repository
 # ---------------------------------------------------------------------------
@@ -166,25 +182,43 @@ def analyze_repository(
     logger.info("analyze_repository START  path=%s  task=%s", path, task_id)
 
     t_start = time.time()
+    status_store = get_repo_status_store()
+
+    # 使用 repo_name 或路径名作为 repo_id
+    repo_id = repo_name or path.name
+
+    # ── 标记为分析中 ──────────────────────────────────────────────
+    status_store.set_analyzing(
+        repo_id,
+        task_id=task_id,
+        repo_name=repo_name or path.name,
+        repo_path=str(path),
+    )
 
     # ── 创建进度回调闭包 ───────────────────────────────────────────
     def on_progress_callback(event: dict) -> None:
-        """包装 publish_progress，同时更新 Celery task state。"""
+        """包装 publish_progress，同时更新 Celery task state 和状态存储。"""
         publish_progress(task_id, event)
         try:
             self.update_state(state="PROGRESS", meta=event)
         except Exception as exc:
             logger.debug("Failed to update Celery state: %s", exc)
 
+        # 更新状态存储
+        status_store.update_progress(
+            repo_id,
+            stage=event.get("step", ""),
+            step=_stage_to_step(event.get("step", "")),
+            total=6,
+            message=event.get("message", ""),
+        )
+
     # ── 发布初始 pending 事件 ──────────────────────────────────────
     on_progress_callback({
         "status": "pending",
-        "step": 0,
-        "total": 13,
-        "stage": "",
+        "step": "pending",
+        "stage": "pending",
         "message": "任务已排队，等待 Worker...",
-        "log": "",
-        "elapsed_seconds": 0.0,
     })
 
     pipeline, _ = _build_pipeline()
@@ -205,6 +239,7 @@ def analyze_repository(
             "error": str(exc),
             "elapsed_seconds": duration,
         })
+        status_store.set_failed(repo_id, error=str(exc))
         logger.error("analyze_repository FAILED (bad input): %s", exc)
         raise
     except Exception as exc:
@@ -224,6 +259,15 @@ def analyze_repository(
     git_commit = _get_git_head(path)
     built = result.built
     duration = round(time.time() - t_start, 3)
+
+    # ── 标记为完成 ───────────────────────────────────────────────
+    status_store.set_completed(
+        repo_id,
+        graph_id=result.graph_id,
+        node_count=result.node_count,
+        edge_count=result.edge_count,
+        duration_seconds=duration,
+    )
 
     # ── 发布完成事件 ───────────────────────────────────────────────
     on_progress_callback({
