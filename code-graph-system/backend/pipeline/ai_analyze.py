@@ -279,7 +279,7 @@ class AIPipeline:
         llm_client: LLMClient,
         on_progress: Optional[Callable[[dict], None]] = None,
     ) -> tuple[list[GraphNode], list[GraphEdge]]:
-        """分析单个模块。"""
+        """分析单个模块（使用简化方法，兼容不支持 function calling 的 LLM）。"""
         self._emit_progress(
             on_progress, "module_analysis", "start",
             f"分析模块: {module.name}",
@@ -287,14 +287,43 @@ class AIPipeline:
         )
 
         try:
-            orchestrator = AgentOrchestrator(
-                repo_path=str(repo_path),
-                llm_client=llm_client,
-                max_iterations=self.config.max_parallel_modules * 4,
-                on_progress=on_progress,
+            # 读取模块中的文件内容
+            files_content = self._read_module_files(repo_path, module.files[:10])  # 限制文件数
+
+            # 使用 LLM 直接分析
+            prompt = f"""请分析以下代码模块，提取类、函数、调用关系。
+
+模块名称: {module.name}
+模块职责: {module.purpose}
+
+代码内容:
+```
+{files_content[:16000]}  # 限制 token 数
+```
+
+请以 JSON 格式输出分析结果：
+{{
+  "functions": [
+    {{"id": "文件路径:函数名", "name": "函数名", "file_path": "路径", "summary": "简短描述"}}
+  ],
+  "classes": [
+    {{"id": "文件路径:类名", "name": "类名", "file_path": "路径", "summary": "简短描述"}}
+  ],
+  "calls": [
+    {{"from": "调用者ID", "to": "被调用者ID"}}
+  ]
+}}
+
+只输出 JSON，不要其他解释。"""
+
+            response = llm_client.complete(
+                prompt=prompt,
+                system="你是一个代码分析专家，擅长提取代码结构和调用关系。",
+                max_tokens=4096,
             )
 
-            result = orchestrator.run_architecture_analysis()
+            # 解析响应
+            nodes, edges = self._parse_module_analysis(response, module)
 
             self._emit_progress(
                 on_progress, "module_analysis", "complete",
@@ -302,11 +331,86 @@ class AIPipeline:
                 module_id=module.id,
             )
 
-            return result.nodes, result.edges
+            return nodes, edges
 
         except Exception as e:
             logger.error("模块 %s 分析失败: %s", module.id, e)
             return [], []
+
+    def _read_module_files(self, repo_path: Path, files: list[str]) -> str:
+        """读取模块文件内容。"""
+        contents = []
+        for file_path in files:
+            try:
+                full_path = repo_path / file_path
+                if full_path.exists() and full_path.suffix == ".py":
+                    content = full_path.read_text(encoding="utf-8", errors="ignore")
+                    contents.append(f"# {file_path}\n{content}\n")
+            except Exception as e:
+                logger.warning("读取文件失败 %s: %s", file_path, e)
+        return "\n".join(contents)
+
+    def _parse_module_analysis(self, response: str, module: ModuleInfo) -> tuple[list[GraphNode], list[GraphEdge]]:
+        """解析模块分析响应。"""
+        import json
+
+        nodes = []
+        edges = []
+
+        if not response:
+            return nodes, edges
+
+        # 提取 JSON
+        content = response.strip()
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0]
+        elif "```" in content:
+            parts = content.split("```")
+            if len(parts) >= 2:
+                content = parts[1]
+
+        try:
+            data = json.loads(content.strip())
+        except json.JSONDecodeError:
+            logger.warning("解析模块分析响应失败")
+            return nodes, edges
+
+        # 解析函数节点
+        for func in data.get("functions", []):
+            nodes.append(GraphNode(
+                id=func.get("id", f"{module.id}:{func.get('name', 'unknown')}"),
+                type="Function",
+                name=func.get("name", ""),
+                properties={
+                    "file_path": func.get("file_path", ""),
+                    "summary": func.get("summary", ""),
+                    "module_id": module.id,
+                },
+            ))
+
+        # 解析类节点
+        for cls in data.get("classes", []):
+            nodes.append(GraphNode(
+                id=cls.get("id", f"{module.id}:{cls.get('name', 'unknown')}"),
+                type="Class",
+                name=cls.get("name", ""),
+                properties={
+                    "file_path": cls.get("file_path", ""),
+                    "summary": cls.get("summary", ""),
+                    "module_id": module.id,
+                },
+            ))
+
+        # 解析调用边
+        for call in data.get("calls", []):
+            edges.append(GraphEdge(
+                from_=call.get("from", ""),
+                to=call.get("to", ""),
+                type="calls",
+                properties={},
+            ))
+
+        return nodes, edges
 
     def _get_rag_engine(self) -> GraphRAGEngine:
         """获取或创建 GraphRAG 引擎。"""

@@ -272,16 +272,55 @@ class LLMClient:
                     # OpenAI tool call 实现（简化版）
                     openai_messages = [{"role": "system", "content": system}] + current_messages
 
-                    response = client.chat.completions.create(
-                        model=self.model,
-                        messages=openai_messages,
-                        tools=[{"type": "function", "function": t} for t in tools],
-                        tool_choice="auto",
-                    )
+                    # 检查是否支持 function calling（MiniMax 等某些提供商不完全支持）
+                    supports_tools = self.provider not in ("minimax",)
+
+                    if supports_tools and tools:
+                        response = client.chat.completions.create(
+                            model=self.model,
+                            messages=openai_messages,
+                            tools=[{"type": "function", "function": t} for t in tools],
+                            tool_choice="auto",
+                        )
+                    else:
+                        # 不支持 tools 的提供商，使用普通对话
+                        # 将工具描述添加到系统提示
+                        tools_desc = "\n\n可用工具:\n" + "\n".join(
+                            f"- {t.get('name', 'unknown')}: {t.get('description', '')}"
+                            for t in tools
+                        ) if tools else ""
+                        enhanced_system = system + tools_desc
+
+                        response = client.chat.completions.create(
+                            model=self.model,
+                            messages=[{"role": "system", "content": enhanced_system}] + current_messages,
+                            max_tokens=self.max_tokens,
+                            temperature=self.temperature,
+                        )
+
+                    # 处理响应
+                    if isinstance(response, str):
+                        # 某些提供商可能直接返回字符串
+                        return ToolCallLoopResult(
+                            status="completed",
+                            final_message=response,
+                            tool_calls=tool_calls,
+                            total_tokens=total_tokens,
+                            iterations=iterations,
+                        )
+
+                    if not hasattr(response, 'choices') or not response.choices:
+                        return ToolCallLoopResult(
+                            status="completed",
+                            final_message=str(response),
+                            tool_calls=tool_calls,
+                            total_tokens=total_tokens,
+                            iterations=iterations,
+                        )
 
                     message = response.choices[0].message
 
-                    if not message.tool_calls:
+                    if not hasattr(message, 'tool_calls') or not message.tool_calls:
                         return ToolCallLoopResult(
                             status="completed",
                             final_message=message.content,
