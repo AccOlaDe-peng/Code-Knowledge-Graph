@@ -100,7 +100,10 @@ class ModuleScannerAgent(BaseAgent):
         )
 
     def scan(self, scan_result: ScanResult) -> ModulePlan:
-        """执行模块扫描。
+        """执行模块扫描（支持分批分析大型仓库）。
+
+        对于文件数量超过 BATCH_SIZE 的仓库，会按目录分批分析，
+        然后合并所有批次的模块结果。
 
         Args:
             scan_result: RepoScanner 的扫描结果
@@ -113,27 +116,193 @@ class ModuleScannerAgent(BaseAgent):
             return ModulePlan(modules=[], architecture_hints={}, confidence=1.0)
 
         try:
-            # 1. 构建文件树描述
-            file_tree = self._build_file_tree(scan_result.files)
+            files = scan_result.files
+            total_files = len(files)
 
-            # 2. 获取语言列表
-            languages = list(scan_result.language_stats.keys())
+            # 如果文件数量超过阈值，分批分析
+            if total_files > self.BATCH_SIZE:
+                logger.info(
+                    f"文件数量 {total_files} 超过阈值 {self.BATCH_SIZE}，启用分批分析"
+                )
+                return self._scan_in_batches(files, list(scan_result.language_stats.keys()))
 
-            # 3. 构建提示词
-            prompt = self._build_prompt(file_tree, languages)
-
-            # 4. 调用 LLM
-            response = self.llm_client.complete(
-                prompt=prompt,
-                system=self.get_system_prompt(),
-            )
-
-            # 5. 解析响应
-            return self._parse_response(response)
+            # 小型仓库直接分析
+            return self._scan_single_batch(files, list(scan_result.language_stats.keys()))
 
         except Exception as e:
             logger.error(f"ModuleScannerAgent 扫描失败: {e}")
             return ModulePlan(modules=[], architecture_hints={}, confidence=0.0)
+
+    def _scan_single_batch(
+        self, files: list[FileInfo], languages: list[str]
+    ) -> ModulePlan:
+        """分析单个批次的文件。
+
+        Args:
+            files: 文件信息列表
+            languages: 语言列表
+
+        Returns:
+            ModulePlan: 模块划分计划
+        """
+        # 1. 构建文件树描述
+        file_tree = self._build_file_tree(files)
+
+        # 2. 构建提示词
+        prompt = self._build_prompt(file_tree, languages)
+
+        # 3. 调用 LLM
+        response = self.llm_client.complete(
+            prompt=prompt,
+            system=self.get_system_prompt(),
+        )
+
+        # 4. 解析响应
+        return self._parse_response(response)
+
+    def _scan_in_batches(
+        self, files: list[FileInfo], languages: list[str]
+    ) -> ModulePlan:
+        """分批分析大型仓库。
+
+        按目录分组文件，每批最多 BATCH_SIZE 个文件，分别调用 LLM 分析，
+        然后合并所有批次的模块结果。
+
+        Args:
+            files: 文件信息列表
+            languages: 语言列表
+
+        Returns:
+            ModulePlan: 合并后的模块划分计划
+        """
+        # 按目录分组文件
+        dir_groups: dict[str, list[FileInfo]] = defaultdict(list)
+        for f in files:
+            parts = f.path.split("/")
+            if len(parts) == 1:
+                dir_groups["__root__"].append(f)
+            else:
+                # 使用顶级目录作为分组键
+                top_dir = parts[0]
+                dir_groups[top_dir].append(f)
+
+        all_modules: list[ModuleInfo] = []
+        all_architecture_hints: dict = {}
+        confidences: list[float] = []
+        processed_files: set[str] = set()
+
+        # 按批次处理
+        batch_files: list[FileInfo] = []
+        batch_index = 0
+
+        for dir_name, dir_files in sorted(dir_groups.items()):
+            # 如果当前批次加上这个目录的文件不超过限制，则添加到当前批次
+            if len(batch_files) + len(dir_files) <= self.BATCH_SIZE:
+                batch_files.extend(dir_files)
+            else:
+                # 先处理当前批次（如果有的话）
+                if batch_files:
+                    batch_index += 1
+                    logger.info(
+                        f"正在分析第 {batch_index} 批次，共 {len(batch_files)} 个文件..."
+                    )
+                    plan = self._scan_single_batch(batch_files, languages)
+                    self._merge_plan_results(
+                        plan, all_modules, all_architecture_hints, confidences, processed_files
+                    )
+
+                # 如果单个目录的文件就超过了限制，采样该目录
+                if len(dir_files) > self.BATCH_SIZE:
+                    batch_index += 1
+                    logger.info(
+                        f"目录 {dir_name} 文件过多 ({len(dir_files)})，采样分析前 {self.BATCH_SIZE} 个文件"
+                    )
+                    sampled_files = dir_files[: self.BATCH_SIZE]
+                    plan = self._scan_single_batch(sampled_files, languages)
+                    self._merge_plan_results(
+                        plan, all_modules, all_architecture_hints, confidences, processed_files
+                    )
+                    batch_files = []
+                else:
+                    batch_files = list(dir_files)
+
+        # 处理最后一批
+        if batch_files:
+            batch_index += 1
+            logger.info(
+                f"正在分析第 {batch_index} 批次，共 {len(batch_files)} 个文件..."
+            )
+            plan = self._scan_single_batch(batch_files, languages)
+            self._merge_plan_results(
+                plan, all_modules, all_architecture_hints, confidences, processed_files
+            )
+
+        # 为未分配的文件创建默认模块
+        unassigned_files = [f.path for f in files if f.path not in processed_files]
+        if unassigned_files:
+            all_modules.append(
+                ModuleInfo(
+                    id="module:unassigned",
+                    name="Other Files",
+                    files=unassigned_files,
+                    purpose="未分配到具体模块的文件",
+                    language=languages[0] if languages else "unknown",
+                    confidence=0.5,
+                )
+            )
+
+        # 计算平均置信度
+        avg_confidence = sum(confidences) / len(confidences) if confidences else 0.5
+
+        logger.info(
+            f"分批分析完成: {batch_index} 批次, {len(all_modules)} 个模块, "
+            f"{len(processed_files)}/{len(files)} 文件已分配"
+        )
+
+        return ModulePlan(
+            modules=all_modules,
+            architecture_hints=all_architecture_hints,
+            confidence=avg_confidence,
+        )
+
+    def _merge_plan_results(
+        self,
+        plan: ModulePlan,
+        all_modules: list[ModuleInfo],
+        all_architecture_hints: dict,
+        confidences: list[float],
+        processed_files: set[str],
+    ) -> None:
+        """合并单个批次的计划结果到总结果中。
+
+        Args:
+            plan: 单个批次的模块计划
+            all_modules: 累计的模块列表
+            all_architecture_hints: 累计的架构提示
+            confidences: 累计的置信度列表
+            processed_files: 已处理的文件集合
+        """
+        for module in plan.modules:
+            # 检查是否已存在同名模块
+            existing = next(
+                (m for m in all_modules if m.id == module.id or m.name == module.name),
+                None,
+            )
+            if existing:
+                # 合并文件列表
+                existing_files = set(existing.files)
+                new_files = [f for f in module.files if f not in existing_files]
+                existing.files.extend(new_files)
+                processed_files.update(new_files)
+            else:
+                all_modules.append(module)
+                processed_files.update(module.files)
+
+        # 合并架构提示
+        if plan.architecture_hints:
+            all_architecture_hints.update(plan.architecture_hints)
+
+        confidences.append(plan.confidence)
 
     def _build_file_tree(self, files: list[FileInfo]) -> str:
         """将文件列表转换为树形结构字符串。

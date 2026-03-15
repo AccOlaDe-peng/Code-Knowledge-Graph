@@ -345,7 +345,7 @@ class AIPipeline:
     def _analyze_with_agents(
         self,
         repo_path: Path,
-        module: ModuleInfo,
+        module: ModuleInfo,  # 保留参数以兼容调用方，但 AgentOrchestrator 会分析整个仓库
         llm_client: LLMClient,
         on_progress: Optional[Callable[[dict], None]] = None,
     ) -> tuple[list[GraphNode], list[GraphEdge]]:
@@ -353,15 +353,17 @@ class AIPipeline:
 
         适用于支持完整 function calling 的提供商。
         Agent 可以使用工具（read_file、search_code 等）自主探索代码。
+
+        注意：AgentOrchestrator 会分析整个仓库，module 参数仅用于日志记录。
         """
-        context = AgentContext(
-            repo_path=str(repo_path),
-            module_id=module.id,
-            shared_knowledge=SharedKnowledgeBase(),
+        logger.info(
+            "AgentOrchestrator 深度分析: %s (来自模块 %s)",
+            repo_path,
+            module.name,
         )
 
         orchestrator = AgentOrchestrator(
-            context=context,
+            repo_path=str(repo_path),
             llm_client=llm_client,
         )
 
@@ -377,15 +379,44 @@ class AIPipeline:
         llm_client: LLMClient,
         on_progress: Optional[Callable[[dict], None]] = None,
     ) -> tuple[list[GraphNode], list[GraphEdge]]:
-        """使用简化的 complete() 方法分析（兼容不支持 function calling 的 LLM）。"""
-        # 读取模块中的文件内容
-        files_content = self._read_module_files(repo_path, module.files[:10])  # 限制文件数
+        """使用简化的 complete() 方法分析（兼容不支持 function calling 的 LLM）。
 
-        # 使用 LLM 直接分析
-        prompt = f"""请分析以下代码模块，提取类、函数、调用关系。
+        对于大型模块，会分批分析文件，然后合并结果。
+        """
+        all_nodes: list[GraphNode] = []
+        all_edges: list[GraphEdge] = []
+
+        # 分批处理模块文件，每批最多 10 个文件
+        batch_size = 10
+        files = module.files
+        total_batches = (len(files) + batch_size - 1) // batch_size
+
+        for batch_idx in range(total_batches):
+            start_idx = batch_idx * batch_size
+            end_idx = min(start_idx + batch_size, len(files))
+            batch_files = files[start_idx:end_idx]
+
+            if on_progress:
+                self._emit_progress(
+                    on_progress, "module_analysis", "running",
+                    f"分析模块 {module.name} ({batch_idx + 1}/{total_batches})",
+                    module_id=module.id,
+                    batch=f"{batch_idx + 1}/{total_batches}",
+                )
+
+            # 读取当前批次的文件内容
+            files_content = self._read_module_files(repo_path, batch_files)
+
+            if not files_content.strip():
+                logger.warning("批次 %d 没有可分析的文件内容", batch_idx + 1)
+                continue
+
+            # 使用 LLM 分析当前批次
+            prompt = f"""请分析以下代码模块，提取类、函数、调用关系。
 
 模块名称: {module.name}
 模块职责: {module.purpose}
+批次: {batch_idx + 1}/{total_batches}
 
 代码内容:
 ```
@@ -407,24 +438,43 @@ class AIPipeline:
 
 只输出 JSON，不要其他解释。"""
 
-        response = llm_client.complete(
-            prompt=prompt,
-            system="你是一个代码分析专家，擅长提取代码结构和调用关系。",
-            max_tokens=4096,
-        )
+            response = llm_client.complete(
+                prompt=prompt,
+                system="你是一个代码分析专家，擅长提取代码结构和调用关系。",
+                max_tokens=4096,
+            )
 
-        # 解析响应
-        return self._parse_module_analysis(response, module)
+            # 解析响应并合并结果
+            batch_nodes, batch_edges = self._parse_module_analysis(response, module)
+            all_nodes.extend(batch_nodes)
+            all_edges.extend(batch_edges)
+
+            logger.info(
+                "模块 %s 批次 %d/%d 分析完成: %d 节点, %d 边",
+                module.name, batch_idx + 1, total_batches,
+                len(batch_nodes), len(batch_edges),
+            )
+
+        return all_nodes, all_edges
 
     def _read_module_files(self, repo_path: Path, files: list[str]) -> str:
-        """读取模块文件内容。"""
+        """读取模块文件内容。
+
+        支持 Python (.py) 和 Java (.java) 文件。
+        """
         contents = []
+        # 支持的文件扩展名
+        supported_extensions = {".py", ".java", ".ts", ".js", ".go", ".rs", ".cpp", ".c", ".h"}
+
         for file_path in files:
             try:
                 full_path = repo_path / file_path
-                if full_path.exists() and full_path.suffix == ".py":
+                if full_path.exists() and full_path.suffix in supported_extensions:
                     content = full_path.read_text(encoding="utf-8", errors="ignore")
-                    contents.append(f"# {file_path}\n{content}\n")
+                    # 限制单个文件的内容长度
+                    if len(content) > 8000:
+                        content = content[:8000] + "\n... (truncated)"
+                    contents.append(f"// {file_path}\n{content}\n")
             except Exception as e:
                 logger.warning("读取文件失败 %s: %s", file_path, e)
         return "\n".join(contents)
