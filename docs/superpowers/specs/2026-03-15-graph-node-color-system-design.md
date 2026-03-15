@@ -10,34 +10,73 @@
 
 ### 1.1 现状
 
-后端 `graph_schema.py` 定义了 **22 种节点类型** 和 **17 种边类型**：
+后端 `graph_schema.py` 定义了 **27 种节点类型** 和 **18 种边类型**：
 
-**节点类型**：
-- 静态分析：Repository, Module, File, Class, Function, Component, Service, API, DataObject, Table, Event, Topic, Pipeline, Cluster, Database
-- AI 分析：Layer, Flow, BusinessFlow, Domain, BoundedContext, DomainEntity
-- 新增 AI：APIEndpoint, EventHandler, DataSource, DataSink, ExternalAPI, MessageQueue
+**节点类型（27 种）**：
 
-**边类型**：
-- 静态分析：contains, imports, defines, calls, depends_on, implements, reads, writes, produces, consumes, publishes, subscribes, deployed_on, uses, routes_to, triggers
-- AI 分析：belongs_to, flow_step, transforms, part_of, async_calls, handles
+| 分组 | 类型 | 数量 |
+|------|------|------|
+| 静态分析 | Repository, Module, File, Class, Function, Component, Service, API, DataObject, Table, Event, Topic, Pipeline, Cluster, Database | 15 |
+| V2 AI 分析 | Layer, Flow, BusinessFlow, Domain, BoundedContext, DomainEntity | 6 |
+| 新增 AI | APIEndpoint, EventHandler, DataSource, DataSink, ExternalAPI, MessageQueue | 6 |
+
+**边类型（18 种）**：
+
+| 分组 | 类型 | 数量 |
+|------|------|------|
+| 静态分析 | contains, imports, defines, calls, depends_on, implements, reads, writes, produces, consumes, publishes, subscribes, deployed_on, uses, routes_to, triggers | 16 |
+| V2 AI 分析 | belongs_to, flow_step, transforms, part_of | 4 |
+| 新增 AI | async_calls, handles | 2 |
 
 ### 1.2 问题
 
 前端 `theme/index.ts` 仅定义了 **10 种节点类型颜色** 和 **10 种边类型颜色**：
 
 ```typescript
-// 前端已定义的节点类型
+// 前端已定义的节点类型（10 种）
 Module, Component, Function, Class, Service, Database, API, Event, Cluster, Infrastructure
 
-// 缺失的节点类型（12 种）
-Repository, File, DataObject, Table, Topic, Pipeline, Layer, Flow, BusinessFlow,
-Domain, BoundedContext, DomainEntity, APIEndpoint, EventHandler, DataSource,
-DataSink, ExternalAPI, MessageQueue
+// 缺失的节点类型（17 种）
+Repository, File, DataObject, Table, Topic, Pipeline,
+Layer, Flow, BusinessFlow, Domain, BoundedContext, DomainEntity,
+APIEndpoint, EventHandler, DataSource, DataSink, ExternalAPI, MessageQueue
 ```
+
+**类型审计表**：
+
+| 后端类型 | 前端颜色定义 | 状态 |
+|----------|--------------|------|
+| Repository | ❌ 缺失 | 需添加 |
+| Module | ✅ 已有 | - |
+| File | ❌ 缺失 | 需添加 |
+| Class | ✅ 已有 | - |
+| Function | ✅ 已有 | - |
+| Component | ✅ 已有 | - |
+| Service | ✅ 已有 | - |
+| API | ✅ 已有 | - |
+| DataObject | ❌ 缺失 | 需添加 |
+| Table | ✅ 已有 | - |
+| Event | ✅ 已有 | - |
+| Topic | ❌ 缺失 | 需添加 |
+| Pipeline | ❌ 缺失 | 需添加 |
+| Cluster | ✅ 已有 | - |
+| Database | ✅ 已有 | - |
+| Layer | ❌ 缺失 | 需添加 |
+| Flow | ❌ 缺失 | 需添加 |
+| BusinessFlow | ❌ 缺失 | 需添加 |
+| Domain | ❌ 缺失 | 需添加 |
+| BoundedContext | ❌ 缺失 | 需添加 |
+| DomainEntity | ❌ 缺失 | 需添加 |
+| APIEndpoint | ❌ 缺失 | 需添加 |
+| EventHandler | ❌ 缺失 | 需添加 |
+| DataSource | ❌ 缺失 | 需添加 |
+| DataSink | ❌ 缺失 | 需添加 |
+| ExternalAPI | ❌ 缺失 | 需添加 |
+| MessageQueue | ❌ 缺失 | 需添加 |
 
 未定义类型的节点回退到灰色默认样式 `#6b7a9d`，导致：
 1. 架构图部分节点颜色无法区分
-2. Architecture 页面过滤器选项不全
+2. Architecture 页面过滤器选项不全（仅 7 种硬编码）
 3. 用户新增类型时需要手动添加颜色定义
 
 ---
@@ -210,8 +249,18 @@ export const NODE_TYPE_COLORS: Record<string, NodeTypeColorScheme> = {
 /**
  * 获取节点类型颜色
  * 未定义类型自动生成颜色
+ *
+ * @param type - 节点类型名称（大小写不敏感）
  */
 export function getNodeTypeColor(type: string): NodeTypeColorScheme {
+  // 标准化类型名称：大小写不敏感匹配
+  const normalizedType = type.charAt(0).toUpperCase() + type.slice(1).toLowerCase()
+
+  if (NODE_TYPE_COLORS[normalizedType]) {
+    return NODE_TYPE_COLORS[normalizedType]
+  }
+
+  // 尝试原始类型名（向后兼容）
   if (NODE_TYPE_COLORS[type]) {
     return NODE_TYPE_COLORS[type]
   }
@@ -495,3 +544,5 @@ function buildFilterOptions(typeCounts: Record<string, number>) {
 1. **主题切换**：支持亮色主题时，调整 colorGenerator 的亮度参数
 2. **用户自定义**：允许用户通过配置文件覆盖特定类型的颜色
 3. **类型别名**：支持同一类型多个名称（如 `API` = `APIEndpoint`）
+4. **颜色缓存**：在 `getNodeTypeColor()` 中添加简单 LRU 缓存，避免重复计算
+5. **大小写处理**：类型匹配应忽略大小写（如 `api` = `API`）
