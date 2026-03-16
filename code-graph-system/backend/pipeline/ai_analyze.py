@@ -441,7 +441,7 @@ class AIPipeline:
             response = llm_client.complete(
                 prompt=prompt,
                 system="你是一个代码分析专家，擅长提取代码结构和调用关系。",
-                max_tokens=4096,
+                max_tokens=8192,  # MiniMax 需要 extra tokens 用于 thinking
             )
 
             # 解析响应并合并结果
