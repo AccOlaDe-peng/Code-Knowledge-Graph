@@ -133,9 +133,10 @@ class LLMClient:
             )
             # 提取文本内容
             text_parts = []
-            for block in response.content:
-                if hasattr(block, 'text'):
-                    text_parts.append(block.text)
+            if response.content:
+                for block in response.content:
+                    if hasattr(block, 'text'):
+                        text_parts.append(block.text)
             return ''.join(text_parts) if text_parts else ""
 
         else:  # OpenAI 兼容接口
@@ -204,10 +205,11 @@ class LLMClient:
                     if response.stop_reason == "end_turn":
                         # 提取最终消息
                         final_message = None
-                        for block in response.content:
-                            if hasattr(block, 'text'):
-                                final_message = block.text
-                                break
+                        if response.content:
+                            for block in response.content:
+                                if hasattr(block, 'text'):
+                                    final_message = block.text
+                                    break
 
                         return ToolCallLoopResult(
                             status="completed",
@@ -218,13 +220,24 @@ class LLMClient:
                         )
 
                     # 提取工具调用
-                    tool_uses = [
-                        block for block in response.content
-                        if hasattr(block, 'type') and block.type == "tool_use"
-                    ]
+                    tool_uses = []
+                    if response.content:
+                        tool_uses = [
+                            block for block in response.content
+                            if hasattr(block, 'type') and block.type == "tool_use"
+                        ]
 
                     if not tool_uses:
-                        errors.append("LLM 响应中没有工具调用")
+                        # 当响应没有工具调用时，检查是否有文本内容
+                        text_content = ""
+                        if response.content:
+                            for block in response.content:
+                                if hasattr(block, 'text'):
+                                    text_content += block.text
+                        if text_content:
+                            errors.append(f"LLM 响应没有工具调用，包含文本: {text_content[:200]}")
+                        else:
+                            errors.append("LLM 响应为空（无工具调用也无文本）")
                         continue
 
                     # 添加 assistant 消息
@@ -369,7 +382,23 @@ class LLMClient:
                         })
 
             except Exception as e:
-                errors.append(f"迭代 {iterations} 出错: {str(e)}")
+                error_msg = str(e)
+
+                # 检查是否是 context window 超限错误（不可重试）
+                if "context window" in error_msg.lower() or "max_tokens" in error_msg.lower():
+                    errors.append(f"迭代 {iterations} 出错（上下文超限，不重试）: {error_msg}")
+                    logger.error(f"tool_call_loop 迭代 {iterations} 出错（上下文超限）: {e}")
+                    # 返回错误结果，不再重试
+                    return ToolCallLoopResult(
+                        status="error",
+                        final_message=None,
+                        tool_calls=tool_calls,
+                        total_tokens=total_tokens,
+                        iterations=iterations,
+                        errors=errors,
+                    )
+
+                errors.append(f"迭代 {iterations} 出错: {error_msg}")
                 logger.error(f"tool_call_loop 迭代 {iterations} 出错: {e}", exc_info=True)
 
         # 达到最大迭代次数
