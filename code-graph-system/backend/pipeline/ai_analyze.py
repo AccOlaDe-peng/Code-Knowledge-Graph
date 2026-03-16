@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -441,6 +442,7 @@ class AIPipeline:
             response = llm_client.complete(
                 prompt=prompt,
                 system="你是一个代码分析专家，擅长提取代码结构和调用关系。",
+                max_tokens=8192,  # 增加输出长度限制，避免 JSON 被截断
             )
 
             # 解析响应并合并结果
@@ -478,13 +480,61 @@ class AIPipeline:
                 logger.warning("读取文件失败 %s: %s", file_path, e)
         return "\n".join(contents)
 
+    def _try_repair_truncated_json(self, content: str) -> str:
+        """尝试修复被截断的 JSON 字符串。
+
+        当 LLM 输出因 token 限制被截断时，JSON 可能不完整。
+        这个方法尝试：
+        1. 找到最后一个完整的对象
+        2. 修复未闭合的字符串、数组、对象
+        """
+        import re
+
+        # 如果已经是有效 JSON，直接返回
+        try:
+            json.loads(content)
+            return content
+        except json.JSONDecodeError:
+            pass
+
+        # 尝试修复：找到最后一个完整的数组元素或对象
+        repaired = content.rstrip()
+
+        # 统计未闭合的括号
+        open_braces = repaired.count('{') - repaired.count('}')
+        open_brackets = repaired.count('[') - repaired.count(']')
+
+        # 尝试截断到最后一个完整的键值对
+        # 找到 "functions": [ 或 "classes": [ 或 "calls": [
+        last_valid_end = -1
+        for key in ['"functions"', '"classes"', '"calls"']:
+            pattern = rf'"{key[1:-1]}"\s*:\s*\['
+            match = re.search(pattern, repaired)
+            if match:
+                last_valid_end = max(last_valid_end, match.start())
+
+        # 如果找到最后一个有效的数组开始位置，尝试截断到那个数组
+        # 更简单的策略：尝试截断到最后一个 }, 然后补齐括号
+        last_complete_idx = repaired.rfind('},')
+        if last_complete_idx > 0:
+            # 截断到最后一个完整对象后
+            repaired = repaired[:last_complete_idx + 1]
+            open_braces = repaired.count('{') - repaired.count('}')
+            open_brackets = repaired.count('[') - repaired.count(']')
+
+        # 补齐闭合括号
+        if open_brackets > 0:
+            repaired += ']' * open_brackets
+        if open_braces > 0:
+            repaired += '}' * open_braces
+
+        return repaired
+
     def _parse_module_analysis(self, response: str, module: ModuleInfo) -> tuple[list[GraphNode], list[GraphEdge]]:
         """解析模块分析响应。
 
         支持 MiniMax 等包含思考块的响应格式。
         """
-        import json
-
         nodes = []
         edges = []
 
@@ -526,11 +576,20 @@ class AIPipeline:
             if start_idx >= 0:
                 content = content[start_idx:]
 
+        # 4. 尝试解析 JSON
+        data = None
         try:
             data = json.loads(content.strip())
         except json.JSONDecodeError as e:
-            logger.warning("解析模块分析响应失败: %s, 响应前100字符: %s", e, content[:100])
-            return nodes, edges
+            # 尝试修复截断的 JSON
+            logger.warning("JSON 解析失败，尝试修复: %s", e)
+            repaired = self._try_repair_truncated_json(content.strip())
+            try:
+                data = json.loads(repaired)
+                logger.info("JSON 修复成功")
+            except json.JSONDecodeError as e2:
+                logger.warning("解析模块分析响应失败: %s, 响应前100字符: %s", e2, content[:100])
+                return nodes, edges
 
         # 解析函数节点
         for func in data.get("functions", []):
