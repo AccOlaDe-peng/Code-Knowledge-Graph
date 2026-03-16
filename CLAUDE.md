@@ -23,6 +23,13 @@ pip install -r requirements.txt           # 完整功能
 ```bash
 # 以下所有命令均需在 code-graph-system/ 根目录下执行
 
+#启动  celery_worker
+cd code-graph-system
+celery -A backend.scheduler.celery_app worker --loglevel=info
+
+source venv/bin/activate
+pip install celery redis
+
 # 启动 API 服务器（访问 http://localhost:8000/docs）
 python -m uvicorn backend.api.server:app --host 0.0.0.0 --port 8000 --reload
 
@@ -74,14 +81,14 @@ celery -A backend.scheduler.celery_app worker --beat --loglevel=info  # Worker +
 
 `AIPipeline.analyze(repo_path, *, repo_name, enable_rag)` 执行 6 步 AI 驱动分析，返回 `AnalysisResult`：
 
-| 步骤 | 类 | 说明 |
-|------|----|------|
-| 1 | `RepoScanner` | 扫描文件，识别语言 |
-| 2 | `ModuleScannerAgent` | AI 识别模块边界 |
-| 3 | `AgentOrchestrator` | AI 代码分析（多 Agent 并行） |
-| 4 | `GraphBuilder` | 合并图谱，计算 PageRank / 度指标 |
-| 5 | `GraphRepository` | 持久化 JSON / Neo4j |
-| 6 | `GraphRAGEngine` | 向量化（可选） |
+| 步骤 | 类                   | 说明                             |
+| ---- | -------------------- | -------------------------------- |
+| 1    | `RepoScanner`        | 扫描文件，识别语言               |
+| 2    | `ModuleScannerAgent` | AI 识别模块边界                  |
+| 3    | `AgentOrchestrator`  | AI 代码分析（多 Agent 并行）     |
+| 4    | `GraphBuilder`       | 合并图谱，计算 PageRank / 度指标 |
+| 5    | `GraphRepository`    | 持久化 JSON / Neo4j              |
+| 6    | `GraphRAGEngine`     | 向量化（可选）                   |
 
 任意步骤失败只记录警告，不中断整体流水线。
 
@@ -91,20 +98,21 @@ celery -A backend.scheduler.celery_app worker --beat --loglevel=info  # Worker +
 
 `AgentOrchestrator` 协调 6 个专业 Agent 进行 AI 代码分析：
 
-| Agent | 职责 |
-|-------|------|
-| `ModuleDetectorAgent` | 模块检测 |
-| `ArchitectureAgent` | 架构分析（分层、边界上下文） |
-| `CallGraphAgent` | 调用图分析 |
-| `DataLineageAgent` | 数据血缘追踪 |
-| `APIEndpointAgent` | API 端点分析 |
-| `CrossModuleAgent` | 跨模块依赖分析 |
+| Agent                 | 职责                         |
+| --------------------- | ---------------------------- |
+| `ModuleDetectorAgent` | 模块检测                     |
+| `ArchitectureAgent`   | 架构分析（分层、边界上下文） |
+| `CallGraphAgent`      | 调用图分析                   |
+| `DataLineageAgent`    | 数据血缘追踪                 |
+| `APIEndpointAgent`    | API 端点分析                 |
+| `CrossModuleAgent`    | 跨模块依赖分析               |
 
 每个 Agent 共享 `SharedKnowledgeBase`，通过 `AgentContext` 访问仓库路径和配置。Agent 使用 LLM 工具（`read_file`、`search_code`、`list_directory` 等）自主探索代码，输出 `GraphNode` / `GraphEdge`。
 
 ### 数据模型
 
 **Schema**（`backend/graph/graph_schema.py`）— 当前流水线和所有新代码使用：
+
 - `GraphNode(id, type, name, properties)` — 通用节点
 - `GraphEdge(from_, to, type, properties)` — 通用边（`from_` 是 Python 属性名，序列化为 `"from"`）
 - `NodeType` / `EdgeType` — 枚举定义所有合法类型
@@ -113,6 +121,7 @@ celery -A backend.scheduler.celery_app worker --beat --loglevel=info  # Worker +
 节点类型：`Repository`, `Module`, `File`, `Class`, `Function`, `Component`, `Service`, `API`, `DataObject`, `Table`, `Event`, `Topic`, `Pipeline`, `Cluster`, `Database`, `Layer`, `Flow`, `BusinessFlow`, `Domain`, `BoundedContext`, `DomainEntity`
 
 **`BuiltGraph`**（`backend/graph/graph_builder.py`）— 流水线输出容器：
+
 - `nodes: list[GraphNode]`，`edges: list[GraphEdge]`
 - `meta: dict`（含 `node_type_counts`、`edge_type_counts`、`created_at`、`git_commit`）
 - `metrics: dict[node_id, {in_degree, out_degree, pagerank}]`（需安装 networkx）
@@ -148,24 +157,24 @@ engine.rag_query(graph_id, "登录如何实现？")
 
 ### API 端点（`backend/api/server.py`）
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET  | `/health` | 健康检查 |
-| POST | `/analyze/repository` | 全量分析（本地路径或 Git URL），返回 graph_id + 统计 |
-| POST | `/analyze/upload-zip` | 上传 ZIP 文件分析，返回 graph_id + 统计 |
-| POST | `/analyze/graph` | GraphPipeline 直接分析，返回图谱数据 |
-| GET  | `/graph` | 无 `graph_id` 返回列表；有则返回节点+边 |
-| GET  | `/graph/data` | 通用图谱数据（按 node_types/edge_types 过滤） |
-| GET  | `/graph/call` | 调用图（Function/API 节点 + calls 边，类似 /callgraph） |
-| GET  | `/graph/module` | 模块依赖图（Module 节点 + depends_on 边） |
-| GET  | `/graph/summary` | 图谱摘要统计 |
-| GET  | `/graph/export` | 导出图谱（JSON/CSV 格式） |
-| DELETE | `/graph/{graph_id}` | 删除指定图谱（JSON + ChromaDB） |
-| GET  | `/callgraph` | Function/API 节点 + calls 边 |
-| GET  | `/lineage` | depends_on / reads / writes / produces / consumes 边 |
-| GET  | `/events` | Event/Topic 节点 + produces/consumes 边 |
-| GET  | `/services` | Service / Cluster / Database 节点 |
-| POST | `/query` | GraphRAG 自然语言查询 |
+| 方法   | 路径                  | 说明                                                    |
+| ------ | --------------------- | ------------------------------------------------------- |
+| GET    | `/health`             | 健康检查                                                |
+| POST   | `/analyze/repository` | 全量分析（本地路径或 Git URL），返回 graph_id + 统计    |
+| POST   | `/analyze/upload-zip` | 上传 ZIP 文件分析，返回 graph_id + 统计                 |
+| POST   | `/analyze/graph`      | GraphPipeline 直接分析，返回图谱数据                    |
+| GET    | `/graph`              | 无 `graph_id` 返回列表；有则返回节点+边                 |
+| GET    | `/graph/data`         | 通用图谱数据（按 node_types/edge_types 过滤）           |
+| GET    | `/graph/call`         | 调用图（Function/API 节点 + calls 边，类似 /callgraph） |
+| GET    | `/graph/module`       | 模块依赖图（Module 节点 + depends_on 边）               |
+| GET    | `/graph/summary`      | 图谱摘要统计                                            |
+| GET    | `/graph/export`       | 导出图谱（JSON/CSV 格式）                               |
+| DELETE | `/graph/{graph_id}`   | 删除指定图谱（JSON + ChromaDB）                         |
+| GET    | `/callgraph`          | Function/API 节点 + calls 边                            |
+| GET    | `/lineage`            | depends_on / reads / writes / produces / consumes 边    |
+| GET    | `/events`             | Event/Topic 节点 + produces/consumes 边                 |
+| GET    | `/services`           | Service / Cluster / Database 节点                       |
+| POST   | `/query`              | GraphRAG 自然语言查询                                   |
 
 四个全局单例通过 `lifespan` 管理：`_graph_repo`、`_vector_store`、`_pipeline`、`_rag_engine`。
 
@@ -186,27 +195,27 @@ incremental_update.delay("my-svc", "/path/to/repo")
 
 ## 存储
 
-| 路径 | 内容 |
-|------|------|
-| `data/graphs/` | 图谱 JSON 文件（已加入 .gitignore） |
-| `data/graphs/index.json` | 所有图谱摘要索引 |
-| `data/chroma/` | ChromaDB 向量索引（已加入 .gitignore） |
-| `data/ai_analysis/` | AI 分析结果缓存，按 `(repo_name, commit_sha)` 命中（已加入 .gitignore） |
+| 路径                     | 内容                                                                    |
+| ------------------------ | ----------------------------------------------------------------------- |
+| `data/graphs/`           | 图谱 JSON 文件（已加入 .gitignore）                                     |
+| `data/graphs/index.json` | 所有图谱摘要索引                                                        |
+| `data/chroma/`           | ChromaDB 向量索引（已加入 .gitignore）                                  |
+| `data/ai_analysis/`      | AI 分析结果缓存，按 `(repo_name, commit_sha)` 命中（已加入 .gitignore） |
 
 AI 分析缓存（`backend/ai/cache/`）：commit SHA 不变则跳过 LLM 调用，直接返回上次结果。非 Git 仓库（SHA 为空）不写缓存。`cache.invalidate("repo-name")` 清除整个仓库缓存。
 
 ## 环境变量
 
-| 变量 | 说明 |
-|------|------|
-| `LLM_PROVIDER` | `anthropic`（默认）/ `openai` / `minimax` / `ollama` |
-| `ANTHROPIC_API_KEY` | LLM_PROVIDER=anthropic 时必须 |
-| `OPENAI_API_KEY` | LLM_PROVIDER=openai 时使用 |
-| `MINIMAX_API_KEY` | LLM_PROVIDER=minimax 时必须 |
-| `MINIMAX_GROUP_ID` | LLM_PROVIDER=minimax 时必须 |
-| `NEO4J_URI` | 可选，如 `bolt://localhost:7687` |
-| `CELERY_BROKER_URL` | 默认 `redis://localhost:6379/0` |
-| `CELERY_RESULT_BACKEND` | 默认 `redis://localhost:6379/1` |
+| 变量                    | 说明                                                 |
+| ----------------------- | ---------------------------------------------------- |
+| `LLM_PROVIDER`          | `anthropic`（默认）/ `openai` / `minimax` / `ollama` |
+| `ANTHROPIC_API_KEY`     | LLM_PROVIDER=anthropic 时必须                        |
+| `OPENAI_API_KEY`        | LLM_PROVIDER=openai 时使用                           |
+| `MINIMAX_API_KEY`       | LLM_PROVIDER=minimax 时必须                          |
+| `MINIMAX_GROUP_ID`      | LLM_PROVIDER=minimax 时必须                          |
+| `NEO4J_URI`             | 可选，如 `bolt://localhost:7687`                     |
+| `CELERY_BROKER_URL`     | 默认 `redis://localhost:6379/0`                      |
+| `CELERY_RESULT_BACKEND` | 默认 `redis://localhost:6379/1`                      |
 
 ## 添加新 Agent
 
@@ -274,13 +283,18 @@ src/
 
 ```tsx
 // 导入共享组件
-import { GraphViewer, NodeDetailPanel, GraphToolbar, SearchBar } from '@/components'
+import {
+  GraphViewer,
+  NodeDetailPanel,
+  GraphToolbar,
+  SearchBar,
+} from "@/components";
 
 // 导入 API
-import { graphEndpoints, ragEndpoints } from '@/core/api'
+import { graphEndpoints, ragEndpoints } from "@/core/api";
 
 // 导入 Hooks
-import { useAsync, useDebounce } from '@/core/hooks'
+import { useAsync, useDebounce } from "@/core/hooks";
 ```
 
 ### TypeScript 限制
@@ -293,12 +307,12 @@ import { useAsync, useDebounce } from '@/core/hooks'
 
 颜色 token 定义在 `src/theme/index.ts`，CSS 变量在 `src/styles/global.css`：
 
-| CSS 变量 | 用途 |
-|----------|------|
-| `--s-void #07090d` | 最深背景 |
-| `--a-cyan #00d4ff` | 主强调色 |
-| `--a-green #00f084` | 成功/Service |
-| `--a-amber #ffc145` | 警告/Event |
+| CSS 变量             | 用途           |
+| -------------------- | -------------- |
+| `--s-void #07090d`   | 最深背景       |
+| `--a-cyan #00d4ff`   | 主强调色       |
+| `--a-green #00f084`  | 成功/Service   |
+| `--a-amber #ffc145`  | 警告/Event     |
 | `--a-purple #b08eff` | Class/Database |
 
 字体：Syne（UI/标题）+ IBM Plex Mono（数据/代码），通过 Google Fonts CDN 引入。
@@ -314,4 +328,3 @@ Ant Design 使用 `theme.darkAlgorithm` + 自定义 token，完整配置见 `src
 5. 参考 `src/features/architecture/` 作为模板
 
 详细架构文档见 `code-graph-ui/ARCHITECTURE.md`。
-
