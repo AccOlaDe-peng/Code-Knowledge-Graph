@@ -34,6 +34,7 @@ from typing import Any, Optional
 
 import redis as sync_redis
 from celery import Task
+from celery.result import AsyncResult
 from celery.utils.log import get_task_logger
 
 from backend.scheduler.celery_app import celery_app
@@ -129,6 +130,29 @@ def _stage_to_step(stage: str) -> int:
     return stage_map.get(stage, 0)
 
 
+class TaskCanceledError(Exception):
+    """任务被取消时抛出的异常。"""
+    pass
+
+
+def _check_cancelled(task: Task, task_id: str) -> None:
+    """检查任务是否已被取消，如果已取消则抛出 TaskCanceledError。"""
+    from celery.exceptions import TaskRevokedError
+    try:
+        # 检查任务是否被撤销
+        if task.request.stopped():
+            raise TaskCanceledError(f"Task {task_id} has been revoked")
+        # 也可以通过 AsyncResult 检查状态
+        result = AsyncResult(task_id, app=celery_app)
+        if result.state in ("REVOKED",):
+            raise TaskCanceledError(f"Task {task_id} has been revoked")
+    except TaskCanceledError:
+        raise
+    except Exception:
+        # 其他错误（如 Redis 连接问题）忽略，继续执行
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Task 1: analyze_repository
 # ---------------------------------------------------------------------------
@@ -198,6 +222,9 @@ def analyze_repository(
     # ── 创建进度回调闭包 ───────────────────────────────────────────
     def on_progress_callback(event: dict) -> None:
         """包装 publish_progress，同时更新 Celery task state 和状态存储。"""
+        # 检查任务是否被取消
+        _check_cancelled(self, task_id)
+
         publish_progress(task_id, event)
         try:
             self.update_state(state="PROGRESS", meta=event)
@@ -231,6 +258,20 @@ def analyze_repository(
             enable_rag=True,
             on_progress=on_progress_callback,
         )
+    except TaskCanceledError as exc:
+        # 任务被取消，不重试
+        duration = round(time.time() - t_start, 3)
+        try:
+            on_progress_callback({
+                "status": "canceled",
+                "message": "任务已被取消",
+                "elapsed_seconds": duration,
+            })
+        except Exception:
+            pass
+        status_store.set_canceled(repo_id)
+        logger.info("analyze_repository CANCELED: %s", exc)
+        return {"task_id": task_id, "status": "canceled", "message": str(exc)}
     except ValueError as exc:
         # ValueError（如路径不存在）不重试，直接发送 failed 事件
         duration = round(time.time() - t_start, 3)
@@ -350,11 +391,15 @@ def incremental_update(
             "analyzed_at":      "2026-03-11T12:00:00+00:00",
         }
     """
+    task_id = self.request.id
     path = Path(repo_path).resolve()
     logger.info(
         "incremental_update START  graph=%s  path=%s  task=%s",
-        graph_id, path, self.request.id,
+        graph_id, path, task_id,
     )
+
+    # 检查任务是否被取消
+    _check_cancelled(self, task_id)
 
     pipeline, graph_repo = _build_pipeline()
 
@@ -471,6 +516,9 @@ def _run_full_and_wrap(
     enable_rag: bool,
 ) -> dict[str, Any]:
     """运行 AnalysisPipeline 并返回统一格式的结果字典。"""
+    # 检查任务是否被取消
+    _check_cancelled(task, task.request.id)
+
     try:
         result = pipeline.analyze(
             path,
@@ -478,12 +526,18 @@ def _run_full_and_wrap(
             enable_ai=enable_ai,
             enable_rag=enable_rag,
         )
+    except TaskCanceledError as exc:
+        logger.info("_run_full_and_wrap CANCELED: %s", exc)
+        raise
     except ValueError as exc:
         logger.error("_run_full_and_wrap FAILED (bad input): %s", exc)
         raise
     except Exception as exc:
         logger.error("_run_full_and_wrap FAILED: %s", exc, exc_info=True)
         raise task.retry(exc=exc)
+
+    # 再次检查是否被取消
+    _check_cancelled(task, task.request.id)
 
     git_commit = _get_git_head(path)
 
