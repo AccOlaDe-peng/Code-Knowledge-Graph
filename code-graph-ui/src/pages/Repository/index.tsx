@@ -601,9 +601,7 @@ const Repository: React.FC = () => {
 
   const handleDelete = async (repo: RepoInfo) => {
     try {
-      if (repo.graphId) {
-        await repoApi.deleteRepository(repo.graphId);
-      }
+      await repoApi.deleteRepository(repo.repoId);
       // 删除后重新从后端同步，确保数据一致
       await syncReposFromBackend({ force: true });
       message.success("仓库已删除");

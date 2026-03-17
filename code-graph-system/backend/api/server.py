@@ -1330,6 +1330,15 @@ def delete_graph(graph_id: str):
         if not deleted:
             raise HTTPException(status_code=404, detail=f"图谱不存在: {graph_id}")
 
+        # 同步删除 repo_status_store 中的记录
+        from backend.store.repo_status_store import get_repo_status_store
+        status_store = get_repo_status_store()
+        # repo_id 可能等于 graph_id，也可能不同，遍历找到匹配的记录
+        for repo in status_store.list_all():
+            if repo.get("graph_id") == graph_id or repo.get("repo_id") == graph_id:
+                status_store.delete(repo["repo_id"])
+                break
+
         logger.info("图谱已删除: %s", graph_id)
         return {
             "success": True,
@@ -1339,6 +1348,41 @@ def delete_graph(graph_id: str):
     except Exception as e:
         logger.exception("删除图谱失败")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/repo/{repo_id}", tags=["仓库"])
+def delete_repo(repo_id: str):
+    """
+    删除仓库状态记录（用于删除尚未完成分析、没有 graph_id 的仓库）。
+
+    - 若该仓库有关联的 graph_id，同时删除图谱数据。
+    - 若仓库正在分析中，仅删除状态记录（不影响正在运行的 Celery 任务）。
+    """
+    logger.info("DELETE /repo/%s", repo_id)
+
+    from backend.store.repo_status_store import get_repo_status_store
+    status_store = get_repo_status_store()
+    repo = status_store.get_status(repo_id)
+
+    if repo is None:
+        raise HTTPException(status_code=404, detail=f"仓库不存在: {repo_id}")
+
+    # 若有关联 graph_id，一并删除图谱数据
+    graph_id = repo.get("graph_id")
+    if graph_id:
+        try:
+            _graph_repo.delete(graph_id)
+        except Exception:
+            pass  # 图谱文件可能已不存在，忽略
+
+    status_store.delete(repo_id)
+    logger.info("仓库已删除: %s (graph_id=%s)", repo_id, graph_id)
+    return {
+        "success": True,
+        "repo_id": repo_id,
+        "graph_id": graph_id,
+        "message": "仓库已成功删除",
+    }
 
 
 # ---------------------------------------------------------------------------

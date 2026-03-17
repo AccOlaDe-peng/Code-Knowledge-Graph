@@ -54,10 +54,10 @@ export const repoApi = {
   },
 
   /**
-   * DELETE /graph/{graph_id}
-   * 删除指定图谱。
+   * DELETE /repo/{repo_id}
+   * 删除仓库（通过 repo_id，后端统一处理 graph 数据和状态记录）。
    */
-  async deleteRepository(graphId: string): Promise<void> {
-    await httpClient.delete(`/graph/${graphId}`)
+  async deleteRepository(repoId: string): Promise<void> {
+    await httpClient.delete(`/repo/${repoId}`)
   },
 }
