@@ -1010,12 +1010,18 @@ def get_graph_summary(
 
     summary_types = {"Repository", "Module"}
     summary_nodes = [n.model_dump() for n in built.nodes if n.type in summary_types]
-    summary_node_ids = {n["id"] for n in summary_nodes}
-    summary_edges = [
-        e.model_dump(by_alias=True)
-        for e in built.edges
-        if e.from_ in summary_node_ids and e.to in summary_node_ids
-    ]
+
+    # 若图谱中没有 Repository/Module 节点（如纯 Layer/Service 图），退化为返回全图
+    if not summary_nodes:
+        summary_nodes = [n.model_dump() for n in built.nodes]
+        summary_edges = [e.model_dump(by_alias=True) for e in built.edges]
+    else:
+        summary_node_ids = {n["id"] for n in summary_nodes}
+        summary_edges = [
+            e.model_dump(by_alias=True)
+            for e in built.edges
+            if e.from_ in summary_node_ids and e.to in summary_node_ids
+        ]
 
     return {
         "graph_id":         graph_id,

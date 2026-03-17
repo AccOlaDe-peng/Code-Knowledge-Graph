@@ -278,11 +278,19 @@ export class GraphLoader {
     })
 
     const summaryTypes = new Set(['Repository', 'Module'])
-    const summaryNodes = full.nodes.filter(n => summaryTypes.has(n.type))
-    const summaryNodeIds = new Set(summaryNodes.map(n => n.id))
-    const summaryEdges = full.edges.filter(
-      e => summaryNodeIds.has(e.from) && summaryNodeIds.has(e.to),
-    )
+    let summaryNodes = full.nodes.filter(n => summaryTypes.has(n.type))
+    let summaryEdges: RawEdge[]
+
+    // 若图谱中没有 Repository/Module 节点，退化为显示全图
+    if (summaryNodes.length === 0) {
+      summaryNodes = full.nodes
+      summaryEdges = full.edges
+    } else {
+      const summaryNodeIds = new Set(summaryNodes.map(n => n.id))
+      summaryEdges = full.edges.filter(
+        e => summaryNodeIds.has(e.from) && summaryNodeIds.has(e.to),
+      )
+    }
 
     return {
       graph_id:         this.graphId,
