@@ -10,6 +10,11 @@ from typing import Any
 class FileTools:
     """文件操作工具集。"""
 
+    # 输出限制配置常量
+    MAX_FILE_LINES: int = 500  # 单次读取最大行数
+    MAX_SEARCH_RESULTS: int = 50  # 搜索结果最大数量
+    MAX_LINE_LENGTH: int = 500  # 单行最大长度
+
     def __init__(self, repo_path: str):
         self.repo_path = Path(repo_path)
 
@@ -22,7 +27,14 @@ class FileTools:
             end_line: 结束行号（不包含）
 
         Returns:
-            {"success": bool, "content": str, "line_count": int, "error": str}
+            {
+                "success": bool,
+                "content": str,
+                "line_count": int,      # 实际返回的行数
+                "total_lines": int,     # 文件原始总行数
+                "truncated": bool,      # 是否被截断
+                "error": str            # 错误信息（如果有）
+            }
         """
         try:
             file_path = self.repo_path / path
@@ -35,12 +47,32 @@ class FileTools:
             if end_line is None:
                 end_line = total_lines
 
+            # 限制读取行数
+            requested_lines = end_line - start_line
+            if requested_lines > self.MAX_FILE_LINES:
+                end_line = start_line + self.MAX_FILE_LINES
+
             selected = lines[start_line:end_line]
+
+            # 截断超长行
+            truncated_lines = []
+            for line in selected:
+                if len(line) > self.MAX_LINE_LENGTH:
+                    truncated_lines.append(line[: self.MAX_LINE_LENGTH - 3] + "...")
+                else:
+                    truncated_lines.append(line)
+
+            # 判断是否被截断
+            truncated = (end_line < total_lines) or any(
+                len(line) > self.MAX_LINE_LENGTH for line in selected
+            )
+
             return {
                 "success": True,
-                "content": "\n".join(selected),
-                "line_count": len(selected),
+                "content": "\n".join(truncated_lines),
+                "line_count": len(truncated_lines),
                 "total_lines": total_lines,
+                "truncated": truncated,
             }
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -53,7 +85,14 @@ class FileTools:
             file_pattern: 文件通配符
 
         Returns:
-            {"success": bool, "matches": list, "error": str}
+            {
+                "success": bool,
+                "matches": list,        # 匹配结果列表
+                "count": int,           # 实际返回的匹配数
+                "total_count": int,     # 原始匹配总数
+                "truncated": bool,      # 是否被截断
+                "error": str            # 错误信息（如果有）
+            }
         """
         try:
             matches = []
@@ -63,15 +102,33 @@ class FileTools:
                         lines = file_path.read_text(encoding="utf-8").splitlines()
                         for i, line in enumerate(lines):
                             if pattern in line:
+                                # 截断超长行
+                                content = line.strip()
+                                if len(content) > self.MAX_LINE_LENGTH:
+                                    content = content[: self.MAX_LINE_LENGTH - 3] + "..."
+
                                 matches.append({
                                     "file": str(file_path.relative_to(self.repo_path)),
                                     "line": i + 1,
-                                    "content": line.strip(),
+                                    "content": content,
                                 })
                     except:
                         continue
 
-            return {"success": True, "matches": matches, "count": len(matches)}
+            total_count = len(matches)
+            truncated = total_count > self.MAX_SEARCH_RESULTS
+
+            # 限制返回结果数量
+            if truncated:
+                matches = matches[: self.MAX_SEARCH_RESULTS]
+
+            return {
+                "success": True,
+                "matches": matches,
+                "count": len(matches),
+                "total_count": total_count,
+                "truncated": truncated,
+            }
         except Exception as e:
             return {"success": False, "error": str(e)}
 

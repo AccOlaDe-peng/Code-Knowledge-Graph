@@ -96,7 +96,8 @@
       "Bash(python -c \"import redis; r = redis.Redis\\(host=''localhost'', port=6379, db=0\\); deleted = r.delete\\(''celery''\\); print\\(f''已清理队列，删除 {deleted} 个 key''\\)\")",
       "Bash(python test_llm_connection.py)",
       "Bash(python -c \"import os; from dotenv import load_dotenv; load_dotenv\\(\\); print\\(''Provider:'', os.getenv\\(''LLM_PROVIDER''\\)\\); print\\(''Model:'', os.getenv\\(''LLM_MODEL''\\)\\); print\\(''OpenAI Key:'', ''YES'' if os.getenv\\(''OPENAI_API_KEY''\\) else ''NO''\\); print\\(''OpenAI Base:'', os.getenv\\(''OPENAI_BASE_URL''\\)\\); print\\(''Anthropic Key:'', ''YES'' if os.getenv\\(''ANTHROPIC_API_KEY''\\) else ''NO''\\); print\\(''Anthropic Base:'', os.getenv\\(''ANTHROPIC_BASE_URL''\\)\\)\")",
-      "Bash(env)"
+      "Bash(env)",
+      "Bash(pytest backend/tests/test_orchestrator_checkpoint.py -v)"
     ],
     "additionalDirectories": [
       "/tmp",

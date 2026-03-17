@@ -171,6 +171,7 @@ def analyze_repository(
     repo_name: str = "",
     languages: Optional[list[str]] = None,
     tmp_dir: Optional[str] = None,
+    depth: str = "standard",
 ) -> dict[str, Any]:
     """全量分析代码仓库，构建并持久化知识图谱（默认启用 AI + RAG）。
 
@@ -179,6 +180,7 @@ def analyze_repository(
         repo_name:  图谱名称，空字符串时使用目录名。
         languages:  限定语言，如 ``["python", "typescript"]``，None 自动探测。
         tmp_dir:    临时目录路径（Git 克隆时使用），任务完成后自动清理。
+        depth:      分析深度 (quick | standard | deep)，默认 standard。
 
     Returns::
 
@@ -196,6 +198,7 @@ def analyze_repository(
             "git_commit":       "<sha or null>",
             "warnings":         [...],
             "analyzed_at":      "2026-03-11T12:00:00+00:00",
+            "depth":            "standard",
         }
 
     Raises:
@@ -203,10 +206,21 @@ def analyze_repository(
     """
     task_id = self.request.id
     path = Path(repo_path).resolve()
-    logger.info("analyze_repository START  path=%s  task=%s", path, task_id)
+
+    # 验证 depth 参数
+    valid_depths = ("quick", "standard", "deep")
+    if depth not in valid_depths:
+        raise ValueError(f"Invalid depth: {depth}. Must be one of: {', '.join(valid_depths)}")
+
+    logger.info("analyze_repository START  path=%s  task=%s  depth=%s", path, task_id, depth)
 
     t_start = time.time()
     status_store = get_repo_status_store()
+
+    # 创建分析配置
+    from backend.agent.config import AnalysisConfig
+    config = AnalysisConfig.from_preset(depth)
+    logger.info("分析配置: max_modules=%s, agents=%s", config.max_modules, config.agents)
 
     # 使用 repo_name 或路径名作为 repo_id
     repo_id = repo_name or path.name
@@ -333,10 +347,11 @@ def analyze_repository(
         "git_commit":       git_commit,
         "warnings":         result.warnings,
         "analyzed_at":      datetime.now(timezone.utc).isoformat(),
+        "depth":            depth,
     }
     logger.info(
-        "analyze_repository DONE  graph=%s  nodes=%d  edges=%d  %.2fs",
-        result.graph_id, result.node_count, result.edge_count, duration,
+        "analyze_repository DONE  graph=%s  nodes=%d  edges=%d  %.2fs  depth=%s",
+        result.graph_id, result.node_count, result.edge_count, duration, depth,
     )
     return payload
 

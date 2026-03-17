@@ -3,11 +3,39 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from backend.llm.types import ToolCallLoopResult
 
+if TYPE_CHECKING:
+    from backend.llm.context_monitor import ContextMonitor
+
 logger = logging.getLogger(__name__)
+
+
+def extract_token_usage(response: Any, provider: str) -> tuple[int, int]:
+    """从 API 响应中提取 token 使用量。
+
+    Args:
+        response: LLM API 响应对象。
+        provider: LLM 提供商 ("anthropic" | "openai" | "minimax" | "ollama")。
+
+    Returns:
+        (input_tokens, output_tokens) 元组。
+    """
+    if not hasattr(response, 'usage') or response.usage is None:
+        return 0, 0
+
+    if provider == "anthropic":
+        return (
+            getattr(response.usage, 'input_tokens', 0) or 0,
+            getattr(response.usage, 'output_tokens', 0) or 0,
+        )
+    else:  # OpenAI 兼容接口 (openai, minimax, ollama)
+        return (
+            getattr(response.usage, 'prompt_tokens', 0) or 0,
+            getattr(response.usage, 'completion_tokens', 0) or 0,
+        )
 
 
 class LLMClient:
@@ -160,6 +188,7 @@ class LLMClient:
         tools: list[dict],
         max_iterations: int = 20,
         tool_executor: Any = None,
+        context_monitor: "ContextMonitor | None" = None,
     ) -> ToolCallLoopResult:
         """执行工具调用循环。
 
@@ -169,6 +198,7 @@ class LLMClient:
             tools: 工具定义列表
             max_iterations: 最大迭代次数
             tool_executor: 工具执行器（可选），如果提供则执行工具
+            context_monitor: 上下文监控器（可选），用于追踪 token 使用和触发滑动窗口
 
         Returns:
             ToolCallLoopResult
@@ -176,6 +206,10 @@ class LLMClient:
         import json
         import time
         from backend.llm.types import ToolCallRecord
+
+        # 延迟导入避免循环依赖
+        if context_monitor:
+            from backend.llm.sliding_window import SlidingWindow
 
         client = self._get_client()
         tool_calls: list[ToolCallRecord] = []
@@ -190,6 +224,13 @@ class LLMClient:
             iterations += 1
             iteration_start = time.time()
 
+            # 检查是否需要应用滑动窗口
+            if context_monitor and context_monitor.should_apply_sliding_window():
+                sliding_window = SlidingWindow()
+                current_messages, truncated = sliding_window.apply(current_messages, self.provider)
+                if truncated:
+                    logger.warning("应用滑动窗口，裁剪早期历史")
+
             try:
                 if self.provider == "anthropic":
                     response = client.messages.create(
@@ -200,6 +241,12 @@ class LLMClient:
                         messages=current_messages,
                         tools=tools,
                     )
+
+                    # 记录 token 使用量
+                    if context_monitor:
+                        input_tok, output_tok = extract_token_usage(response, self.provider)
+                        state = context_monitor.record_usage(input_tok, output_tok)
+                        logger.debug(f"Token 使用: {state.input_tokens} ({state.usage_ratio:.1%})")
 
                     # 检查停止原因
                     if response.stop_reason == "end_turn":
@@ -310,6 +357,12 @@ class LLMClient:
                             max_tokens=self.max_tokens,
                             temperature=self.temperature,
                         )
+
+                    # 记录 token 使用量
+                    if context_monitor:
+                        input_tok, output_tok = extract_token_usage(response, self.provider)
+                        state = context_monitor.record_usage(input_tok, output_tok)
+                        logger.debug(f"Token 使用: {state.input_tokens} ({state.usage_ratio:.1%})")
 
                     # 处理响应
                     if isinstance(response, str):

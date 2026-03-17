@@ -186,6 +186,7 @@ class APIEndpointAgent(BaseAgent):
             tools=self._tools,
             max_iterations=self.context.max_iterations,
             tool_executor=self._file_tools,
+            context_monitor=self.context.context_monitor,
         )
 
         execution_time_ms = int((time.time() - start_time) * 1000)

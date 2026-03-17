@@ -56,6 +56,7 @@ from backend.rag.vector_store import VectorStore
 from backend.storage.graph_storage import GraphStorage, RepoNotFoundError
 from backend.scheduler.celery_app import celery_app
 from backend.scheduler.tasks import analyze_repository as celery_analyze
+from backend.agent.config import AnalysisConfig, AnalysisPreset
 
 _REDIS_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 _TASK_REGISTRY_PREFIX = "analyze:task:"
@@ -158,6 +159,7 @@ class AnalyzeRequest(BaseModel):
     repo_name:  str            = Field(default="", description="图谱名称（空字符串则用目录名）")
     branch:     Optional[str]  = Field(default=None, description="Git 分支名（仅当 repo_path 为 Git URL 时生效）")
     languages:  Optional[list[str]] = Field(default=None, description="限定分析语言，如 ['python', 'typescript']")
+    depth:      str            = Field(default="standard", description="分析深度 (quick | standard | deep)")
     # enable_ai 和 enable_rag 已移除，默认全部开启
 
 
@@ -338,8 +340,24 @@ def analyze_repository(req: AnalyzeRequest):
     - 通过 GET /analyze/stream/{task_id} 订阅实时进度（SSE）
     - 通过 GET /analyze/status/{task_id} 查询最新状态
     - 默认启用 AI 语义分析和 RAG 向量索引
+
+    Args:
+        req: 分析请求，包含:
+            - repo_path: 仓库路径（本地路径或 Git URL）
+            - repo_name: 仓库名称
+            - branch: Git 分支（仅 Git URL 时有效）
+            - languages: 限定分析语言
+            - depth: 分析深度 (quick | standard | deep)，默认 standard
     """
-    logger.info("POST /analyze/repository  path=%s", req.repo_path)
+    # 验证 depth 参数
+    valid_depths = ("quick", "standard", "deep")
+    if req.depth not in valid_depths:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid depth: {req.depth}. Must be one of: {', '.join(valid_depths)}",
+        )
+
+    logger.info("POST /analyze/repository  path=%s  depth=%s", req.repo_path, req.depth)
 
     analyze_path = req.repo_path
     tmp_dir: Optional[str] = None
@@ -362,6 +380,7 @@ def analyze_repository(req: AnalyzeRequest):
             "repo_name": req.repo_name,
             "languages": req.languages,
             "tmp_dir": tmp_dir,  # 传递临时目录路径，任务完成后清理
+            "depth": req.depth,  # 传递分析深度
         },
     )
     task_id: str = job.id
@@ -379,7 +398,7 @@ def analyze_repository(req: AnalyzeRequest):
         repo_path=analyze_path,
     )
 
-    logger.info("任务已提交  task_id=%s  path=%s  tmp_dir=%s", task_id, analyze_path, tmp_dir)
+    logger.info("任务已提交  task_id=%s  path=%s  depth=%s  tmp_dir=%s", task_id, analyze_path, req.depth, tmp_dir)
 
     return AnalyzeAsyncResponse(task_id=task_id, status="pending")
 

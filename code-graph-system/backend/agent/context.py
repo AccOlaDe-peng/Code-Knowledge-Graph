@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from backend.models.discovery import DiscoveryRegistry
+
+if TYPE_CHECKING:
+    from backend.llm.context_monitor import ContextMonitor
 
 
 @dataclass
@@ -26,3 +29,4 @@ class AgentContext:
     discoveries: DiscoveryRegistry = field(default_factory=DiscoveryRegistry)
     max_iterations: int = 20
     timeout_seconds: int = 300
+    context_monitor: Optional["ContextMonitor"] = None
