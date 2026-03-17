@@ -177,7 +177,9 @@ class RepoStatusStore:
             return None
 
         repo = all_data[repo_id]
-        repo["status"] = "analyzing"
+        # 不覆盖终态（已完成/失败/取消），避免 set_completed 之后被回调覆盖
+        if repo.get("status") not in ("completed", "failed", "canceled"):
+            repo["status"] = "analyzing"
         repo["updated_at"] = self._now_iso()
 
         if stage is not None:
