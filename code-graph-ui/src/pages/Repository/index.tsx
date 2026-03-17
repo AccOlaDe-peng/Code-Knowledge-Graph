@@ -15,6 +15,7 @@ import {
   Modal,
   Popconfirm,
   Progress,
+  Radio,
   Select,
   Space,
   Tag,
@@ -37,7 +38,7 @@ import { useAnalysisStream } from "../../core/hooks/useAnalysisStream";
 import { repoApi } from "../../api/repoApi";
 import { useRepoStore } from "../../store/repoStore";
 import { useGraphStore } from "../../store/graphStore";
-import type { RepoInfo } from "../../types/api";
+import type { AnalysisDepth, RepoInfo } from "../../types/api";
 
 type SourceMode = "local" | "git";
 
@@ -58,6 +59,29 @@ const LANGS = [
   "rust",
   "cpp",
   "csharp",
+];
+
+/** 分析深度选项 */
+const DEPTH_OPTIONS: {
+  value: AnalysisDepth;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "quick",
+    label: "快速分析",
+    description: "仅扫描核心文件，快速识别模块边界",
+  },
+  {
+    value: "standard",
+    label: "标准分析",
+    description: "完整扫描，AI 深度分析代码结构",
+  },
+  {
+    value: "deep",
+    label: "深度分析",
+    description: "全量分析，包含数据血缘与跨模块依赖",
+  },
 ];
 
 const REPO_LIST_CACHE_WINDOW_MS = 1200;
@@ -338,7 +362,6 @@ const Repository: React.FC = () => {
   const repos = useRepoStore((s) => s.repos ?? []);
   const addRepo = useRepoStore((s) => s.addRepo);
   const updateRepo = useRepoStore((s) => s.updateRepo);
-  const removeRepo = useRepoStore((s) => s.removeRepo);
   const setRepos = useRepoStore((s) => s.setRepos);
   const { setActiveGraphId } = useGraphStore();
   const setActiveRepo = useRepoStore((s) => s.setActiveRepo);
@@ -347,6 +370,10 @@ const Repository: React.FC = () => {
   const [sourceMode, setSourceMode] = useState<SourceMode>("git");
   const [detailRepoId, setDetailRepoId] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // 分析确认对话框状态
+  const [analysisConfirmRepo, setAnalysisConfirmRepo] = useState<RepoInfo | null>(null);
+  const [analysisDepth, setAnalysisDepth] = useState<AnalysisDepth>("standard");
 
   const detailRepo = useMemo(
     () => repos.find((repo) => repo.repoId === detailRepoId) ?? null,
@@ -502,7 +529,7 @@ const Repository: React.FC = () => {
     form.resetFields();
   };
 
-  const startAnalysis = async (repo: RepoInfo) => {
+  const startAnalysis = async (repo: RepoInfo, depth: AnalysisDepth = "standard") => {
     if (!repo.repoPath) {
       message.error("缺少仓库路径，无法分析");
       return;
@@ -513,6 +540,7 @@ const Repository: React.FC = () => {
         repo_path: repo.repoPath,
         repo_name: repo.repoName,
         languages: repo.language.length > 0 ? repo.language : undefined,
+        depth,
       });
 
       updateRepo(repo.repoId, {
@@ -524,7 +552,7 @@ const Repository: React.FC = () => {
         analysisStage: "pending",
         analysisMessage: "等待调度执行",
       });
-      message.success(`已开始分析: ${repo.repoName}`);
+      message.success(`已开始分析: ${repo.repoName} (${DEPTH_OPTIONS.find(o => o.value === depth)?.label})`);
     } catch (error) {
       const text = error instanceof Error ? error.message : "分析任务提交失败";
       updateRepo(repo.repoId, { status: "failed", error: text });
@@ -576,7 +604,8 @@ const Repository: React.FC = () => {
       if (repo.graphId) {
         await repoApi.deleteRepository(repo.graphId);
       }
-      removeRepo(repo.repoId);
+      // 删除后重新从后端同步，确保数据一致
+      await syncReposFromBackend({ force: true });
       message.success("仓库已删除");
       if (detailRepoId === repo.repoId) {
         setDetailRepoId(null);
@@ -817,7 +846,10 @@ const Repository: React.FC = () => {
                     <Button
                       size="small"
                       icon={<PlayCircleOutlined />}
-                      onClick={() => void startAnalysis(repo)}
+                      onClick={() => {
+                        setAnalysisConfirmRepo(repo);
+                        setAnalysisDepth("standard");
+                      }}
                       disabled={!canAnalyze}
                       style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10 }}
                     >
@@ -1039,6 +1071,99 @@ const Repository: React.FC = () => {
               />
             )}
           </div>
+        )}
+      </Modal>
+
+      {/* 分析确认对话框 */}
+      <Modal
+        open={!!analysisConfirmRepo}
+        onCancel={() => setAnalysisConfirmRepo(null)}
+        onOk={() => {
+          if (analysisConfirmRepo) {
+            void startAnalysis(analysisConfirmRepo, analysisDepth);
+            setAnalysisConfirmRepo(null);
+          }
+        }}
+        okText="开始分析"
+        cancelText="取消"
+        title={`分析仓库: ${analysisConfirmRepo?.repoName ?? ""}`}
+        width={520}
+      >
+        <div style={{ marginBottom: 20 }}>
+          <div
+            style={{
+              fontFamily: "'IBM Plex Mono'",
+              fontSize: 11,
+              color: "var(--t-muted)",
+              marginBottom: 12,
+            }}
+          >
+            选择分析深度：
+          </div>
+          <Radio.Group
+            value={analysisDepth}
+            onChange={(e) => setAnalysisDepth(e.target.value)}
+            style={{ width: "100%" }}
+          >
+            <Space direction="vertical" style={{ width: "100%" }} size={12}>
+              {DEPTH_OPTIONS.map((opt) => (
+                <Radio
+                  key={opt.value}
+                  value={opt.value}
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    padding: "10px 14px",
+                    background:
+                      analysisDepth === opt.value
+                        ? "rgba(0,212,255,0.06)"
+                        : "var(--s-float)",
+                    border: `1px solid ${
+                      analysisDepth === opt.value
+                        ? "rgba(0,212,255,0.3)"
+                        : "var(--b-faint)"
+                    }`,
+                    borderRadius: 4,
+                    cursor: "pointer",
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        fontFamily: "'IBM Plex Mono'",
+                        fontSize: 12,
+                        color: "var(--t-primary)",
+                        marginBottom: 2,
+                      }}
+                    >
+                      {opt.label}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: "var(--t-muted)",
+                      }}
+                    >
+                      {opt.description}
+                    </div>
+                  </div>
+                </Radio>
+              ))}
+            </Space>
+          </Radio.Group>
+        </div>
+
+        {analysisConfirmRepo && (
+          <Alert
+            type="info"
+            showIcon
+            message={
+              <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 11 }}>
+                仓库路径: {analysisConfirmRepo.repoPath}
+              </span>
+            }
+            style={{ marginBottom: 12 }}
+          />
         )}
       </Modal>
     </div>

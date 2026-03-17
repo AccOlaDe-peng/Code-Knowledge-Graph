@@ -22,6 +22,7 @@ import { SearchOutlined, ReloadOutlined, AimOutlined } from "@ant-design/icons";
 import { useGraphStore } from "../../store/graphStore";
 import { useRepoStore } from "../../store/repoStore";
 import NodeDetailPanel from "../../components/NodeDetailPanel";
+import RepoSelector from "../../components/ui/RepoSelector";
 import type { GraphNode } from "../../types/graph";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -472,6 +473,9 @@ const CallGraphInner: React.FC = () => {
             调用图
           </span>
         </div>
+
+        {/* Repository selector */}
+        <RepoSelector showStats={false} width={200} />
 
         {/* Stats */}
         <div style={{ display: "flex", gap: 20, marginRight: "auto" }}>

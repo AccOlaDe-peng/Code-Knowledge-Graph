@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
 import type { RepoInfo } from "../types/api";
 
 interface RepoState {
@@ -30,79 +29,67 @@ const dedupeRepos = (incoming: RepoInfo[]): RepoInfo[] => {
   return Array.from(byKey.values());
 };
 
-export const useRepoStore = create<RepoState>()(
-  persist(
-    (set) => ({
-      repos: [],
-      activeRepo: null,
-      loading: false,
-      error: null,
+export const useRepoStore = create<RepoState>()((set) => ({
+  repos: [],
+  activeRepo: null,
+  loading: false,
+  error: null,
 
-      setRepos: (repos) =>
-        set((state) => {
-          const nextRepos = dedupeRepos(repos);
-          const nextActiveRepo = state.activeRepo
-            ? (nextRepos.find((r) => r.repoId === state.activeRepo?.repoId) ??
-              null)
-            : null;
-          return {
-            repos: nextRepos,
-            activeRepo: nextActiveRepo,
-          };
-        }),
-
-      setActiveRepo: (repo) => set({ activeRepo: repo }),
-
-      addRepo: (repo) =>
-        set((state) => {
-          // 按 repoPath 去重，避免同一个仓库被添加多次
-          const existingIndex = state.repos.findIndex(
-            (r) =>
-              r.repoPath === repo.repoPath ||
-              (repo.graphId && r.graphId === repo.graphId) ||
-              r.repoId === repo.repoId,
-          );
-
-          if (existingIndex >= 0) {
-            // 更新现有仓库
-            const updated = [...state.repos];
-            updated[existingIndex] = { ...updated[existingIndex], ...repo };
-            return { repos: updated };
-          }
-
-          // 添加新仓库
-          return { repos: [repo, ...state.repos] };
-        }),
-
-      updateRepo: (repoId, patch) =>
-        set((state) => ({
-          repos: state.repos.map((repo) =>
-            repo.repoId === repoId ? { ...repo, ...patch } : repo,
-          ),
-          activeRepo:
-            state.activeRepo?.repoId === repoId
-              ? { ...state.activeRepo, ...patch }
-              : state.activeRepo,
-        })),
-
-      removeRepo: (repoId) =>
-        set((state) => ({
-          repos: state.repos.filter((r) => r.repoId !== repoId),
-          activeRepo:
-            state.activeRepo?.repoId === repoId ? null : state.activeRepo,
-        })),
-
-      setLoading: (loading) => set({ loading }),
-
-      setError: (error) => set({ error }),
+  setRepos: (repos) =>
+    set((state) => {
+      const nextRepos = dedupeRepos(repos);
+      const nextActiveRepo = state.activeRepo
+        ? (nextRepos.find((r) => r.repoId === state.activeRepo?.repoId) ??
+          null)
+        : null;
+      return {
+        repos: nextRepos,
+        activeRepo: nextActiveRepo,
+      };
     }),
-    {
-      name: "repo-store-v2",
-      storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({
-        repos: state.repos,
-        activeRepo: state.activeRepo,
-      }),
-    },
-  ),
-);
+
+  setActiveRepo: (repo) => set({ activeRepo: repo }),
+
+  addRepo: (repo) =>
+    set((state) => {
+      // 按 repoPath 去重，避免同一个仓库被添加多次
+      const existingIndex = state.repos.findIndex(
+        (r) =>
+          r.repoPath === repo.repoPath ||
+          (repo.graphId && r.graphId === repo.graphId) ||
+          r.repoId === repo.repoId,
+      );
+
+      if (existingIndex >= 0) {
+        // 更新现有仓库
+        const updated = [...state.repos];
+        updated[existingIndex] = { ...updated[existingIndex], ...repo };
+        return { repos: updated };
+      }
+
+      // 添加新仓库
+      return { repos: [repo, ...state.repos] };
+    }),
+
+  updateRepo: (repoId, patch) =>
+    set((state) => ({
+      repos: state.repos.map((repo) =>
+        repo.repoId === repoId ? { ...repo, ...patch } : repo,
+      ),
+      activeRepo:
+        state.activeRepo?.repoId === repoId
+          ? { ...state.activeRepo, ...patch }
+          : state.activeRepo,
+    })),
+
+  removeRepo: (repoId) =>
+    set((state) => ({
+      repos: state.repos.filter((r) => r.repoId !== repoId),
+      activeRepo:
+        state.activeRepo?.repoId === repoId ? null : state.activeRepo,
+    })),
+
+  setLoading: (loading) => set({ loading }),
+
+  setError: (error) => set({ error }),
+}));

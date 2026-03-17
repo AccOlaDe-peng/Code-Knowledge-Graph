@@ -2,6 +2,9 @@ import type { Graph, GraphMetrics, GraphNode, GraphEdge } from "./graph";
 
 // ─── Repo / Graph Metadata ────────────────────────────────────────────────────
 
+/** 分析深度预设 */
+export type AnalysisDepth = "quick" | "standard" | "deep";
+
 export type RepoInfo = {
   repoId: string;
   graphId: string;
@@ -24,6 +27,7 @@ export type RepoInfo = {
   analysisElapsedSeconds?: number;
   error?: string;
   lastAnalyzedAt?: string;
+  depth?: AnalysisDepth; // 分析深度
 };
 
 // ─── GET /graph ───────────────────────────────────────────────────────────────
@@ -61,6 +65,7 @@ export type AnalyzeRepoRequest = {
   repoName?: string;
   branch?: string;
   languages?: string[];
+  depth?: AnalysisDepth; // 分析深度：quick | standard | deep
 };
 
 export type AnalyzeRepoResponse = {

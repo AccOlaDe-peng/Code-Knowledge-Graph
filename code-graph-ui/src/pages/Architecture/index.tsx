@@ -3,6 +3,7 @@ import { Alert } from 'antd'
 import { useGraphStore } from '../../store/graphStore'
 import GraphViewer, { type LayoutName } from '../../components/GraphViewer'
 import NodeDetailPanel from '../../components/NodeDetailPanel'
+import RepoSelector from '../../components/ui/RepoSelector'
 import type { GraphNode, GraphEdge } from '../../types/graph'
 import { getNodeTypeColor } from '../../theme'
 
@@ -258,32 +259,8 @@ const Architecture: React.FC = () => {
           </h2>
         </div>
 
-        {/* Stats pills */}
-        {graph.data && (
-          <div style={{ display: 'flex', gap: 8 }}>
-            {[
-              { label: '节点', value: filteredNodes.length, total: allNodes.length, color: 'var(--t-cyan)' },
-              { label: '边', value: filteredEdges.length, total: allEdges.length, color: 'var(--t-green)' },
-            ].map(({ label, value, total, color }) => (
-              <div key={label} style={{
-                fontFamily:    'var(--font-mono)',
-                fontSize:      11,
-                color:         'var(--t-muted)',
-                background:    'var(--s-raised)',
-                border:        '1px solid var(--b-faint)',
-                borderRadius:  4,
-                padding:       '4px 10px',
-                letterSpacing: '0.06em',
-              }}>
-                <span style={{ color }}>{value}</span>
-                {value !== total && (
-                  <span style={{ color: 'var(--t-muted)', fontSize: 9 }}>/{total}</span>
-                )}
-                {' '}{label}
-              </div>
-            ))}
-          </div>
-        )}
+        {/* Repository selector */}
+        <RepoSelector showStats={false} />
       </div>
 
       {/* ── Toolbar ───────────────────────────────────────────────────────── */}

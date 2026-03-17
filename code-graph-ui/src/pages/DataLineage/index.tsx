@@ -22,6 +22,7 @@ import { SearchOutlined, ReloadOutlined } from "@ant-design/icons";
 import { useGraphStore } from "../../store/graphStore";
 import { useRepoStore } from "../../store/repoStore";
 import NodeDetailPanel from "../../components/NodeDetailPanel";
+import RepoSelector from "../../components/ui/RepoSelector";
 import type { GraphNode } from "../../types/graph";
 
 // ─── View modes ───────────────────────────────────────────────────────────────
@@ -495,6 +496,9 @@ const DataLineageInner: React.FC = () => {
             血缘图
           </Radio.Button>
         </Radio.Group>
+
+        {/* Repository selector */}
+        <RepoSelector showStats={false} width={200} />
 
         {/* Stats */}
         <div style={{ display: "flex", gap: 16, marginRight: "auto" }}>

@@ -104,6 +104,7 @@ export const graphEndpoints = {
     repo_path: string;
     repo_name?: string;
     languages?: string[];
+    depth?: "quick" | "standard" | "deep";
   }): Promise<AnalyzeAsyncResponse> {
     return apiClient.post("/analyze/repository", data);
   },
