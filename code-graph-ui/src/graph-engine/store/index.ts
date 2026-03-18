@@ -3,8 +3,6 @@ export {
   // Selectors
   selectNodeCount,
   selectEdgeCount,
-  selectVisibleNodeCount,
-  selectVisibleEdgeCount,
   selectClusterCount,
   selectIsLoading,
   selectCurrentLOD,
