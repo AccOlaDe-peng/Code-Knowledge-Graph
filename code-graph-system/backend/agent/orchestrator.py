@@ -28,7 +28,7 @@ from backend.agent.agents.data_lineage import DataLineageAgent
 from backend.agent.agents.api_endpoint import APIEndpointAgent
 from backend.agent.agents.cross_module import CrossModuleAgent
 from backend.graph.graph_schema import GraphNode, GraphEdge
-from backend.llm.client import LLMClient
+from backend.llm.client import LLMClient, RateLimitExhaustedError
 from backend.llm.context_monitor import ContextMonitor
 from backend.models.agent_output import AgentOutput
 
@@ -300,8 +300,6 @@ class AgentOrchestrator:
         module_outputs: dict[str, AgentOutput] = {}
 
         # 断点续跑：计算待处理模块
-        from backend.llm.client import RateLimitExhaustedError
-
         all_module_ids = [m.get("id", f"module_{i}") for i, m in enumerate(modules)]
         if self.checkpoint_manager is not None:
             pending_ids = set(self.checkpoint_manager.list_pending_modules(all_module_ids))
@@ -393,7 +391,7 @@ class AgentOrchestrator:
 
             except RateLimitExhaustedError:
                 pause_count += 1
-                if pause_count > RATE_LIMIT_MAX_PAUSES:
+                if pause_count >= RATE_LIMIT_MAX_PAUSES:
                     completed = len(self.checkpoint_manager.list_completed_modules()) if self.checkpoint_manager else 0
                     raise PartialResultError(
                         completed_count=completed,
