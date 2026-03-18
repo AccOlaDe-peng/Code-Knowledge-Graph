@@ -327,6 +327,16 @@ def _clone_repo(git_url: str, branch: Optional[str], tmp_dir: str) -> str:
         subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=300)
     except subprocess.CalledProcessError as e:
         raise ValueError(f"Git 克隆失败: {e.stderr.strip()}")
+
+
+def _checkout_branch(repo_path: str, branch: str) -> None:
+    """在本地仓库中切换到指定分支。"""
+    cmd = ["git", "-C", repo_path, "checkout", branch]
+    logger.info("git checkout: %s", " ".join(cmd))
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=30)
+    except subprocess.CalledProcessError as e:
+        raise ValueError(f"分支切换失败（branch={branch}）: {e.stderr.strip()}")
     except subprocess.TimeoutExpired:
         raise ValueError("Git 克隆超时（>5分钟）")
     return clone_dir
@@ -371,6 +381,13 @@ def analyze_repository(req: AnalyzeRequest):
         except ValueError as e:
             if tmp_dir:
                 shutil.rmtree(tmp_dir, ignore_errors=True)
+            raise HTTPException(status_code=400, detail=str(e))
+    elif req.branch:
+        # 本地路径 + 指定分支：切换到目标分支再分析
+        try:
+            _checkout_branch(analyze_path, req.branch)
+            logger.info("已切换到分支 %s，分析路径: %s", req.branch, analyze_path)
+        except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
     # 提交 Celery 任务（将 tmp_dir 传递给任务，由任务负责清理）
