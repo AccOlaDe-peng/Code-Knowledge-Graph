@@ -510,6 +510,21 @@ const Repository: React.FC = () => {
     const repoName = inferRepoName(repoPath, values.repoName);
     const repoId = `repo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+    // 持久化到后端
+    try {
+      await graphEndpoints.saveRepo({
+        repo_id: repoId,
+        repo_name: repoName,
+        repo_path: repoPath,
+        branch: values.branch,
+        source_mode: sourceMode,
+        language: values.languages ?? [],
+      });
+    } catch {
+      setSubmitError("保存失败，请检查后端服务是否正常");
+      return;
+    }
+
     addRepo({
       repoId,
       graphId: "",

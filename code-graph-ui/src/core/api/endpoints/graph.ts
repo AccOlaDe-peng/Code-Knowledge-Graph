@@ -51,6 +51,8 @@ export const graphEndpoints = {
         analysisMessage: g.message as string | undefined,
         error: g.error as string | undefined,
         repoPath: g.repo_path as string | undefined,
+        branch: g.branch as string | undefined,
+        sourceMode: (g.source_mode ?? g.sourceMode) as "local" | "git" | "zip" | undefined,
         lastAnalyzedAt: g.updated_at as string | undefined,
       })),
     };
@@ -94,6 +96,21 @@ export const graphEndpoints = {
    */
   async getServicesGraph(graphId: string): Promise<ServicesGraphResponse> {
     return apiClient.get("/services", { params: { graph_id: graphId } });
+  },
+
+  /**
+   * POST /repos/save
+   * Persist repo config without triggering analysis
+   */
+  async saveRepo(data: {
+    repo_id: string;
+    repo_name: string;
+    repo_path: string;
+    branch?: string;
+    source_mode?: string;
+    language?: string[];
+  }): Promise<{ repo_id: string; status: string }> {
+    return apiClient.post("/repos/save", data);
   },
 
   /**

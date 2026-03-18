@@ -129,6 +129,9 @@ class RepoStatusStore:
         node_count: int = 0,
         edge_count: int = 0,
         error: Optional[str] = None,
+        branch: Optional[str] = None,
+        source_mode: Optional[str] = None,
+        language: Optional[list[str]] = None,
     ) -> dict[str, Any]:
         """设置仓库状态（创建或更新）。"""
         all_data = self._load_all()
@@ -152,6 +155,9 @@ class RepoStatusStore:
             "node_count": node_count or existing.get("node_count", 0),
             "edge_count": edge_count or existing.get("edge_count", 0),
             "error": error,
+            "branch": branch if branch is not None else existing.get("branch"),
+            "source_mode": source_mode if source_mode is not None else existing.get("source_mode"),
+            "language": language if language is not None else existing.get("language", []),
             "created_at": created_at,
             "updated_at": now,
         }

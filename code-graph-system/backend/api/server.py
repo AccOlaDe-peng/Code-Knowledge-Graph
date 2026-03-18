@@ -342,8 +342,38 @@ def _checkout_branch(repo_path: str, branch: str) -> None:
     return clone_dir
 
 
+class SaveRepoRequest(BaseModel):
+    """POST /repos/save 请求体：保存仓库配置（不触发分析）。"""
+    repo_id:     str                     = Field(description="前端生成的仓库 ID")
+    repo_name:   str                     = Field(description="仓库名称")
+    repo_path:   str                     = Field(description="本地路径或 Git URL")
+    branch:      Optional[str]           = Field(default=None, description="Git 分支")
+    source_mode: Optional[str]           = Field(default=None, description="local | git | zip")
+    language:    Optional[list[str]]     = Field(default=None, description="分析语言列表")
+
+
+@app.post("/repos/save", tags=["仓库"])
+def save_repo(req: SaveRepoRequest):
+    """保存仓库配置到持久化存储（不触发分析）。
+
+    前端新建仓库时调用，使仓库在刷新后仍可见。
+    """
+    from backend.store.repo_status_store import get_repo_status_store
+    status_store = get_repo_status_store()
+    status_store.set_status(
+        req.repo_id,
+        repo_name=req.repo_name,
+        repo_path=req.repo_path,
+        status="saved",
+        branch=req.branch,
+        source_mode=req.source_mode,
+        language=req.language or [],
+    )
+    logger.info("仓库已保存: %s (%s)", req.repo_name, req.repo_id)
+    return {"repo_id": req.repo_id, "status": "saved"}
+
+
 @app.post("/analyze/repository", response_model=AnalyzeAsyncResponse, tags=["分析"])
-def analyze_repository(req: AnalyzeRequest):
     """
     提交代码仓库分析任务（异步）。立即返回 task_id，分析在后台进行。
 
@@ -771,6 +801,10 @@ def get_graph(
                 "message": repo.get("message", ""),
                 "error": repo.get("error"),
                 "repo_path": repo.get("repo_path", ""),
+                "branch": repo.get("branch"),
+                "source_mode": repo.get("source_mode"),
+                "language": repo.get("language", []),
+                "repo_id": repo.get("repo_id", ""),
             }
             graphs.append(graph_info)
 
