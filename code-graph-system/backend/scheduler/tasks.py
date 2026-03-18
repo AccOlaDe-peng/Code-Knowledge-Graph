@@ -24,9 +24,12 @@ Celery 异步任务定义。
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
+import shutil
+import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,6 +47,109 @@ logger = get_task_logger(__name__)
 
 _REDIS_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 _redis_pool = None
+
+
+# ---------------------------------------------------------------------------
+# Git 缓存辅助
+# ---------------------------------------------------------------------------
+
+# 持久化 git 克隆缓存目录
+_GIT_CACHE_BASE = Path(__file__).parent.parent.parent / "data" / "git_cache"
+
+
+def _is_git_url(path: str) -> bool:
+    """判断是否为 Git 远程 URL。"""
+    return (
+        path.startswith("git@")
+        or path.startswith("https://")
+        or path.startswith("http://")
+        or path.startswith("ssh://")
+    )
+
+
+def _git_cache_key(git_url: str, branch: Optional[str]) -> str:
+    """根据 git URL + branch 生成唯一缓存目录名。"""
+    raw = f"{git_url}#{branch or 'default'}"
+    return hashlib.md5(raw.encode()).hexdigest()[:16]
+
+
+def _get_cached_repo_path(git_url: str, branch: Optional[str]) -> Path:
+    """返回对应 git URL + branch 的本地缓存路径（不保证已存在）。"""
+    key = _git_cache_key(git_url, branch)
+    return _GIT_CACHE_BASE / key
+
+
+def _is_valid_git_repo(path: Path, expected_url: str) -> bool:
+    """检查本地目录是否为有效的 git 仓库且 remote URL 匹配。"""
+    if not path.exists() or not (path / ".git").exists():
+        return False
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(path), "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            return False
+        actual_url = result.stdout.strip()
+        return actual_url == expected_url
+    except Exception:
+        return False
+
+
+def _ensure_local_repo(
+    git_url: str,
+    branch: Optional[str],
+    on_progress: Optional[Any] = None,
+) -> Path:
+    """确保 git 仓库已克隆到本地缓存目录，返回本地路径。
+
+    - 若缓存已存在且 remote URL 匹配，直接复用，跳过克隆。
+    - 若缓存不存在或损坏，重新克隆。
+    """
+    _GIT_CACHE_BASE.mkdir(parents=True, exist_ok=True)
+    cache_path = _get_cached_repo_path(git_url, branch)
+
+    if _is_valid_git_repo(cache_path, git_url):
+        logger.info("使用本地缓存仓库（跳过克隆）: %s -> %s", git_url, cache_path)
+        if on_progress:
+            on_progress({
+                "status": "running",
+                "step": "git_clone",
+                "stage": "git_clone",
+                "message": f"本地缓存已存在，跳过克隆: {cache_path.name}",
+            })
+        return cache_path
+
+    # 缓存不存在或损坏，重新克隆
+    if cache_path.exists():
+        logger.warning("缓存目录损坏，清理后重新克隆: %s", cache_path)
+        shutil.rmtree(cache_path, ignore_errors=True)
+
+    if on_progress:
+        on_progress({
+            "status": "running",
+            "step": "git_clone",
+            "stage": "git_clone",
+            "message": f"正在克隆仓库: {git_url}" + (f" (分支: {branch})" if branch else ""),
+        })
+
+    cmd = ["git", "clone", "--depth=1"]
+    if branch:
+        cmd += ["--branch", branch]
+    cmd += [git_url, str(cache_path)]
+    logger.info("git clone: %s", " ".join(cmd))
+
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=600)
+    except subprocess.CalledProcessError as e:
+        shutil.rmtree(cache_path, ignore_errors=True)
+        raise ValueError(f"Git 克隆失败: {e.stderr.strip()}")
+    except subprocess.TimeoutExpired:
+        shutil.rmtree(cache_path, ignore_errors=True)
+        raise ValueError("Git 克隆超时（>10分钟）")
+
+    logger.info("克隆完成: %s", cache_path)
+    return cache_path
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +275,7 @@ def analyze_repository(
     repo_path: str,
     *,
     repo_name: str = "",
+    branch: Optional[str] = None,
     languages: Optional[list[str]] = None,
     tmp_dir: Optional[str] = None,
     depth: str = "standard",
@@ -176,10 +283,11 @@ def analyze_repository(
     """全量分析代码仓库，构建并持久化知识图谱（默认启用 AI + RAG）。
 
     Args:
-        repo_path:  仓库根目录（本地绝对路径）。
+        repo_path:  仓库根目录（本地绝对路径）或 Git 远程 URL（https/ssh）。
         repo_name:  图谱名称，空字符串时使用目录名。
+        branch:     Git 分支名（仅当 repo_path 为 Git URL 时生效）。
         languages:  限定语言，如 ``["python", "typescript"]``，None 自动探测。
-        tmp_dir:    临时目录路径（Git 克隆时使用），任务完成后自动清理。
+        tmp_dir:    已废弃，保留仅用于向后兼容，不再使用。
         depth:      分析深度 (quick | standard | deep)，默认 standard。
 
     Returns::
@@ -205,17 +313,54 @@ def analyze_repository(
         ValueError: 仓库路径不存在，或未找到可分析文件。
     """
     task_id = self.request.id
-    path = Path(repo_path).resolve()
 
     # 验证 depth 参数
     valid_depths = ("quick", "standard", "deep")
     if depth not in valid_depths:
         raise ValueError(f"Invalid depth: {depth}. Must be one of: {', '.join(valid_depths)}")
 
-    logger.info("analyze_repository START  path=%s  task=%s  depth=%s", path, task_id, depth)
+    logger.info("analyze_repository START  repo=%s  task=%s  depth=%s", repo_path, task_id, depth)
 
     t_start = time.time()
     status_store = get_repo_status_store()
+
+    # ── 使用 repo_name 或路径名作为 repo_id（提前确定，供进度回调使用）─────
+    _initial_repo_id = repo_name or Path(repo_path).name.split("?")[0]
+
+    # ── 如果是 Git URL，在任务内部处理克隆/缓存 ──────────────────────────
+    if _is_git_url(repo_path):
+        git_url = repo_path
+
+        # 定义早期进度发布（status_store 此时还未 set_analyzing）
+        def _early_progress(event: dict) -> None:
+            publish_progress(task_id, event)
+            try:
+                self.update_state(state="PROGRESS", meta=event)
+            except Exception:
+                pass
+
+        _early_progress({
+            "status": "running",
+            "step": "git_clone",
+            "stage": "git_clone",
+            "message": f"准备克隆仓库: {git_url}" + (f" (分支: {branch})" if branch else ""),
+        })
+
+        try:
+            local_path = _ensure_local_repo(git_url, branch, on_progress=_early_progress)
+        except ValueError as exc:
+            _early_progress({
+                "status": "failed",
+                "error": str(exc),
+                "elapsed_seconds": round(time.time() - t_start, 3),
+            })
+            status_store.set_failed(_initial_repo_id, error=str(exc))
+            logger.error("analyze_repository FAILED (git clone): %s", exc)
+            raise
+
+        path = local_path.resolve()
+    else:
+        path = Path(repo_path).resolve()
 
     # 创建分析配置
     from backend.agent.config import AnalysisConfig
@@ -224,6 +369,7 @@ def analyze_repository(
 
     # 使用 repo_name 或路径名作为 repo_id
     repo_id = repo_name or path.name
+    _initial_repo_id = repo_id  # 覆盖前置定义，确保一致
 
     # ── 标记为分析中 ──────────────────────────────────────────────
     status_store.set_analyzing(

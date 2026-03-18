@@ -327,6 +327,9 @@ def _clone_repo(git_url: str, branch: Optional[str], tmp_dir: str) -> str:
         subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=300)
     except subprocess.CalledProcessError as e:
         raise ValueError(f"Git 克隆失败: {e.stderr.strip()}")
+    except subprocess.TimeoutExpired:
+        raise ValueError("Git 克隆超时（>5分钟）")
+    return clone_dir
 
 
 def _checkout_branch(repo_path: str, branch: str) -> None:
@@ -338,8 +341,7 @@ def _checkout_branch(repo_path: str, branch: str) -> None:
     except subprocess.CalledProcessError as e:
         raise ValueError(f"分支切换失败（branch={branch}）: {e.stderr.strip()}")
     except subprocess.TimeoutExpired:
-        raise ValueError("Git 克隆超时（>5分钟）")
-    return clone_dir
+        raise ValueError("git checkout 超时（>30秒）")
 
 
 class SaveRepoRequest(BaseModel):
@@ -374,6 +376,7 @@ def save_repo(req: SaveRepoRequest):
 
 
 @app.post("/analyze/repository", response_model=AnalyzeAsyncResponse, tags=["分析"])
+def analyze_repository(req: AnalyzeRequest):
     """
     提交代码仓库分析任务（异步）。立即返回 task_id，分析在后台进行。
 
@@ -399,53 +402,32 @@ def save_repo(req: SaveRepoRequest):
 
     logger.info("POST /analyze/repository  path=%s  depth=%s", req.repo_path, req.depth)
 
-    analyze_path = req.repo_path
-    tmp_dir: Optional[str] = None
-
-    # Git URL 克隆（同步，在提交 Celery 任务前完成）
-    if _is_git_url(req.repo_path):
-        try:
-            tmp_dir = tempfile.mkdtemp(prefix="ckg_git_")
-            analyze_path = _clone_repo(req.repo_path, req.branch, tmp_dir)
-            logger.info("克隆完成，分析路径: %s", analyze_path)
-        except ValueError as e:
-            if tmp_dir:
-                shutil.rmtree(tmp_dir, ignore_errors=True)
-            raise HTTPException(status_code=400, detail=str(e))
-    elif req.branch:
-        # 本地路径 + 指定分支：切换到目标分支再分析
-        try:
-            _checkout_branch(analyze_path, req.branch)
-            logger.info("已切换到分支 %s，分析路径: %s", req.branch, analyze_path)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-    # 提交 Celery 任务（将 tmp_dir 传递给任务，由任务负责清理）
+    # 提交 Celery 任务（git 克隆/缓存检查由任务内部处理，接口立即返回）
     job = celery_analyze.apply_async(
-        args=[analyze_path],
+        args=[req.repo_path],
         kwargs={
             "repo_name": req.repo_name,
+            "branch": req.branch,
             "languages": req.languages,
-            "tmp_dir": tmp_dir,  # 传递临时目录路径，任务完成后清理
-            "depth": req.depth,  # 传递分析深度
+            "depth": req.depth,
         },
     )
     task_id: str = job.id
     _register_task_id(task_id)
 
-    # 在状态存储中注册分析任务（使用 repo_name 或路径名作为 repo_id）
+    # 在状态存储中注册分析任务
     from backend.store.repo_status_store import get_repo_status_store
     from pathlib import Path
-    repo_id = req.repo_name or Path(analyze_path).name
+    repo_id = req.repo_name or Path(req.repo_path).name.split("?")[0]
     status_store = get_repo_status_store()
     status_store.set_analyzing(
         repo_id,
         task_id=task_id,
-        repo_name=req.repo_name or Path(analyze_path).name,
-        repo_path=analyze_path,
+        repo_name=req.repo_name or repo_id,
+        repo_path=req.repo_path,
     )
 
-    logger.info("任务已提交  task_id=%s  path=%s  depth=%s  tmp_dir=%s", task_id, analyze_path, req.depth, tmp_dir)
+    logger.info("任务已提交  task_id=%s  repo=%s  depth=%s", task_id, req.repo_path, req.depth)
 
     return AnalyzeAsyncResponse(task_id=task_id, status="pending")
 
