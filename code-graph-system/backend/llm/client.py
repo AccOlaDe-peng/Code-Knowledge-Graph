@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, TYPE_CHECKING
 
 from backend.llm.types import ToolCallLoopResult
@@ -11,6 +12,22 @@ if TYPE_CHECKING:
     from backend.llm.context_monitor import ContextMonitor
 
 logger = logging.getLogger(__name__)
+
+
+class RateLimitExhaustedError(Exception):
+    """连续 429 超过退避阈值后抛出，由 Orchestrator 上层处理。"""
+    pass
+
+
+def _is_rate_limit_error(e: Exception) -> bool:
+    msg = str(e).lower()
+    return "429" in msg or "rate_limit" in msg or "usage limit exceeded" in msg
+
+
+# 退避配置（可通过环境变量覆盖）
+RATE_LIMIT_MAX_CONSECUTIVE = int(os.environ.get("RATE_LIMIT_MAX_CONSECUTIVE", "5"))
+RATE_LIMIT_BASE_WAIT = int(os.environ.get("RATE_LIMIT_BASE_WAIT_SECONDS", "5"))
+RATE_LIMIT_MAX_WAIT = int(os.environ.get("RATE_LIMIT_MAX_WAIT_SECONDS", "120"))
 
 
 def extract_token_usage(response: Any, provider: str) -> tuple[int, int]:
@@ -78,6 +95,7 @@ class LLMClient:
             "openai": "gpt-4o",
             "ollama": "llama3.2",
             "minimax": "MiniMax-M2.5",
+            "zhipu": "glm-4-plus",
         }
         return defaults.get(provider, "claude-sonnet-4-6")
 
@@ -115,6 +133,14 @@ class LLMClient:
                 )
             except ImportError:
                 raise RuntimeError("openai 包未安装（用于 Ollama 兼容接口）")
+
+        elif self.provider == "zhipu":
+            try:
+                import openai
+                base_url = self.base_url or "https://open.bigmodel.cn/api/paas/v4/"
+                self._client = openai.OpenAI(api_key=self.api_key, base_url=base_url)
+            except ImportError:
+                raise RuntimeError("openai 包未安装，请运行: pip install openai")
 
         else:
             raise ValueError(f"不支持的 LLM 提供商: {self.provider}")
@@ -220,6 +246,7 @@ class LLMClient:
         # 复制消息历史
         current_messages = list(messages)
 
+        consecutive_429 = 0
         while iterations < max_iterations:
             iterations += 1
             iteration_start = time.time()
@@ -332,8 +359,8 @@ class LLMClient:
                     # OpenAI tool call 实现（简化版）
                     openai_messages = [{"role": "system", "content": system}] + current_messages
 
-                    # 检查是否支持 function calling（MiniMax 等某些提供商不完全支持）
-                    supports_tools = self.provider not in ("minimax",)
+                    # 检查是否支持 function calling（MiniMax、Ollama 等某些提供商不完全支持）
+                    supports_tools = self.provider not in ("minimax", "ollama")
 
                     if supports_tools and tools:
                         response = client.chat.completions.create(
@@ -451,6 +478,21 @@ class LLMClient:
                         errors=errors,
                     )
 
+                # 429 限速：退避等待，超阈值则 raise 穿透出循环
+                if _is_rate_limit_error(e):
+                    consecutive_429 += 1
+                    if consecutive_429 > RATE_LIMIT_MAX_CONSECUTIVE:
+                        raise RateLimitExhaustedError(
+                            f"连续 {consecutive_429} 次 429，退出重试"
+                        )
+                    wait = min(RATE_LIMIT_BASE_WAIT * (2 ** consecutive_429), RATE_LIMIT_MAX_WAIT)
+                    logger.warning("429 限速（第 %d 次），等待 %ds 后重试", consecutive_429, wait)
+                    time.sleep(wait)
+                    iterations -= 1   # 等待不消耗迭代次数
+                    continue
+
+                # 其他错误：重置计数器，继续迭代
+                consecutive_429 = 0
                 errors.append(f"迭代 {iterations} 出错: {error_msg}")
                 logger.error(f"tool_call_loop 迭代 {iterations} 出错: {e}", exc_info=True)
 
