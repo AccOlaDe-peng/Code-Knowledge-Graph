@@ -20,7 +20,7 @@ from typing import Any, Callable, Optional
 
 from backend.agent.agents.module_scanner import ModuleScannerAgent
 from backend.agent.context import AgentContext, SharedKnowledgeBase
-from backend.agent.orchestrator import AgentOrchestrator
+from backend.agent.orchestrator import AgentOrchestrator, PartialResultError
 from backend.graph.graph_builder import BuiltGraph, GraphBuilder
 from backend.graph.graph_repository import GraphRepository
 from backend.graph.graph_schema import GraphNode, GraphEdge
@@ -246,6 +246,7 @@ class AIPipeline:
         provider = os.environ.get("LLM_PROVIDER", self.config.provider)
         api_key = (
             os.environ.get("LLM_API_KEY") or
+            os.environ.get("ZHIPU_API_KEY") or
             os.environ.get("ANTHROPIC_API_KEY") or
             os.environ.get("OPENAI_API_KEY") or
             os.environ.get("MINIMAX_API_KEY")
@@ -368,10 +369,47 @@ class AIPipeline:
             llm_client=llm_client,
         )
 
-        # 运行架构分析
-        result = orchestrator.run_architecture_analysis()
+        # 运行架构分析，捕获 PartialResultError 以保存部分图谱
+        try:
+            result = orchestrator.run_architecture_analysis()
+            return result.nodes, result.edges
+        except PartialResultError as exc:
+            # 尝试保存部分结果
+            if orchestrator.checkpoint_manager is not None:
+                try:
+                    partial_nodes, partial_edges = orchestrator.checkpoint_manager.load_partial_results()
+                    if partial_nodes or partial_edges:
+                        # 将 dict 转换为 GraphNode/GraphEdge 对象
+                        node_objs = [
+                            GraphNode(**n) if isinstance(n, dict) else n
+                            for n in partial_nodes
+                        ]
+                        edge_objs = [
+                            GraphEdge(**e) if isinstance(e, dict) else e
+                            for e in partial_edges
+                        ]
 
-        return result.nodes, result.edges
+                        # 构建并保存部分图谱
+                        builder = GraphBuilder().add_nodes(node_objs).add_edges(edge_objs)
+                        built = builder.build()
+                        graph_id = self._repo.save(built)
+
+                        # 创建 AIAnalysisResult 并附加到异常
+                        exc.result = AIAnalysisResult(
+                            graph_id=graph_id,
+                            nodes=node_objs,
+                            edges=edge_objs,
+                            status="partial",
+                        )
+                        logger.warning(
+                            "部分结果已保存: graph_id=%s, nodes=%d, edges=%d",
+                            graph_id, len(node_objs), len(edge_objs)
+                        )
+                except Exception as save_err:
+                    logger.error("保存部分结果失败: %s", save_err)
+
+            # re-raise，让上层（tasks.py）处理最终状态
+            raise
 
     def _analyze_with_complete(
         self,
