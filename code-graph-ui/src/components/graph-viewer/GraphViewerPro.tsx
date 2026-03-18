@@ -2,11 +2,11 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Button, Checkbox, Divider, Drawer, Slider } from 'antd'
 import { useGraphEngineStore } from '../../graph-engine/store'
 import { createGraphLoader } from '../../graph-engine/loader'
-import { getLayoutWorker, terminateLayoutWorker } from '../../graph-engine/layout'
 import type { GraphLoader } from '../../graph-engine/loader'
 import type { EngineGraphNode } from '../../graph-engine/types'
 import { getNodeTypeColor } from '../../theme'
 import { GraphCanvas } from '../graph/GraphCanvas'
+import type { CyHandle } from '../graph/GraphCanvas'
 import { GraphToolbar } from './GraphToolbar'
 import { GraphSidePanel } from './GraphSidePanel'
 import { GraphMiniMap } from './GraphMiniMap'
@@ -50,6 +50,7 @@ export const GraphViewerPro: React.FC<GraphViewerProProps> = ({
 
   // ── Store refs ────────────────────────────────────────────────────────────
   const loaderRef = useRef<GraphLoader | null>(null)
+  const cyRef     = useRef<CyHandle | null>(null)
 
   const initGraph      = useGraphEngineStore(s => s.initGraph)
   const destroyGraph   = useGraphEngineStore(s => s.destroyGraph)
@@ -68,14 +69,22 @@ export const GraphViewerPro: React.FC<GraphViewerProProps> = ({
     const loader = createGraphLoader(graphId)
     loaderRef.current = loader
 
-    // Load initial graph summary then compute layout
+    const t0 = performance.now()
+
+    // Load initial graph (LOD-0: Repository + Module)
     loader.loadInitialGraph()
+      .then((result) => {
+        if (!cyRef.current) return  // unmounted
+        cyRef.current.clear()
+        cyRef.current.addElements(result.nodes, result.edges)
+        return cyRef.current.runLayout('dagre')
+      })
       .then(() => {
-        const worker = getLayoutWorker()
-        return worker.computeLayoutFromStore()
+        if (!cyRef.current) return
+        cyRef.current.fit()
+        console.log(`[GraphViewerPro] initial load: ${Math.round(performance.now() - t0)}ms`)
       })
       .catch(err => {
-        // Errors are already set in the store's loading.error
         console.error('[GraphViewerPro] load failed:', err)
       })
 
@@ -83,7 +92,6 @@ export const GraphViewerPro: React.FC<GraphViewerProProps> = ({
       loader.abort()
       loaderRef.current = null
       destroyGraph()
-      terminateLayoutWorker()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graphId])
@@ -92,8 +100,8 @@ export const GraphViewerPro: React.FC<GraphViewerProProps> = ({
   const handleRunLayout = useCallback(async () => {
     setLayoutRunning(true)
     try {
-      const worker = getLayoutWorker()
-      await worker.computeLayoutFromStore()
+      await cyRef.current?.runLayout('dagre')
+      cyRef.current?.fit()
     } finally {
       setLayoutRunning(false)
     }
@@ -118,11 +126,22 @@ export const GraphViewerPro: React.FC<GraphViewerProProps> = ({
   // ── Expand node ───────────────────────────────────────────────────────────
   const handleExpandNode = useCallback(async (nodeId: string) => {
     const loader = loaderRef.current
-    if (!loader) return
-    await loader.expandNode(nodeId)
-    // Re-layout after expansion
-    getLayoutWorker().computeLayoutFromStore().catch(() => undefined)
-  }, [])
+    const cy     = cyRef.current
+    if (!loader || !cy) return
+
+    useGraphEngineStore.getState().setExpandingNode(nodeId)
+    try {
+      const { nodes, edges } = await loader.expandNodeRaw(nodeId)
+      cy.addElements(nodes, edges)
+      await cy.runLayout('dagre', true)  // incrementalOnly = true
+      cy.focusNode(nodeId)
+      useGraphEngineStore.getState().markExpanded(nodeId)
+      useGraphEngineStore.getState().mergeNodes(nodes)
+      useGraphEngineStore.getState().mergeEdges(edges)
+    } finally {
+      useGraphEngineStore.getState().setExpandingNode(null)
+    }
+  }, []) // no deps: uses refs and getState() calls
 
   // ── Reset ─────────────────────────────────────────────────────────────────
   const handleReset = useCallback(() => {
@@ -178,7 +197,7 @@ export const GraphViewerPro: React.FC<GraphViewerProProps> = ({
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
         {/* ── Canvas wrap ──────────────────────────────────────────────── */}
         <div ref={canvasWrapRef} style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-          <CanvasWithEvents wrapRef={canvasWrapRef} />
+          <CanvasWithEvents wrapRef={canvasWrapRef} cyRef={cyRef} />
 
           {/* ── Floating search panel ─────────────────────────────────── */}
           {isSearchOpen && (
@@ -261,37 +280,17 @@ export const GraphViewerPro: React.FC<GraphViewerProProps> = ({
 // For simplicity we rely on GraphCanvas's built-in controls (showControls=true)
 // but hide the toolbar duplicates by passing showControls=false.
 
-const CanvasWithEvents: React.FC<{ wrapRef: React.RefObject<HTMLDivElement | null> }> = ({
+const CanvasWithEvents: React.FC<{ wrapRef: React.RefObject<HTMLDivElement | null>; cyRef: React.RefObject<CyHandle | null> }> = ({
   wrapRef,
+  cyRef,
 }) => {
-  // Keep a tiny internal ref to communicate zoom commands. Since GraphCanvas
-  // doesn't expose a ref API, we exploit the fact that it renders its own
-  // zoom controls. We mount GraphCanvas with showControls=false and handle
-  // zoom purely through toolbar + store events.
-  //
-  // The actual zoom-in/out/fit are dispatched to GraphCanvas's internal cy by
-  // re-enabling showControls and programmatically clicking the internal buttons.
-  // However, that approach is fragile. Instead, we just use showControls=true
-  // (GraphCanvas has top-right buttons) and acknowledge that toolbar buttons
-  // are redundant wrappers that call GraphCanvas buttons — or we let
-  // GraphCanvas own zoom and remove the toolbar zoom buttons.
-  //
-  // For this implementation: GraphCanvas renders its own zoom buttons (bottom-
-  // right), and the Toolbar zoom buttons are also shown. The cy-* events from
-  // dispatch() above will be ignored (no handler here) — the user can use
-  // either the toolbar buttons or the canvas buttons.
-  //
-  // To properly wire toolbar → cy, a future refactor should expose an
-  // imperative handle via React.forwardRef + useImperativeHandle on GraphCanvas.
-
-  // Suppress unused prop warning: wrapRef is passed but used only for
-  // DOM event dispatch in GraphViewerPro above. No logic needed here.
   void wrapRef
 
   return (
     <GraphCanvas
+      ref={cyRef}
       height="100%"
-      showStats={false}
+      showStats={true}
       showControls={true}
     />
   )
