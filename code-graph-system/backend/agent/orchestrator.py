@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -31,6 +33,20 @@ from backend.llm.context_monitor import ContextMonitor
 from backend.models.agent_output import AgentOutput
 
 logger = logging.getLogger(__name__)
+
+# 限速暂停配置（可通过环境变量覆盖）
+RATE_LIMIT_MAX_PAUSES = int(os.environ.get("RATE_LIMIT_MAX_PAUSES", "3"))
+RATE_LIMIT_PAUSE_MINUTES = int(os.environ.get("RATE_LIMIT_PAUSE_MINUTES", "10"))
+
+
+class PartialResultError(Exception):
+    """持续限速导致提前退出，携带已完成模块数量信息。"""
+
+    def __init__(self, completed_count: int, total_count: int):
+        self.completed_count = completed_count
+        self.total_count = total_count
+        self.result = None   # 由 pipeline 层在 re-raise 前赋值
+        super().__init__(f"部分完成: {completed_count}/{total_count} 个模块")
 
 
 @dataclass
@@ -91,6 +107,36 @@ class AgentOrchestrator:
                 })
             except Exception:
                 pass
+
+    def _wait_with_heartbeat(self, total_minutes: int) -> None:
+        """分段睡眠，每 2 分钟发送一次 rate_limited 心跳事件。"""
+        interval = 120  # 每 2 分钟
+        elapsed = 0
+        total_seconds = total_minutes * 60
+        while elapsed < total_seconds:
+            sleep_time = min(interval, total_seconds - elapsed)
+            time.sleep(sleep_time)
+            elapsed += sleep_time
+            self._emit_progress(
+                "orchestrator",
+                "rate_limited",
+                f"等待 API 配额恢复，已等待 {elapsed // 60} 分钟...",
+                wait_minutes=elapsed // 60,
+            )
+
+    def _run_agent_for_module(self, module: dict) -> Any:
+        """对单个模块运行 ArchitectureAgent，返回 AgentOutput。"""
+        module_id = module.get("id", "unknown")
+        context = self._create_context(module_id)
+
+        # 注入聚合的共享知识
+        if self.checkpoint_manager is not None:
+            aggregated = self.checkpoint_manager.get_aggregated_knowledge()
+            context.shared_knowledge.modules = aggregated.get("modules", [])
+            context.shared_knowledge.layers = aggregated.get("layers", [])
+
+        agent = ArchitectureAgent(context=context, llm_client=self.llm_client)
+        return agent.run()
 
     def _create_context(self, module_id: str = None) -> AgentContext:
         """创建 Agent 上下文。"""
@@ -253,9 +299,31 @@ class AgentOrchestrator:
         all_edges: list[GraphEdge] = []
         module_outputs: dict[str, AgentOutput] = {}
 
-        for i, module in enumerate(modules):
+        # 断点续跑：计算待处理模块
+        from backend.llm.client import RateLimitExhaustedError
+
+        all_module_ids = [m.get("id", f"module_{i}") for i, m in enumerate(modules)]
+        if self.checkpoint_manager is not None:
+            pending_ids = set(self.checkpoint_manager.list_pending_modules(all_module_ids))
+        else:
+            pending_ids = set(all_module_ids)
+
+        completed_count = len(all_module_ids) - len(pending_ids)
+        if completed_count > 0:
+            logger.info("断点续跑：已完成 %d/%d 个模块，续跑剩余", completed_count, len(all_module_ids))
+
+        pause_count = 0
+        i = 0
+
+        while i < len(modules):
+            module = modules[i]
             module_id = module.get("id", f"module_{i}")
             module_name = module.get("name", f"Module {i}")
+
+            # 跳过已完成模块
+            if module_id not in pending_ids:
+                i += 1
+                continue
 
             logger.info(f"分析模块 [{i + 1}/{len(modules)}]: {module_name}")
             self._emit_progress(
@@ -265,19 +333,8 @@ class AgentOrchestrator:
                 module_id=module_id,
             )
 
-            # 创建新的上下文
-            context = self._create_context(module_id)
-
-            # 注入聚合的共享知识
-            if self.checkpoint_manager is not None:
-                aggregated = self.checkpoint_manager.get_aggregated_knowledge()
-                context.shared_knowledge.modules = aggregated.get("modules", [])
-                context.shared_knowledge.layers = aggregated.get("layers", [])
-
-            # 运行 Agent
             try:
-                agent = ArchitectureAgent(context=context, llm_client=self.llm_client)
-                output = agent.run()
+                output = self._run_agent_for_module(module)
                 module_outputs[module_id] = output
 
                 # 保存检查点
@@ -291,6 +348,8 @@ class AgentOrchestrator:
                     elif output.status == "failed":
                         checkpoint_status = CHECKPOINT_STATUS_FAILED
 
+                    # 获取运行时上下文（由 _run_agent_for_module 内部创建）
+                    context = self._create_context(module_id)
                     checkpoint = ModuleCheckpoint(
                         module_id=module_id,
                         module_name=module_name,
@@ -330,6 +389,21 @@ class AgentOrchestrator:
                         module_id=module_id,
                     )
 
+                i += 1  # 成功处理后才递进
+
+            except RateLimitExhaustedError:
+                pause_count += 1
+                if pause_count > RATE_LIMIT_MAX_PAUSES:
+                    completed = len(self.checkpoint_manager.list_completed_modules()) if self.checkpoint_manager else 0
+                    raise PartialResultError(
+                        completed_count=completed,
+                        total_count=len(modules),
+                    )
+                pause_minutes = RATE_LIMIT_PAUSE_MINUTES * (2 ** (pause_count - 1))
+                logger.warning("持续限速（第 %d 次暂停），等待 %d 分钟", pause_count, pause_minutes)
+                self._wait_with_heartbeat(pause_minutes)
+                # i 不递进，等待后重试同一模块
+
             except Exception as e:
                 logger.error(f"模块 {module_name} 执行失败: {e}", exc_info=True)
                 self._emit_progress(
@@ -340,6 +414,11 @@ class AgentOrchestrator:
                 )
                 # 重置上下文监控器，确保下一个模块能正常开始
                 self._reset_context_monitor()
+                i += 1  # 非限速错误跳过
+
+        # 全部完成，清理检查点
+        if self.checkpoint_manager is not None:
+            self.checkpoint_manager.clear()
 
         # 确定最终状态
         successful = [o for o in module_outputs.values() if o.status == "success"]
