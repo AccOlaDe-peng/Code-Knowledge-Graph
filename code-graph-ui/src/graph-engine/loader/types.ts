@@ -95,6 +95,8 @@ export type BatchResponse = {
 // Returned by GraphLoader methods after the store has been updated.
 
 export type LoadInitialResult = {
+  nodes:          import('../types').EngineGraphNode[]
+  edges:          import('../types').EngineGraphEdge[]
   nodeCount:      number
   edgeCount:      number
   /** Full-graph totals (for streaming-progress UX). */

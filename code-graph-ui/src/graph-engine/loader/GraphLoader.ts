@@ -122,6 +122,8 @@ export class GraphLoader {
       store.setLoadingStatus('done')
 
       return {
+        nodes,
+        edges,
         nodeCount:      nodes.length,
         edgeCount:      edges.length,
         totalNodeCount: data.total_node_count,
@@ -130,7 +132,7 @@ export class GraphLoader {
     } catch (err) {
       if ((err as Error).name === 'AbortError') {
         // Silently swallow — caller triggered abort()
-        return { nodeCount: 0, edgeCount: 0, totalNodeCount: 0, totalEdgeCount: 0 }
+        return { nodes: [], edges: [], nodeCount: 0, edgeCount: 0, totalNodeCount: 0, totalEdgeCount: 0 }
       }
       store.setLoadingError((err as Error).message)
       throw err
@@ -163,7 +165,6 @@ export class GraphLoader {
       store.mergeNodes(nodes)
       store.mergeEdges(edges)
       store.markExpanded(nodeId)
-      store.recomputeVisibleEdges()
 
       return {
         nodeId,
@@ -177,7 +178,37 @@ export class GraphLoader {
     }
   }
 
-  // ── 3. Load Next Batch (Pagination) ───────────────────────────────────────
+  // ── 3. Expand Node Raw (Return Without Storing) ───────────────────────────
+
+  /**
+   * Fetch the direct children of `nodeId` and return them directly.
+   *
+   * Unlike `expandNode`, this method does NOT write to the store.
+   * The caller is responsible for adding elements to the canvas via CyHandle.
+   *
+   * @returns Normalized nodes/edges, or empty arrays if the request fails.
+   */
+  async expandNodeRaw(nodeId: string): Promise<{
+    nodes: EngineGraphNode[]
+    edges: EngineGraphEdge[]
+    hasMore: boolean
+  }> {
+    try {
+      const data = await this.fetchExpand(nodeId)
+      return {
+        nodes:   normalizeNodes(data.nodes),
+        edges:   normalizeEdges(data.edges),
+        hasMore: data.has_more,
+      }
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') {
+        return { nodes: [], edges: [], hasMore: false }
+      }
+      throw err
+    }
+  }
+
+  // ── 4. Load Next Batch (Pagination) ───────────────────────────────────────
 
   /**
    * Fetch the next page of the full graph and stream it into the store.
@@ -362,8 +393,6 @@ export class GraphLoader {
         },
 
         onComplete: () => {
-          // Final edge visibility pass after all nodes + edges are in store
-          store.recomputeVisibleEdges()
           resolve()
         },
 
