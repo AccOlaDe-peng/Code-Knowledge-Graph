@@ -42,6 +42,7 @@ from celery.utils.log import get_task_logger
 
 from backend.scheduler.celery_app import celery_app
 from backend.store.repo_status_store import get_repo_status_store
+from backend.agent.orchestrator import PartialResultError
 
 logger = get_task_logger(__name__)
 
@@ -443,6 +444,55 @@ def analyze_repository(
         status_store.set_failed(repo_id, error=str(exc))
         logger.error("analyze_repository FAILED (bad input): %s", exc)
         raise
+    except PartialResultError as exc:
+        # 部分结果：保存了部分图谱，发送 completed_partial 事件
+        duration = round(time.time() - t_start, 3)
+        result = exc.result
+        if result is None:
+            logger.error("PartialResultError 未携带 result，无法保存部分图谱")
+            raise
+
+        # 更新图谱 meta 标记为 partial
+        from backend.graph.graph_repository import GraphRepository
+        graph_repo = GraphRepository()
+        built = graph_repo.load(result.graph_id)
+        if built is not None:
+            built.meta["analysis_status"] = "partial"
+            built.meta["completed_modules"] = exc.completed_count
+            built.meta["total_modules"] = exc.total_count
+            graph_repo.save(built, repo_name=repo_name)
+
+        on_progress_callback({
+            "status": "completed_partial",
+            "graph_id": result.graph_id,
+            "node_count": result.node_count,
+            "edge_count": result.edge_count,
+            "completed_modules": exc.completed_count,
+            "total_modules": exc.total_count,
+            "elapsed_seconds": duration,
+            "message": f"已完成 {exc.completed_count}/{exc.total_count} 个模块，因 API 持续限速保存部分结果",
+        })
+        status_store.set_completed(
+            repo_id,
+            graph_id=result.graph_id,
+            node_count=result.node_count,
+            edge_count=result.edge_count,
+            duration_seconds=duration,
+        )
+        logger.warning(
+            "analyze_repository PARTIAL: graph=%s nodes=%d edges=%d completed=%d/%d",
+            result.graph_id, result.node_count, result.edge_count,
+            exc.completed_count, exc.total_count,
+        )
+        return {
+            "task_id": task_id,
+            "status": "completed_partial",
+            "graph_id": result.graph_id,
+            "node_count": result.node_count,
+            "edge_count": result.edge_count,
+            "completed_modules": exc.completed_count,
+            "total_modules": exc.total_count,
+        }
     except Exception as exc:
         # 其他异常会重试：不发送 failed 事件，让前端等待重试结果
         logger.error("analyze_repository FAILED: %s", exc, exc_info=True)
