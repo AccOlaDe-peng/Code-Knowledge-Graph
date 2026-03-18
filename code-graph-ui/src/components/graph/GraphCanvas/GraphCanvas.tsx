@@ -7,17 +7,39 @@ import {
   useGraphEngineStore,
   selectIsLoading,
   selectZoom,
-  selectVisibleNodeCount,
   selectNodeCount,
 } from '../../../graph-engine/store'
 import type { GraphEngineState } from '../../../graph-engine/store'
 import type { EngineGraphNode, EngineGraphEdge } from '../../../graph-engine/types'
-import { computeBufferedBBox, isInBBox, VIEWPORT_DEBOUNCE_MS } from '../../../graph-engine/types'
 
 import { buildCyStylesheet, buildCyNode, buildCyEdge } from './cyStyles'
 
 // Register Cytoscape layout plugin (idempotent — safe to call multiple times)
 cytoscape.use(cydagre)
+
+// ─── CyHandle ─────────────────────────────────────────────────────────────────
+
+/**
+ * Imperative handle exposed by GraphCanvas via forwardRef.
+ * Use this ref to drive the Cytoscape instance directly from a parent component.
+ */
+export type CyHandle = {
+  /** Add nodes and edges to the canvas (incremental — does not clear first). */
+  addElements(nodes: EngineGraphNode[], edges: EngineGraphEdge[]): void
+  /** Remove all elements from the canvas. */
+  clear(): void
+  /**
+   * Run a layout algorithm on the canvas.
+   * @param algo            Algorithm name. Default: 'dagre'.
+   * @param incrementalOnly If true, lock existing nodes so only newly-added ones
+   *                        get repositioned. Default: false.
+   */
+  runLayout(algo?: 'dagre' | 'cose-bilkent', incrementalOnly?: boolean): Promise<void>
+  /** Fit the viewport to show all elements, with optional padding (px). */
+  fit(padding?: number): void
+  /** Animate the viewport to center on a specific node. */
+  focusNode(nodeId: string): void
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -42,133 +64,10 @@ const ZOOM_MIN = 0.05
 const ZOOM_MAX = 8.0
 const ZOOM_STEP = 1.3
 
-// Fallback Cytoscape layout used while LayoutWorker hasn't delivered positions yet.
-const FALLBACK_LAYOUT_OPTIONS: cytoscape.LayoutOptions = {
-  name: 'dagre',
-  // @ts-expect-error cytoscape-dagre options
-  rankDir:  'TB',
-  nodeSep:  60,
-  rankSep:  80,
-  padding:  40,
-  animate:  true,
-  animationDuration: 400,
-}
-
-// ─── Debounce ─────────────────────────────────────────────────────────────────
-
-function debounce<Args extends unknown[]>(
-  fn: (...args: Args) => void,
-  ms: number,
-): (...args: Args) => void {
-  let timer: ReturnType<typeof setTimeout> | null = null
-  return (...args: Args) => {
-    if (timer !== null) clearTimeout(timer)
-    timer = setTimeout(() => { timer = null; fn(...args) }, ms)
-  }
-}
-
 // ─── Cytoscape Element Sync ───────────────────────────────────────────────────
 // These functions are module-level (not inside the component) for performance —
 // they avoid being recreated on every render and can be called synchronously
 // from the Zustand subscriber without capturing stale closures.
-
-/**
- * Diff `curr` nodes against `prev` and apply minimal changes to Cytoscape.
- * Called whenever `store.nodes` Map reference changes.
- */
-function syncNodesToCy(
-  cy:   Core,
-  curr: Map<string, EngineGraphNode>,
-  prev: Map<string, EngineGraphNode>,
-): void {
-  cy.startBatch()
-
-  for (const [id, node] of curr) {
-    const prevNode = prev.get(id)
-
-    if (!prevNode) {
-      // New node: add to Cytoscape
-      cy.add(buildCyNode(node))
-    } else if (node.position !== prevNode.position && node.position) {
-      // Position update from LayoutWorker: move without rebuilding element
-      cy.$id(id).position(node.position)
-    }
-  }
-
-  // Removed nodes
-  for (const id of prev.keys()) {
-    if (!curr.has(id)) {
-      cy.$id(id).remove()
-    }
-  }
-
-  cy.endBatch()
-}
-
-/**
- * Diff `curr` edges against `prev` and apply minimal changes to Cytoscape.
- * Only adds/removes — edges don't change properties after creation.
- */
-function syncEdgesToCy(
-  cy:   Core,
-  curr: Map<string, EngineGraphEdge>,
-  prev: Map<string, EngineGraphEdge>,
-): void {
-  cy.startBatch()
-
-  for (const [id, edge] of curr) {
-    if (!prev.has(id)) {
-      // Guard: skip if either endpoint isn't in cy yet
-      if (cy.$id(edge.source).length && cy.$id(edge.target).length) {
-        cy.add(buildCyEdge(edge))
-      }
-    }
-  }
-
-  for (const id of prev.keys()) {
-    if (!curr.has(id)) {
-      cy.$id(id).remove()
-    }
-  }
-
-  cy.endBatch()
-}
-
-/**
- * Batch-update the `display` CSS property for all nodes/edges based on the
- * current `visibleNodes` and `visibleEdges` sets from the store.
- * Called whenever either set reference changes.
- */
-function syncVisibilityToCy(
-  cy:           Core,
-  visibleNodes: Set<string>,
-  visibleEdges: Set<string>,
-): void {
-  cy.startBatch()
-
-  cy.nodes().forEach((n) => {
-    const shouldShow = visibleNodes.has(n.id())
-    // Only update if the state actually changed to avoid unnecessary repaints
-    const current = n.style('display') as string
-    if (shouldShow && current === 'none') {
-      n.style('display', 'element')
-    } else if (!shouldShow && current !== 'none') {
-      n.style('display', 'none')
-    }
-  })
-
-  cy.edges().forEach((e) => {
-    const shouldShow = visibleEdges.has(e.id())
-    const current = e.style('display') as string
-    if (shouldShow && current === 'none') {
-      e.style('display', 'element')
-    } else if (!shouldShow && current !== 'none') {
-      e.style('display', 'none')
-    }
-  })
-
-  cy.endBatch()
-}
 
 /**
  * Update Cytoscape selection state to match the store's selectedNodeId.
@@ -224,14 +123,14 @@ function applyNeighbourhoodHighlight(cy: Core, nodeId: string | null): void {
  *  - wheelSensitivity:  0.2   → gentler scroll zoom
  *  - boxSelectionEnabled: false → removes selection overhead
  */
-export const GraphCanvas: React.FC<GraphCanvasProps> = ({
+export const GraphCanvas = React.forwardRef<CyHandle, GraphCanvasProps>(function GraphCanvas({
   height          = '100%',
   onNodeClick,
   onNodeHover,
   onBackgroundClick,
   showStats    = true,
   showControls = true,
-}) => {
+}, ref) {
   const containerRef = useRef<HTMLDivElement>(null)
   const cyRef        = useRef<Core | null>(null)
 
@@ -240,7 +139,6 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   const isLoading       = useGraphEngineStore(selectIsLoading)
   const loadProgress    = useGraphEngineStore(s => s.loading.progress)
   const zoom            = useGraphEngineStore(selectZoom)
-  const visibleCount    = useGraphEngineStore(selectVisibleNodeCount)
   const totalCount      = useGraphEngineStore(selectNodeCount)
 
   // ── Zoom controls ─────────────────────────────────────────────────────────
@@ -272,6 +170,81 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   const handleFit = useCallback(() => {
     cyRef.current?.fit(undefined, 40)
   }, [])
+
+  // ── Expose CyHandle to parent via forwardRef ───────────────────────────────
+  // cyRef is a stable object — deps array [] is correct.
+  React.useImperativeHandle(ref, () => ({
+    addElements(nodes: EngineGraphNode[], edges: EngineGraphEdge[]): void {
+      const inst = cyRef.current
+      if (!inst) return
+      inst.startBatch()
+      for (const node of nodes) {
+        if (!inst.$id(node.id).length) {
+          // Add node and mark it as 'new-node' so runLayout(incrementalOnly=true)
+          // can identify it as a candidate for repositioning.
+          inst.add(buildCyNode(node)).addClass('new-node')
+        }
+      }
+      for (const edge of edges) {
+        if (!inst.$id(edge.id).length &&
+            inst.$id(edge.source).length &&
+            inst.$id(edge.target).length) {
+          inst.add(buildCyEdge(edge))
+        }
+      }
+      inst.endBatch()
+    },
+
+    clear(): void {
+      cyRef.current?.elements().remove()
+    },
+
+    runLayout(algo: 'dagre' | 'cose-bilkent' = 'dagre', incrementalOnly = false): Promise<void> {
+      const inst = cyRef.current
+      if (!inst) return Promise.resolve()
+      return new Promise<void>((resolve) => {
+        if (incrementalOnly) {
+          // Lock existing nodes; only newly-added (class 'new-node') get repositioned
+          inst.nodes().not('.new-node').lock()
+        }
+        const layout = inst.layout({
+          name: algo,
+          // @ts-expect-error cytoscape-dagre options
+          rankDir:           'TB',
+          nodeSep:           60,
+          rankSep:           80,
+          padding:           40,
+          animate:           true,
+          animationDuration: 400,
+          stop: () => {
+            if (incrementalOnly) {
+              inst.nodes().unlock()
+              inst.nodes().removeClass('new-node')
+            }
+            resolve()
+          },
+        })
+        layout.run()
+      })
+    },
+
+    fit(padding = 40): void {
+      cyRef.current?.fit(undefined, padding)
+    },
+
+    focusNode(nodeId: string): void {
+      const inst = cyRef.current
+      if (!inst) return
+      const node = inst.$id(nodeId)
+      if (!node.length) return
+      inst.animate({
+        center:   { eles: node },
+        zoom:     Math.max(inst.zoom(), 1.2),
+        duration: 400,
+        easing:   'ease-in-out-cubic',
+      })
+    },
+  }), []) // cyRef object is stable — no deps needed
 
   // ── Cytoscape initialization ───────────────────────────────────────────────
   useEffect(() => {
@@ -306,28 +279,6 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
     cyRef.current = cy
 
-    // ── Seed Cytoscape with current store state ─────────────────────────────
-    const initial = useGraphEngineStore.getState()
-    if (initial.nodes.size > 0) {
-      cy.startBatch()
-      initial.nodes.forEach((node) => cy.add(buildCyNode(node)))
-      initial.edges.forEach((edge) => {
-        if (cy.$id(edge.source).length && cy.$id(edge.target).length) {
-          cy.add(buildCyEdge(edge))
-        }
-      })
-      cy.endBatch()
-
-      // If nodes don't have positions yet, run a fallback Cytoscape layout
-      const anyPositioned = [...initial.nodes.values()].some(n => n.position !== null)
-      if (!anyPositioned) {
-        cy.layout(FALLBACK_LAYOUT_OPTIONS).run()
-      }
-
-      // Apply initial visibility
-      syncVisibilityToCy(cy, initial.visibleNodes, initial.visibleEdges)
-    }
-
     // ── Store subscriber: imperative sync (no React re-renders) ─────────────
     // Runs outside React's rendering cycle — zero overhead for 100k nodes.
     const unsubscribeStore = useGraphEngineStore.subscribe(
@@ -335,77 +286,23 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         if (!cyRef.current || cyRef.current.destroyed()) return
         const inst = cyRef.current
 
-        if (state.nodes !== prev.nodes) {
-          syncNodesToCy(inst, state.nodes, prev.nodes)
-        }
-
-        if (state.edges !== prev.edges) {
-          syncEdgesToCy(inst, state.edges, prev.edges)
-        }
-
-        if (state.visibleNodes !== prev.visibleNodes ||
-            state.visibleEdges !== prev.visibleEdges) {
-          syncVisibilityToCy(inst, state.visibleNodes, state.visibleEdges)
-        }
-
+        // Selection: highlight neighbourhood, dim everything else
         if (state.selectedNodeId !== prev.selectedNodeId) {
           syncSelectionToCy(inst, state.selectedNodeId, prev.selectedNodeId)
           applyNeighbourhoodHighlight(inst, state.selectedNodeId)
         }
 
+        // Search: add 'highlighted' class to search-result nodes
         if (state.filters.highlightedIds !== prev.filters.highlightedIds) {
-          // Search highlight: add 'highlighted' class to search-result nodes
-          const store = useGraphEngineStore.getState()
-          cy.startBatch()
-          cy.nodes().removeClass('highlighted')
-          store.filters.highlightedIds.forEach(id => {
-            cy.$id(id).addClass('highlighted')
+          inst.startBatch()
+          inst.nodes().removeClass('highlighted')
+          state.filters.highlightedIds.forEach(id => {
+            inst.$id(id).addClass('highlighted')
           })
-          cy.endBatch()
+          inst.endBatch()
         }
       },
     )
-
-    // ── Viewport culling: compute visibleNodes from cy extent ────────────────
-    // Debounced so it doesn't run on every pixel of a drag.
-    const updateVisibleNodes = debounce(() => {
-      if (!cyRef.current || cyRef.current.destroyed()) return
-      const inst = cyRef.current
-
-      const pan  = inst.pan()
-      const zoom  = inst.zoom()
-      const w    = container.clientWidth
-      const h    = container.clientHeight
-
-      // Buffered viewport BBox in graph coordinates
-      const bbox = computeBufferedBBox({ pan, zoom, width: w, height: h })
-
-      // Update store viewport first
-      useGraphEngineStore.getState().updateViewport(pan, zoom)
-      useGraphEngineStore.getState().setCanvasSize(w, h)
-
-      // Find nodes inside the buffered BBox
-      const newVisible = new Set<string>()
-      useGraphEngineStore.getState().nodes.forEach((node, id) => {
-        if (node.position && isInBBox(bbox, node.position.x, node.position.y)) {
-          newVisible.add(id)
-        }
-      })
-
-      // Only update the store if the visible set actually changed
-      const current = useGraphEngineStore.getState().visibleNodes
-      let changed = newVisible.size !== current.size
-      if (!changed) {
-        for (const id of newVisible) {
-          if (!current.has(id)) { changed = true; break }
-        }
-      }
-      if (changed) {
-        useGraphEngineStore.getState().setVisibleNodes(newVisible)
-      }
-    }, VIEWPORT_DEBOUNCE_MS)
-
-    cy.on('viewport', updateVisibleNodes)
 
     // ── Node: tap (click) ────────────────────────────────────────────────────
     cy.on('tap', 'node', (evt) => {
@@ -526,7 +423,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
           pointerEvents:  'none',
         }}>
           <StatsBadge
-            visibleCount={visibleCount}
+            visibleCount={totalCount}
             totalCount={totalCount}
             zoom={zoom}
           />
@@ -556,7 +453,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       )}
     </div>
   )
-}
+})
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
