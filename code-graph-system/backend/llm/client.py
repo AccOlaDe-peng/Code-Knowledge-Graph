@@ -269,6 +269,7 @@ class LLMClient:
                         tools=tools,
                     )
 
+                    consecutive_429 = 0  # 成功调用后重置
                     # 记录 token 使用量
                     if context_monitor:
                         input_tok, output_tok = extract_token_usage(response, self.provider)
@@ -385,6 +386,7 @@ class LLMClient:
                             temperature=self.temperature,
                         )
 
+                    consecutive_429 = 0  # 成功调用后重置
                     # 记录 token 使用量
                     if context_monitor:
                         input_tok, output_tok = extract_token_usage(response, self.provider)
