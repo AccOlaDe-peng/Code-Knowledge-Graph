@@ -32,6 +32,28 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+# 关闭已有的 Celery Worker 进程
+EXISTING_PIDS=$(pgrep -f "celery.*worker" 2>/dev/null)
+if [ -n "$EXISTING_PIDS" ]; then
+    echo "发现已有 Celery Worker 进程（PID: $EXISTING_PIDS），正在关闭..."
+    kill $EXISTING_PIDS 2>/dev/null
+    # 等待进程退出，最多 10 秒
+    for i in $(seq 1 10); do
+        sleep 1
+        if ! pgrep -f "celery.*worker" > /dev/null 2>&1; then
+            echo "旧进程已退出。"
+            break
+        fi
+        if [ $i -eq 10 ]; then
+            echo "等待超时，强制终止..."
+            kill -9 $EXISTING_PIDS 2>/dev/null
+        fi
+    done
+else
+    echo "无已有 Celery Worker 进程。"
+fi
+echo ""
+
 # 激活虚拟环境
 source venv/bin/activate
 
