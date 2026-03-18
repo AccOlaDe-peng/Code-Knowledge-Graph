@@ -242,6 +242,29 @@ class CheckpointManager:
 
         return all_nodes, all_edges
 
+    def load_partial_results(self) -> tuple[list[dict], list[dict]]:
+        """从所有已完成模块的检查点中合并节点和边，用于 PartialResultError 退出时。
+
+        只合并状态为 completed 的检查点，其余状态（pending/partial/failed）忽略。
+        同一节点 ID 出现多次时，后加载的覆盖先加载的（dict 键覆盖语义）。
+
+        Returns:
+            元组 (去重后的节点列表, 所有边列表)
+        """
+        nodes_by_id: dict[str, dict] = {}
+        all_edges: list[dict] = []
+
+        for checkpoint in self.checkpoints.values():
+            if checkpoint.status != CHECKPOINT_STATUS_COMPLETED:
+                continue
+            for node in checkpoint.nodes:
+                node_id = node.get("id")
+                if node_id is not None:
+                    nodes_by_id[node_id] = node
+            all_edges.extend(checkpoint.edges)
+
+        return list(nodes_by_id.values()), all_edges
+
     def get_aggregated_knowledge(self) -> dict[str, Any]:
         """聚合所有检查点的共享知识。
 
