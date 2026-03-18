@@ -87,18 +87,6 @@ export type GraphEngineState = {
   nodes: Map<string, EngineGraphNode>
   edges: Map<string, EngineGraphEdge>
 
-  // ── Visibility sets (maintained by ViewportCuller + FilterEngine) ─────────
-  /**
-   * IDs of nodes currently rendered (visible: true).
-   * Subset of nodes keys, excluding LOD-hidden, viewport-culled, filtered.
-   */
-  visibleNodes: Set<string>
-  /**
-   * IDs of edges currently rendered (visible: true).
-   * An edge is visible only when both endpoints are in visibleNodes.
-   */
-  visibleEdges: Set<string>
-
   // ── Expansion tracking ────────────────────────────────────────────────────
   /** IDs of nodes that have been lazy-expanded at least once. */
   expandedNodes: Set<string>
@@ -147,23 +135,6 @@ export type GraphEngineState = {
   mergeEdges: (edges: EngineGraphEdge[]) => void
   /** Remove a specific edge by id. */
   removeEdge: (id: string) => void
-
-  // ── Visibility actions ────────────────────────────────────────────────────
-  /**
-   * Bulk-replace the visible node set.
-   * Called by ViewportCuller after each viewport change.
-   */
-  setVisibleNodes: (ids: ReadonlySet<string>) => void
-  /**
-   * Bulk-replace the visible edge set.
-   * Edges are only visible when both endpoints are visible.
-   */
-  setVisibleEdges: (ids: ReadonlySet<string>) => void
-  /**
-   * Recompute visibleEdges based on current visibleNodes.
-   * Called after any batch node visibility change.
-   */
-  recomputeVisibleEdges: () => void
 
   // ── Expansion actions ─────────────────────────────────────────────────────
   /** Mark a node as expanded (LazyExpander calls this after fetching children). */
@@ -230,8 +201,6 @@ export const useGraphEngineStore = create<GraphEngineState>((set, get) => ({
   graphId:       null,
   nodes:         new Map(),
   edges:         new Map(),
-  visibleNodes:  new Set(),
-  visibleEdges:  new Set(),
   expandedNodes: new Set(),
   clusters:      new Map(),
   filters:       createDefaultFilterState(),
@@ -246,8 +215,6 @@ export const useGraphEngineStore = create<GraphEngineState>((set, get) => ({
     graphId,
     nodes:          new Map(),
     edges:          new Map(),
-    visibleNodes:   new Set(),
-    visibleEdges:   new Set(),
     expandedNodes:  new Set(),
     clusters:       new Map(),
     filters:        createDefaultFilterState(),
@@ -260,8 +227,6 @@ export const useGraphEngineStore = create<GraphEngineState>((set, get) => ({
     graphId:        null,
     nodes:          new Map(),
     edges:          new Map(),
-    visibleNodes:   new Set(),
-    visibleEdges:   new Set(),
     expandedNodes:  new Set(),
     clusters:       new Map(),
     filters:        createDefaultFilterState(),
@@ -295,11 +260,7 @@ export const useGraphEngineStore = create<GraphEngineState>((set, get) => ({
       if (edge.source === id || edge.target === id) edges.delete(eid)
     }
 
-    const visibleNodes = new Set(get().visibleNodes)
-    visibleNodes.delete(id)
-
-    set({ nodes, edges, visibleNodes })
-    get().recomputeVisibleEdges()
+    set({ nodes, edges })
   },
 
   applyPositions: (positions) => {
@@ -340,68 +301,7 @@ export const useGraphEngineStore = create<GraphEngineState>((set, get) => ({
   removeEdge: (id) => {
     const edges = new Map(get().edges)
     edges.delete(id)
-    const visibleEdges = new Set(get().visibleEdges)
-    visibleEdges.delete(id)
-    set({ edges, visibleEdges })
-  },
-
-  // ── Visibility actions ────────────────────────────────────────────────────
-
-  setVisibleNodes: (ids) => {
-    // Sync the `visible` flag on each EngineGraphNode so Cytoscape
-    // adapters and selectors can read it directly from the node object.
-    const nodes = new Map(get().nodes)
-    const prevVisible = get().visibleNodes
-    let mutated = false
-
-    for (const [id, node] of nodes) {
-      const shouldBeVisible = ids.has(id)
-      if (node.visible !== shouldBeVisible) {
-        nodes.set(id, { ...node, visible: shouldBeVisible })
-        mutated = true
-      }
-    }
-
-    const visibleNodes = new Set(ids)
-    set(mutated ? { visibleNodes, nodes } : { visibleNodes })
-
-    // Cascade to edges if the visible set actually changed
-    if (prevVisible.size !== visibleNodes.size) {
-      get().recomputeVisibleEdges()
-    }
-  },
-
-  setVisibleEdges: (ids) => {
-    const edges = new Map(get().edges)
-    let mutated = false
-    for (const [id, edge] of edges) {
-      const shouldBeVisible = ids.has(id)
-      if (edge.visible !== shouldBeVisible) {
-        edges.set(id, { ...edge, visible: shouldBeVisible })
-        mutated = true
-      }
-    }
-    const visibleEdges = new Set(ids)
-    set(mutated ? { visibleEdges, edges } : { visibleEdges })
-  },
-
-  recomputeVisibleEdges: () => {
-    const { edges, visibleNodes } = get()
-    const visibleEdges = new Set<string>()
-    const updatedEdges = new Map(edges)
-    let mutated = false
-
-    for (const [id, edge] of updatedEdges) {
-      const shouldBeVisible =
-        visibleNodes.has(edge.source) && visibleNodes.has(edge.target)
-      if (edge.visible !== shouldBeVisible) {
-        updatedEdges.set(id, { ...edge, visible: shouldBeVisible })
-        mutated = true
-      }
-      if (shouldBeVisible) visibleEdges.add(id)
-    }
-
-    set(mutated ? { visibleEdges, edges: updatedEdges } : { visibleEdges })
+    set({ edges })
   },
 
   // ── Expansion actions ─────────────────────────────────────────────────────
@@ -469,11 +369,7 @@ export const useGraphEngineStore = create<GraphEngineState>((set, get) => ({
       if (node) nodes.set(memberId, { ...node, visible: false })
     }
 
-    const visibleNodes = new Set(get().visibleNodes)
-    for (const memberId of cluster.memberIds) visibleNodes.delete(memberId)
-
-    set({ clusters, nodes, visibleNodes })
-    get().recomputeVisibleEdges()
+    set({ clusters, nodes })
   },
 
   expandCluster: (clusterId) => {
@@ -485,17 +381,14 @@ export const useGraphEngineStore = create<GraphEngineState>((set, get) => ({
 
     // Show all member nodes
     const nodes = new Map(get().nodes)
-    const visibleNodes = new Set(get().visibleNodes)
     for (const memberId of cluster.memberIds) {
       const node = nodes.get(memberId)
       if (node) {
         nodes.set(memberId, { ...node, visible: true })
-        visibleNodes.add(memberId)
       }
     }
 
-    set({ clusters, nodes, visibleNodes })
-    get().recomputeVisibleEdges()
+    set({ clusters, nodes })
   },
 
   clearClusters: () => {
@@ -620,8 +513,6 @@ export const useGraphEngineStore = create<GraphEngineState>((set, get) => ({
 
 export const selectNodeCount  = (s: GraphEngineState) => s.nodes.size
 export const selectEdgeCount  = (s: GraphEngineState) => s.edges.size
-export const selectVisibleNodeCount = (s: GraphEngineState) => s.visibleNodes.size
-export const selectVisibleEdgeCount = (s: GraphEngineState) => s.visibleEdges.size
 export const selectClusterCount = (s: GraphEngineState) => s.clusters.size
 export const selectIsLoading  = (s: GraphEngineState) => s.loading.status === 'streaming' || s.loading.status === 'layout'
 export const selectCurrentLOD = (s: GraphEngineState) => s.lod.currentLevel
