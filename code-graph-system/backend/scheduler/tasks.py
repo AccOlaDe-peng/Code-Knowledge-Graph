@@ -627,6 +627,23 @@ def incremental_update(
             enable_rag=enable_rag,
         )
 
+    # 检测上次分析是否不完整（partial 状态）
+    if prior.meta.get("analysis_status") == "partial":
+        completed = prior.meta.get("completed_modules", "?")
+        total = prior.meta.get("total_modules", "?")
+        logger.info(
+            "incremental_update: 上次分析不完整 (%s/%s 模块)，强制重新分析",
+            completed, total
+        )
+        return _run_full_and_wrap(
+            self, pipeline, graph_repo, path,
+            repo_name=repo_name or graph_id,
+            reason="incomplete_prior_analysis",
+            new_commits=-1,
+            enable_ai=enable_ai,
+            enable_rag=enable_rag,
+        )
+
     prior_created_at: str = prior.meta.get("created_at", "")
     prior_sha:        Optional[str] = prior.meta.get("git_commit")
     current_sha = _get_git_head(path)
