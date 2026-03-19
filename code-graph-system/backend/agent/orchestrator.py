@@ -136,6 +136,44 @@ class AgentOrchestrator:
             context.shared_knowledge.layers = aggregated.get("layers", [])
 
         agent = ArchitectureAgent(context=context, llm_client=self.llm_client)
+
+        # [新增] 注册 search_structure 工具，executor 指向预构建索引
+        if hasattr(self, "_structure_indexer"):
+            agent.register_tool(
+                name="search_structure",
+                description=(
+                    "查询代码结构索引，获取类/方法骨架和精确行号。"
+                    "支持按注解（如 @RestController）、父类、关键词、路径模式过滤。"
+                    "优先用此工具了解模块结构，再用 read_file 精准读取具体方法。"
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "annotation": {
+                            "type": "string",
+                            "description": "按注解过滤，如 @RestController、@Service",
+                        },
+                        "base_class": {
+                            "type": "string",
+                            "description": "按父类或接口名过滤",
+                        },
+                        "keyword": {
+                            "type": "string",
+                            "description": "按类名或方法名关键词搜索",
+                        },
+                        "file_pattern": {
+                            "type": "string",
+                            "description": "文件路径 glob 模式，如 */controller/*",
+                        },
+                        "module_path": {
+                            "type": "string",
+                            "description": "限定搜索目录范围",
+                        },
+                    },
+                },
+                executor=self._structure_indexer,
+            )
+
         return agent.run()
 
     def _create_context(self, module_id: str = None) -> AgentContext:
@@ -309,6 +347,17 @@ class AgentOrchestrator:
         completed_count = len(all_module_ids) - len(pending_ids)
         if completed_count > 0:
             logger.info("断点续跑：已完成 %d/%d 个模块，续跑剩余", completed_count, len(all_module_ids))
+
+        # [新增] 构建整个仓库的结构索引（零 LLM 调用，一次性）
+        try:
+            from backend.agent.structure_indexer import StructureIndexer
+            _raw_depth = self.config.preset.value if hasattr(self.config, "preset") else "standard"
+            depth = _raw_depth if _raw_depth in ("quick", "standard", "deep") else "standard"
+            self._structure_indexer = StructureIndexer(depth=depth)
+            self._structure_indexer.build_index(self.repo_path)
+            logger.info("StructureIndexer 索引构建完成：%d 个文件", len(self._structure_indexer._index))
+        except Exception as _si_err:
+            logger.warning("StructureIndexer 初始化失败，跳过结构索引：%s", _si_err)
 
         pause_count = 0
         i = 0
