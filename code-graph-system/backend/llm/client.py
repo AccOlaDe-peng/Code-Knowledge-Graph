@@ -14,6 +14,123 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# ── 压缩相关常量 ────────────────────────────────────────────────────────────
+COMPRESSED_PLACEHOLDER = (
+    "[已压缩] 原始结果已移除以节省上下文。"
+    "如需重新查看，请使用 search_structure() 获取结构信息，"
+    "或使用指定行号的 read_file() 精准读取。"
+)
+
+# 压缩触发阈值
+_COMPRESSION_L1 = 0.70   # Level 1: 滑动窗口裁剪旧轮次
+_COMPRESSION_L2 = 0.85   # Level 2: 同上 + 压缩保留轮次中的大 tool result
+_COMPRESSION_L3 = 0.95   # Level 3: 极简保留，仅首条 + 最近 1 轮
+
+
+def _estimate_tokens(system: str, messages: list[dict]) -> int:
+    """估算 context 大小（UTF-8 字节数 / 4），包含 system prompt。
+
+    对于中英混合代码，UTF-8/4 比 chars/3 更准确。
+    """
+    total_bytes = len(system.encode("utf-8"))
+    for msg in messages:
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            total_bytes += len(content.encode("utf-8"))
+        elif isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict):
+                    total_bytes += len(str(block).encode("utf-8"))
+    return total_bytes // 4
+
+
+def _compress_large_tool_results(
+    messages: list[dict],
+    max_chars: int,
+    skip_first: bool = False,
+) -> list[dict]:
+    """替换超限 tool result content 为占位符，保留 tool_use_id。
+
+    仅处理 content 为 str 的 tool_result block。
+    content 为 list[ContentBlock]（如含图片）的情况不做处理，有意跳过。
+    """
+    result = []
+    for i, msg in enumerate(messages):
+        if skip_first and i == 0:
+            result.append(msg)
+            continue
+        if msg.get("role") != "user":
+            result.append(msg)
+            continue
+        content = msg.get("content", [])
+        if not isinstance(content, list):
+            result.append(msg)
+            continue
+        new_content = []
+        for block in content:
+            if (
+                isinstance(block, dict)
+                and block.get("type") == "tool_result"
+                and isinstance(block.get("content"), str)
+                and len(block["content"]) > max_chars
+            ):
+                new_content.append({**block, "content": COMPRESSED_PLACEHOLDER})
+            else:
+                new_content.append(block)
+        result.append({**msg, "content": new_content})
+    return result
+
+
+def _apply_compression(
+    messages: list[dict],
+    level: int,
+    provider: str = "anthropic",
+) -> list[dict]:
+    """按级别压缩消息历史。
+
+    Level 1: 滑动窗口裁剪旧轮次（keep 5 rounds）
+    Level 2: Level 1 + 压缩保留轮次中 >2000 chars 的 tool result
+    Level 3: 仅保留首条 + 最近 1 轮，压缩 tool result >500 chars
+    """
+    from backend.llm.sliding_window import SlidingWindow
+
+    if level == 1:
+        sw = SlidingWindow(keep_recent_rounds=5, keep_first_messages=1)
+        compressed, _ = sw.apply(messages, provider)
+        return compressed
+
+    if level == 2:
+        compressed = _apply_compression(messages, level=1, provider=provider)
+        return _compress_large_tool_results(compressed, max_chars=2000)
+
+    if level == 3:
+        sw = SlidingWindow(keep_recent_rounds=1, keep_first_messages=1)
+        compressed, _ = sw.apply(messages, provider)
+        return _compress_large_tool_results(compressed, max_chars=500, skip_first=True)
+
+    return messages  # 未知级别原样返回
+
+
+def _dispatch_tool(
+    tool_name: str,
+    tool_input: dict,
+    tool_executor_map: "dict | None",
+    tool_executor: "Any | None",
+) -> "Any":
+    """统一工具路由。Anthropic 和 OpenAI 分支均调用此函数，避免分支遗漏。
+
+    优先从 tool_executor_map 按工具名查找专属 executor，
+    回退到通用 tool_executor（向后兼容）。
+    """
+    executor_map = tool_executor_map or {}
+    dedicated = executor_map.get(tool_name)
+    if dedicated is not None and hasattr(dedicated, tool_name):
+        return getattr(dedicated, tool_name)(**tool_input)
+    if tool_executor is not None and hasattr(tool_executor, tool_name):
+        return getattr(tool_executor, tool_name)(**tool_input)
+    raise ValueError(f"No executor found for tool: {tool_name}")
+
+
 class RateLimitExhaustedError(Exception):
     """连续 429 超过退避阈值后抛出，由 Orchestrator 上层处理。"""
     pass
@@ -86,6 +203,7 @@ class LLMClient:
         self.base_url = base_url
         self.max_tokens = max_tokens
         self.temperature = temperature
+        self.context_window: int = 128000
         self._client: Any = None
 
     def _default_model(self, provider: str) -> str:
@@ -215,6 +333,7 @@ class LLMClient:
         max_iterations: int = 20,
         tool_executor: Any = None,
         context_monitor: "ContextMonitor | None" = None,
+        tool_executor_map: "dict[str, Any] | None" = None,  # 新增
     ) -> ToolCallLoopResult:
         """执行工具调用循环。
 
@@ -233,10 +352,6 @@ class LLMClient:
         import time
         from backend.llm.types import ToolCallRecord
 
-        # 延迟导入避免循环依赖
-        if context_monitor:
-            from backend.llm.sliding_window import SlidingWindow
-
         client = self._get_client()
         tool_calls: list[ToolCallRecord] = []
         iterations = 0
@@ -251,12 +366,18 @@ class LLMClient:
             iterations += 1
             iteration_start = time.time()
 
-            # 检查是否需要应用滑动窗口（critical 或 exceeded 时触发）
-            if context_monitor and context_monitor.get_state().status in ("critical", "exceeded"):
-                sliding_window = SlidingWindow()
-                current_messages, truncated = sliding_window.apply(current_messages, self.provider)
-                if truncated:
-                    logger.warning("应用滑动窗口，裁剪早期历史")
+            # Pre-flight token check: 发送前估算并按阈值压缩
+            estimated = _estimate_tokens(system, current_messages)
+            ratio = estimated / self.context_window if self.context_window > 0 else 0.0
+            if ratio >= _COMPRESSION_L3:
+                current_messages = _apply_compression(current_messages, level=3, provider=self.provider)
+                logger.warning("Pre-flight Level 3 压缩（估算 %.0f%%）", ratio * 100)
+            elif ratio >= _COMPRESSION_L2:
+                current_messages = _apply_compression(current_messages, level=2, provider=self.provider)
+                logger.info("Pre-flight Level 2 压缩（估算 %.0f%%）", ratio * 100)
+            elif ratio >= _COMPRESSION_L1:
+                current_messages = _apply_compression(current_messages, level=1, provider=self.provider)
+                logger.info("Pre-flight Level 1 压缩（估算 %.0f%%）", ratio * 100)
 
             try:
                 if self.provider == "anthropic":
@@ -274,7 +395,7 @@ class LLMClient:
                     if context_monitor:
                         input_tok, output_tok = extract_token_usage(response, self.provider)
                         state = context_monitor.record_usage(input_tok, output_tok)
-                        logger.debug(f"Token 使用: {state.input_tokens} ({state.usage_ratio:.1%})")
+                        logger.debug(f"本次请求 input tokens: {state.input_tokens} ({state.usage_ratio:.1%})")
 
                     # 检查停止原因
                     if response.stop_reason == "end_turn":
@@ -328,14 +449,18 @@ class LLMClient:
                         success = True
                         error_msg = None
 
-                        if tool_executor and hasattr(tool_executor, tool_name):
-                            try:
-                                result = getattr(tool_executor, tool_name)(**tool_input)
-                                tool_output = result if isinstance(result, dict) else {"result": result}
-                            except Exception as e:
-                                success = False
-                                error_msg = str(e)
-                                tool_output = {"error": error_msg}
+                        try:
+                            result = _dispatch_tool(
+                                tool_name, tool_input, tool_executor_map, tool_executor
+                            )
+                            tool_output = result if isinstance(result, dict) else {"result": result}
+                        except ValueError:
+                            # No executor found for this tool - leave tool_output as empty dict
+                            pass
+                        except Exception as e:
+                            success = False
+                            error_msg = str(e)
+                            tool_output = {"error": error_msg}
 
                         tool_calls.append(ToolCallRecord(
                             iteration=iterations,
@@ -391,7 +516,7 @@ class LLMClient:
                     if context_monitor:
                         input_tok, output_tok = extract_token_usage(response, self.provider)
                         state = context_monitor.record_usage(input_tok, output_tok)
-                        logger.debug(f"Token 使用: {state.input_tokens} ({state.usage_ratio:.1%})")
+                        logger.debug(f"本次请求 input tokens: {state.input_tokens} ({state.usage_ratio:.1%})")
 
                     # 处理响应
                     if isinstance(response, str):
@@ -438,14 +563,18 @@ class LLMClient:
                         success = True
                         error_msg = None
 
-                        if tool_executor and hasattr(tool_executor, tool_name):
-                            try:
-                                result = getattr(tool_executor, tool_name)(**tool_input)
-                                tool_output = result if isinstance(result, dict) else {"result": result}
-                            except Exception as e:
-                                success = False
-                                error_msg = str(e)
-                                tool_output = {"error": error_msg}
+                        try:
+                            result = _dispatch_tool(
+                                tool_name, tool_input, tool_executor_map, tool_executor
+                            )
+                            tool_output = result if isinstance(result, dict) else {"result": result}
+                        except ValueError:
+                            # No executor found for this tool - leave tool_output as empty dict
+                            pass
+                        except Exception as e:
+                            success = False
+                            error_msg = str(e)
+                            tool_output = {"error": error_msg}
 
                         tool_calls.append(ToolCallRecord(
                             iteration=iterations,

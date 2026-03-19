@@ -202,8 +202,8 @@ class TestSlidingWindowApplication:
         assert result.status == "completed"
 
     @patch("backend.llm.client.LLMClient._get_client")
-    def test_sliding_window_applied_when_critical(self, mock_get_client):
-        """测试 critical 状态下应用滑动窗口。"""
+    def test_preflight_compression_applied_when_over_threshold(self, mock_get_client):
+        """测试 pre-flight 压缩在 token 估算超过阈值时被调用。"""
         # 设置 mock
         mock_client = MagicMock()
         mock_response = MagicMock()
@@ -216,21 +216,19 @@ class TestSlidingWindowApplication:
         mock_get_client.return_value = mock_client
 
         client = LLMClient(provider="anthropic", api_key="test-key")
+        # 设置很小的 context_window 以确保 pre-flight 压缩被触发
+        client.context_window = 100
 
-        # 创建一个已经处于 exceeded 状态的 monitor（新语义：input >= max_tokens）
         monitor = ContextMonitor(max_tokens=200)
-        monitor.record_usage(200, 0)  # 200/200 = 100% exceeded
-        assert monitor.get_state().status == "exceeded"
 
-        # 创建足够多的消息以触发滑动窗口
-        messages = [{"role": "user", "content": f"消息 {i}"} for i in range(20)]
+        # 创建足够多的消息以超过 context_window 阈值
+        # 每条消息 "消息 i" 约 10 bytes，20 条约 200 bytes / 4 = 50 tokens，超过 100 * 0.70 = 70
+        messages = [{"role": "user", "content": "a" * 400}] + [
+            {"role": "user", "content": f"消息 {i}"} for i in range(5)
+        ]
 
-        # Mock SlidingWindow 在方法内部的导入位置
-        with patch("backend.llm.sliding_window.SlidingWindow") as MockSlidingWindow:
-            mock_window_instance = MagicMock()
-            mock_window_instance.apply.return_value = (messages[:5], True)
-            MockSlidingWindow.return_value = mock_window_instance
-
+        # Mock _apply_compression 验证它被调用
+        with patch("backend.llm.client._apply_compression", wraps=lambda msgs, **kw: msgs) as mock_compress:
             result = client.tool_call_loop(
                 system="测试系统提示",
                 messages=messages,
@@ -238,8 +236,8 @@ class TestSlidingWindowApplication:
                 context_monitor=monitor,
             )
 
-            # 验证滑动窗口被调用
-            mock_window_instance.apply.assert_called_once()
+            # 验证压缩函数被调用（pre-flight 触发）
+            assert mock_compress.call_count >= 1
 
 
 class TestBackwardCompatibility:
