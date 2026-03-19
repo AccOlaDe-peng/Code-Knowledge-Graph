@@ -96,7 +96,11 @@ class StructureIndexer:
         for file_path in repo_path.rglob("*"):
             if not file_path.is_file():
                 continue
-            if any(part in ignore_dirs for part in file_path.parts):
+            try:
+                rel = file_path.relative_to(repo_path)
+            except ValueError:
+                continue
+            if any(part in ignore_dirs for part in rel.parts):
                 continue
 
             suffix = file_path.suffix.lower()
@@ -353,7 +357,9 @@ class StructureIndexer:
         top_imports: list[str] = []
         classes: list[ClassInfo] = []
 
-        for node in ast.walk(tree):
+        # 仅遍历模块顶层节点，避免 ast.walk 收集嵌套类/函数
+        for node in tree.body:
+            # 收集顶层 import（按源码顺序，遇到第一个非 import 语句后停止收集）
             if isinstance(node, (ast.Import, ast.ImportFrom)) and len(top_imports) < 10:
                 if isinstance(node, ast.Import):
                     top_imports.append(f"import {', '.join(a.name for a in node.names)}")
@@ -377,7 +383,7 @@ class StructureIndexer:
                     name = item.name
                     # dunder 方法（__init__ 等）视为 public，单下划线视为 private
                     if name.startswith("__") and name.endswith("__"):
-                        vis = "public"   # dunder: __init__, __str__ 等
+                        vis = "public"
                     elif name.startswith("_"):
                         vis = "private"
                     else:

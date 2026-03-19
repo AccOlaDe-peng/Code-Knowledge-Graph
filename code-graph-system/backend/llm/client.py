@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from typing import Any, TYPE_CHECKING
@@ -40,7 +41,7 @@ def _estimate_tokens(system: str, messages: list[dict]) -> int:
         elif isinstance(content, list):
             for block in content:
                 if isinstance(block, dict):
-                    total_bytes += len(str(block).encode("utf-8"))
+                    total_bytes += len(json.dumps(block, ensure_ascii=False, default=str).encode("utf-8"))
     return total_bytes // 4
 
 
@@ -101,6 +102,8 @@ def _apply_compression(
 
     if level == 2:
         compressed = _apply_compression(messages, level=1, provider=provider)
+        # Level 2 压缩所有保留轮次中的大 tool result（含首条消息）
+        # Level 3 才用 skip_first=True 保护首条任务描述消息
         return _compress_large_tool_results(compressed, max_chars=2000)
 
     if level == 3:
@@ -119,6 +122,8 @@ def _dispatch_tool(
 ) -> "Any":
     """统一工具路由。Anthropic 和 OpenAI 分支均调用此函数，避免分支遗漏。
 
+    tool_executor_map 的格式：{tool_name: executor_object}
+    executor_object 上应有与 tool_name 同名的方法（如 StructureIndexer.search_structure）。
     优先从 tool_executor_map 按工具名查找专属 executor，
     回退到通用 tool_executor（向后兼容）。
     """
