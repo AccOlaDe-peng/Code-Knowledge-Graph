@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
@@ -142,6 +143,7 @@ class CheckpointManager:
         self.repo_name = repo_name
         self.storage_dir = Path(storage_dir)
         self.checkpoints: dict[str, ModuleCheckpoint] = {}
+        self._rlock = threading.RLock()
 
         # 确保存储目录存在
         self.storage_dir.mkdir(parents=True, exist_ok=True)
@@ -184,19 +186,20 @@ class CheckpointManager:
         Returns:
             检查点文件路径
         """
-        # 保存到内存
-        self.checkpoints[checkpoint.module_id] = checkpoint
+        with self._rlock:
+            # 保存到内存
+            self.checkpoints[checkpoint.module_id] = checkpoint
 
-        # 保存到磁盘
-        checkpoint_path = self._get_checkpoint_path(checkpoint.module_id)
-        try:
-            with open(checkpoint_path, "w", encoding="utf-8") as f:
-                json.dump(checkpoint.to_dict(), f, ensure_ascii=False, indent=2)
-            logger.debug(f"检查点已保存: {checkpoint_path}")
-        except IOError as e:
-            logger.error(f"保存检查点失败 {checkpoint_path}: {e}")
+            # 保存到磁盘
+            checkpoint_path = self._get_checkpoint_path(checkpoint.module_id)
+            try:
+                with open(checkpoint_path, "w", encoding="utf-8") as f:
+                    json.dump(checkpoint.to_dict(), f, ensure_ascii=False, indent=2)
+                logger.debug(f"检查点已保存: {checkpoint_path}")
+            except IOError as e:
+                logger.error(f"保存检查点失败 {checkpoint_path}: {e}")
 
-        return str(checkpoint_path)
+            return str(checkpoint_path)
 
     def load(self, module_id: str) -> Optional[ModuleCheckpoint]:
         """加载检查点。
@@ -278,59 +281,60 @@ class CheckpointManager:
         Returns:
             聚合后的共享知识字典
         """
-        aggregated: dict[str, Any] = {
-            "layers": [],
-            "modules": [],
-            "services": [],
-            "entry_points": [],
-        }
+        with self._rlock:
+            aggregated: dict[str, Any] = {
+                "layers": [],
+                "modules": [],
+                "services": [],
+                "entry_points": [],
+            }
 
-        # 用于去重的集合
-        seen_layers: set[str] = set()
-        seen_modules: set[str] = set()
-        seen_services: set[str] = set()
-        seen_entry_points: set[str] = set()
+            # 用于去重的集合
+            seen_layers: set[str] = set()
+            seen_modules: set[str] = set()
+            seen_services: set[str] = set()
+            seen_entry_points: set[str] = set()
 
-        for checkpoint in self.checkpoints.values():
-            knowledge = checkpoint.knowledge
+            for checkpoint in self.checkpoints.values():
+                knowledge = checkpoint.knowledge
 
-            # 合并 layers（按 name 去重）
-            for layer in knowledge.get("layers", []):
-                layer_name = layer.get("name", "")
-                if layer_name and layer_name not in seen_layers:
-                    aggregated["layers"].append(layer)
-                    seen_layers.add(layer_name)
+                # 合并 layers（按 name 去重）
+                for layer in knowledge.get("layers", []):
+                    layer_name = layer.get("name", "")
+                    if layer_name and layer_name not in seen_layers:
+                        aggregated["layers"].append(layer)
+                        seen_layers.add(layer_name)
 
-            # 合并 modules（按 id 去重）
-            for module in knowledge.get("modules", []):
-                module_id = module.get("id", "")
-                if module_id and module_id not in seen_modules:
-                    aggregated["modules"].append(module)
-                    seen_modules.add(module_id)
+                # 合并 modules（按 id 去重）
+                for module in knowledge.get("modules", []):
+                    module_id = module.get("id", "")
+                    if module_id and module_id not in seen_modules:
+                        aggregated["modules"].append(module)
+                        seen_modules.add(module_id)
 
-            # 合并 services（按 name 去重）
-            for service in knowledge.get("services", []):
-                service_name = service.get("name", "")
-                if service_name and service_name not in seen_services:
-                    aggregated["services"].append(service)
-                    seen_services.add(service_name)
+                # 合并 services（按 name 去重）
+                for service in knowledge.get("services", []):
+                    service_name = service.get("name", "")
+                    if service_name and service_name not in seen_services:
+                        aggregated["services"].append(service)
+                        seen_services.add(service_name)
 
-            # 合并 entry_points（按 id 去重）
-            for entry in knowledge.get("entry_points", []):
-                entry_id = entry.get("id", "")
-                if entry_id and entry_id not in seen_entry_points:
-                    aggregated["entry_points"].append(entry)
-                    seen_entry_points.add(entry_id)
+                # 合并 entry_points（按 id 去重）
+                for entry in knowledge.get("entry_points", []):
+                    entry_id = entry.get("id", "")
+                    if entry_id and entry_id not in seen_entry_points:
+                        aggregated["entry_points"].append(entry)
+                        seen_entry_points.add(entry_id)
 
-            # 合并其他字段
-            for key, value in knowledge.items():
-                if key not in aggregated:
-                    aggregated[key] = value
-                elif isinstance(aggregated[key], dict) and isinstance(value, dict):
-                    # 深度合并字典
-                    aggregated[key] = {**aggregated[key], **value}
+                # 合并其他字段
+                for key, value in knowledge.items():
+                    if key not in aggregated:
+                        aggregated[key] = value
+                    elif isinstance(aggregated[key], dict) and isinstance(value, dict):
+                        # 深度合并字典
+                        aggregated[key] = {**aggregated[key], **value}
 
-        return aggregated
+            return aggregated
 
     def list_completed_modules(self) -> list[str]:
         """列出已完成的模块 ID。
@@ -338,11 +342,12 @@ class CheckpointManager:
         Returns:
             状态为 completed 的模块 ID 列表
         """
-        return [
-            module_id
-            for module_id, checkpoint in self.checkpoints.items()
-            if checkpoint.status == CHECKPOINT_STATUS_COMPLETED
-        ]
+        with self._rlock:
+            return [
+                module_id
+                for module_id, checkpoint in self.checkpoints.items()
+                if checkpoint.status == CHECKPOINT_STATUS_COMPLETED
+            ]
 
     def list_pending_modules(self, all_modules: list[str]) -> list[str]:
         """列出待分析的模块 ID。
@@ -353,19 +358,20 @@ class CheckpointManager:
         Returns:
             未完成（pending、partial、failed 或不存在）的模块 ID 列表
         """
-        pending = []
-        for module_id in all_modules:
-            checkpoint = self.checkpoints.get(module_id)
-            if checkpoint is None:
-                pending.append(module_id)
-            elif checkpoint.status in (
-                CHECKPOINT_STATUS_PENDING,
-                CHECKPOINT_STATUS_PARTIAL,
-                CHECKPOINT_STATUS_FAILED,
-            ):
-                pending.append(module_id)
+        with self._rlock:
+            pending = []
+            for module_id in all_modules:
+                checkpoint = self.checkpoints.get(module_id)
+                if checkpoint is None:
+                    pending.append(module_id)
+                elif checkpoint.status in (
+                    CHECKPOINT_STATUS_PENDING,
+                    CHECKPOINT_STATUS_PARTIAL,
+                    CHECKPOINT_STATUS_FAILED,
+                ):
+                    pending.append(module_id)
 
-        return pending
+            return pending
 
     def get_total_token_usage(self) -> dict[str, int]:
         """获取所有检查点的总 Token 使用量。
