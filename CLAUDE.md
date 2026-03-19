@@ -6,9 +6,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AI 代码知识图谱系统，基于 Python 构建，能够解析多语言代码仓库并生成结构化的知识图谱，支持 GraphRAG 自然语言查询和语义检索。
 
-## 开发环境
+**项目结构：**
+```
+code-knowledge-graph/
+├── code-graph-system/    # Python 后端（API + 图谱分析流水线）
+├── code-graph-ui/        # React 前端
+└── docs/                 # 文档
+```
 
-所有命令在 `code-graph-system/` 目录下执行：
+## 后端开发环境
+
+所有后端命令在 `code-graph-system/` 目录下执行：
 
 ```bash
 cd code-graph-system
@@ -18,17 +26,11 @@ pip install -r requirements-minimal.txt   # 快速启动（无 AI/向量/Neo4j�
 pip install -r requirements.txt           # 完整功能
 ```
 
-## 常用命令
+## 后端常用命令
 
 ```bash
 # 以下所有命令均需在 code-graph-system/ 根目录下执行
-
-#启动  celery_worker
 cd code-graph-system
-celery -A backend.scheduler.celery_app worker --loglevel=info
-
-source venv/bin/activate
-pip install celery redis
 
 # 启动 API 服务器（访问 http://localhost:8000/docs）
 python -m uvicorn backend.api.server:app --host 0.0.0.0 --port 8000 --reload
@@ -38,22 +40,18 @@ python -m backend.pipeline.ai_analyze /path/to/repo
 python -m backend.pipeline.ai_analyze /path/to/repo --name my-project --enable-rag
 python -m backend.pipeline.ai_analyze /path/to/repo --verbose --json
 
-# 环境变量配置
-export LLM_PROVIDER=anthropic  # 或 openai, minimax, ollama
-export ANTHROPIC_API_KEY=your-key
-export OPENAI_API_KEY=your-key
-export MINIMAX_API_KEY=your-key
-export MINIMAX_GROUP_ID=your-group-id
-
-# 运行测试
+# 运行单个测试文件
 pytest backend/tests/test_ai_analysis_models.py -v
 pytest backend/tests/test_module_scanner_agent.py -v
 pytest backend/tests/test_ai_pipeline.py -v
 pytest backend/tests/test_ai_pipeline_e2e.py -v  # 需要 LLM API Key
 
-# Agent 系统测试
+# 运行所有 Agent 系统测试
 pytest backend/tests/test_agent_orchestrator.py -v
 pytest backend/tests/test_agent_*.py -v
+
+# 运行单个测试函数
+pytest backend/tests/test_ai_pipeline.py::test_scan_repository -v
 
 # 检查依赖状态
 python scripts/check_deps.py
@@ -117,6 +115,11 @@ celery -A backend.scheduler.celery_app worker --beat --loglevel=info  # Worker +
 - `GraphEdge(from_, to, type, properties)` — 通用边（`from_` 是 Python 属性名，序列化为 `"from"`）
 - `NodeType` / `EdgeType` — 枚举定义所有合法类型
 - `GraphSchema.validate_graph()` — 三层验证（节点/边/引用完整性）
+
+**前后端边字段映射：**
+- 后端（Python）：`from_` / `to`
+- 前端（TypeScript）：`source` / `target`
+- 转换函数：`src/api/graphApi.ts` 中的 `rawEdgeToGraphEdge()`
 
 节点类型：`Repository`, `Module`, `File`, `Class`, `Function`, `Component`, `Service`, `API`, `DataObject`, `Table`, `Event`, `Topic`, `Pipeline`, `Cluster`, `Database`, `Layer`, `Flow`, `BusinessFlow`, `Domain`, `BoundedContext`, `DomainEntity`
 
@@ -233,7 +236,7 @@ AI 分析缓存（`backend/ai/cache/`）：commit SHA 不变则跳过 LLM 调用
 
 React 19 + TypeScript 5.9 + Vite 7 + Ant Design 6 + React Router v7 + Zustand 5 + Axios + Cytoscape.js（含 cytoscape-dagre、cytoscape-cose-bilkent）+ @xyflow/react（ReactFlow）+ ECharts
 
-### 常用命令
+### 前端常用命令
 
 ```bash
 cd code-graph-ui
@@ -243,6 +246,13 @@ npm run dev      # 启动开发服务器 http://localhost:5173
 npm run build    # 构建生产版本
 npm run preview  # 预览生产构建
 npm run lint     # 运行 ESLint
+```
+
+### 前端环境变量
+
+创建 `code-graph-ui/.env.local`：
+```
+VITE_API_BASE_URL=http://localhost:8000
 ```
 
 ### 架构（已升级为企业级模块化架构）
@@ -290,12 +300,19 @@ import {
   SearchBar,
 } from "@/components";
 
-// 导入 API
+// 导入 API（新架构，推荐）
 import { graphEndpoints, ragEndpoints } from "@/core/api";
+
+// 导入 API（旧架构，兼容）
+import { graphApi } from "@/api/graphApi";
 
 // 导入 Hooks
 import { useAsync, useDebounce } from "@/core/hooks";
 ```
+
+**注意：** 前端存在两套 API 层：
+- `src/core/api/` — 新架构，推荐用于新功能
+- `src/api/graphApi.ts` — 旧架构，带缓存和类型转换，仍被现有页面使用
 
 ### TypeScript 限制
 
