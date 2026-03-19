@@ -258,7 +258,7 @@ class ArchitectureAgent(BaseAgent):
 
                 # 更新共享知识库
                 for layer in data.get("layers", []):
-                    self.context.shared_knowledge.layers.append({
+                    self.context.shared_knowledge.add_layer({
                         "id": layer["layer_id"],
                         "name": layer["name"],
                         "layer_type": layer["layer_type"],
