@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from backend.agent.agents.module_scanner import ModuleScannerAgent
+from backend.agent.config import AnalysisConfig, AnalysisPreset
 from backend.agent.context import AgentContext, SharedKnowledgeBase
 from backend.agent.orchestrator import AgentOrchestrator, PartialResultError
 from backend.graph.graph_builder import BuiltGraph, GraphBuilder
@@ -364,10 +365,17 @@ class AIPipeline:
             module.name,
         )
 
+        # 将 AIAnalysisConfig 转换为 AnalysisConfig
+        # AIAnalysisConfig 用于 LLM 调用配置，AnalysisConfig 用于 Agent 行为配置
+        agent_config = AnalysisConfig(
+            preset=AnalysisPreset.DEEP,
+            context_window=128000,
+        )
+
         orchestrator = AgentOrchestrator(
             repo_path=str(repo_path),
             llm_client=llm_client,
-            config=self.config,  # 传入配置以启用 StructureIndexer depth
+            config=agent_config,
             on_progress=on_progress,
         )
 
