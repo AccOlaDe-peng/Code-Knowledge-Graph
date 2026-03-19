@@ -10,6 +10,11 @@ echo "================================"
 echo "Celery Worker 启动"
 echo "================================"
 
+# 停止所有其他 Celery worker 进程
+echo "检查并停止其他 Celery worker 进程..."
+pkill -f "celery.*worker" 2>/dev/null && echo "已停止旧进程" || echo "无旧进程"
+sleep 2
+
 # 激活虚拟环境
 source venv/bin/activate
 
