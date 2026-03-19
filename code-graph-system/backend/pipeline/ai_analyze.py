@@ -354,7 +354,7 @@ class AIPipeline:
         """使用 AgentOrchestrator 进行深度分析。
 
         适用于支持完整 function calling 的提供商。
-        Agent 可以使用工具（read_file、search_code 等）自主探索代码。
+        Agent 可以使用工具（read_file、search_code、search_structure 等）自主探索代码。
 
         注意：AgentOrchestrator 会分析整个仓库，module 参数仅用于日志记录。
         """
@@ -367,11 +367,16 @@ class AIPipeline:
         orchestrator = AgentOrchestrator(
             repo_path=str(repo_path),
             llm_client=llm_client,
+            config=self.config,  # 传入配置以启用 StructureIndexer depth
+            on_progress=on_progress,
         )
 
-        # 运行架构分析，捕获 PartialResultError 以保存部分图谱
+        # 使用 run_module_analysis 而非 run_architecture_analysis
+        # 这样可以启用 StructureIndexer + search_structure 工具
+        modules = [{"id": module.id, "name": module.name, "path": str(repo_path)}]
+
         try:
-            result = orchestrator.run_architecture_analysis()
+            result = orchestrator.run_module_analysis(modules, repo_name=None)
             return result.nodes, result.edges
         except PartialResultError as exc:
             # 尝试保存部分结果
