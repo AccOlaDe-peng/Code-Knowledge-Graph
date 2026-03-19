@@ -167,6 +167,9 @@ class SlidingWindow:
                 msg.get("role") == "user"
                 and isinstance(content, list)
                 and content
+                # 仅处理"全部 block 均为 tool_result"的 user 消息
+                # 混合内容消息（含 tool_result + 文本 block）不处理，有意跳过——
+                # 此类消息在当前 agent 工具集中不会出现
                 and all(
                     isinstance(b, dict) and b.get("type") == "tool_result"
                     for b in content
