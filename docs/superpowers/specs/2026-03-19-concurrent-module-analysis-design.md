@@ -309,41 +309,64 @@ def _create_context(self, module_id: str = None) -> AgentContext:
 
 ### 四、SharedKnowledgeBase 线程安全
 
-**修改文件**：`backend/agent/context.py`、`backend/agent/agents/architecture.py`（及其他直接写 `shared_knowledge` 的 Agent）
+**修改文件**：`backend/agent/context.py`、`backend/agent/agents/architecture.py`
 
-新增写操作方法，加锁保护：
+当前 `SharedKnowledgeBase` 是 `@dataclass`，字段是裸 list，无任何锁。需改为普通类，读写均加锁。
+
+**读操作必须返回快照（copy），不能暴露原始 list** — 原始 list 在调用方迭代时若有其他线程写入，会抛出 `RuntimeError: list changed size during iteration`：
 
 ```python
 class SharedKnowledgeBase:
     def __init__(self):
-        self.modules: list = []
-        self.layers: list = []
-        self.services: list = []
-        self.entry_points: list = []
+        self._modules: list = []
+        self._layers: list = []
+        self._services: list = []
+        self._entry_points: list = []
         self._lock = threading.Lock()
 
+    # ── 写操作：加锁 append ──────────────────────────────
     def add_module(self, module: dict) -> None:
         with self._lock:
-            self.modules.append(module)
+            self._modules.append(module)
 
     def add_layer(self, layer: dict) -> None:
         with self._lock:
-            self.layers.append(layer)
+            self._layers.append(layer)
 
     def add_service(self, service: dict) -> None:
         with self._lock:
-            self.services.append(service)
+            self._services.append(service)
 
     def add_entry_point(self, entry_point: str) -> None:
         with self._lock:
-            self.entry_points.append(entry_point)
+            self._entry_points.append(entry_point)
+
+    # ── 读操作：返回快照（copy），不暴露原始 list ─────────
+    @property
+    def modules(self) -> list:
+        with self._lock:
+            return list(self._modules)
+
+    @property
+    def layers(self) -> list:
+        with self._lock:
+            return list(self._layers)
+
+    @property
+    def services(self) -> list:
+        with self._lock:
+            return list(self._services)
+
+    @property
+    def entry_points(self) -> list:
+        with self._lock:
+            return list(self._entry_points)
 ```
 
-**同步修改 Agent**：将所有 Agent 中的 `self.context.shared_knowledge.layers.append(...)` 等直接 `list.append()` 调用，改为调用上述加锁方法。涉及文件：
-- `backend/agent/agents/architecture.py`（第 261 行）
-- 其他 Agent 中所有直接写 `shared_knowledge` 的位置（实现时需逐一检查）
+`modules`、`layers` 等改为 `@property` 后，Agent 中原有的 `shared_knowledge.modules`（只读访问）无需修改；只需改写操作：
 
-读操作（Agent 分析时读 `shared_knowledge.modules`）不加锁——并发下读到"部分已完成列表"是可接受的。
+- **`backend/agent/agents/architecture.py` 第 261 行**：`self.context.shared_knowledge.layers.append(...)` → `self.context.shared_knowledge.add_layer(...)`
+- **其余 Agent**（`call_graph`、`cross_module`、`data_lineage` 等）只写各自的 `context.discoveries`，`discoveries` 是 per-module 对象，无需修改
 
 ---
 
@@ -384,15 +407,14 @@ class CheckpointManager:
 | 文件 | 操作 | 核心改动 |
 |---|---|---|
 | `backend/agent/concurrency.py` | **新建** | `ConcurrencyController`，单一 Condition + 守护退避线程 |
-| `backend/agent/orchestrator.py` | 修改 | `run_module_analysis` 并发化，`_create_context` 改为 per-module ContextMonitor |
-| `backend/agent/context.py` | 修改 | `SharedKnowledgeBase` 新增加锁写方法 |
-| `backend/agent/agents/architecture.py` | 修改 | 直接 `.append()` 改为 `add_layer()` / `add_service()` |
-| `backend/agent/agents/*.py` | 修改 | 逐一检查并替换所有直接写 `shared_knowledge` 的调用 |
-| `backend/agent/checkpoint.py` | 修改 | `CheckpointManager` 加 `RLock`，保护所有读写操作 |
+| `backend/agent/orchestrator.py` | 修改 | `run_module_analysis` 并发化；`_create_context` 改为每次 `ContextMonitor(max_tokens=...)` 新建实例（废弃 `self.context_monitor` 单例） |
+| `backend/agent/context.py` | 修改 | `SharedKnowledgeBase` 从 dataclass 改为普通类，`_lock` 保护所有字段，读操作返回 list 快照，写操作提供 `add_*` 方法 |
+| `backend/agent/agents/architecture.py` | 修改 | 第 261 行：`.layers.append()` → `.add_layer()`（**唯一需改的 Agent**，其余 Agent 只写各自 per-module 的 `context.discoveries`，无需改动） |
+| `backend/agent/checkpoint.py` | 修改 | `CheckpointManager` 加 `RLock`，保护 `save`、`get_aggregated_knowledge`、`list_*` 等所有读写操作 |
 | `backend/tests/test_concurrency_controller.py` | **新建** | Controller 单元测试 |
 | `backend/tests/test_orchestrator_concurrent.py` | **新建** | 并发编排集成测试 |
 
-**不需要改动**：`LLMClient`、`StructureIndexer`、`AIPipeline`、Celery tasks
+**不需要改动**：`LLMClient`、所有 Agent（`architecture.py` 除外）、`StructureIndexer`、`AIPipeline`、Celery tasks
 
 ---
 
