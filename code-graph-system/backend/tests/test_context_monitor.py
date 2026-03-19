@@ -24,46 +24,46 @@ class TestContextMonitor:
         assert state.max_context == 100000
 
     def test_record_usage(self) -> None:
-        """记录 token 使用量。"""
+        """记录 token 使用量（基于 input_tokens）。"""
         monitor = ContextMonitor(max_tokens=100000)
 
         state = monitor.record_usage(input_tokens=1000, output_tokens=500)
 
         assert state.input_tokens == 1000
         assert state.output_tokens == 500
-        assert state.usage_ratio == 1500 / 100000
+        assert state.usage_ratio == 1000 / 100000  # 仅基于 input_tokens
         assert state.status == "normal"
 
-    def test_cumulative_usage(self) -> None:
-        """累计 token 使用量。"""
+    def test_last_request_usage(self) -> None:
+        """记录的是最近一次请求 token，而非累计值。"""
         monitor = ContextMonitor(max_tokens=100000)
 
         monitor.record_usage(input_tokens=1000, output_tokens=500)
         state = monitor.record_usage(input_tokens=2000, output_tokens=1000)
 
-        assert state.input_tokens == 3000  # 累计
-        assert state.output_tokens == 1500  # 累计
-        assert state.usage_ratio == 4500 / 100000
+        assert state.input_tokens == 2000   # 最近一次请求的 input
+        assert state.output_tokens == 1000  # 最近一次请求的 output
+        assert state.usage_ratio == 2000 / 100000
         assert state.status == "normal"
 
     def test_warning_threshold(self) -> None:
-        """达到 60% 时状态变为 warning。"""
+        """达到 70% 时状态变为 warning。"""
         monitor = ContextMonitor(max_tokens=100000)
 
-        # 60% = 60000 tokens
-        state = monitor.record_usage(input_tokens=50000, output_tokens=10000)
+        # 70% = 70000 input tokens
+        state = monitor.record_usage(input_tokens=70000, output_tokens=0)
 
-        assert state.usage_ratio == 0.6
+        assert state.usage_ratio == 0.7
         assert state.status == "warning"
 
     def test_critical_threshold(self) -> None:
-        """达到 75% 时状态变为 critical。"""
+        """达到 85% 时状态变为 critical。"""
         monitor = ContextMonitor(max_tokens=100000)
 
-        # 75% = 75000 tokens
-        state = monitor.record_usage(input_tokens=60000, output_tokens=15000)
+        # 85% = 85000 input tokens
+        state = monitor.record_usage(input_tokens=85000, output_tokens=0)
 
-        assert state.usage_ratio == 0.75
+        assert state.usage_ratio == 0.85
         assert state.status == "critical"
 
     def test_exceeded_threshold(self) -> None:
@@ -71,31 +71,15 @@ class TestContextMonitor:
         monitor = ContextMonitor(max_tokens=100000)
 
         # 超过 100%
-        state = monitor.record_usage(input_tokens=90000, output_tokens=20000)
+        state = monitor.record_usage(input_tokens=110000, output_tokens=0)
 
-        assert state.usage_ratio == 1.1
+        assert state.usage_ratio == pytest.approx(1.1)
         assert state.status == "exceeded"
 
-    def test_should_apply_sliding_window(self) -> None:
-        """critical 和 exceeded 状态应触发滑动窗口。"""
+    def test_no_should_apply_sliding_window(self) -> None:
+        """should_apply_sliding_window 接口已删除。"""
         monitor = ContextMonitor(max_tokens=100000)
-
-        # normal 状态不应触发
-        monitor.record_usage(input_tokens=10000, output_tokens=5000)
-        assert monitor.should_apply_sliding_window() is False
-
-        # warning 状态不应触发
-        monitor.record_usage(input_tokens=45000, output_tokens=10000)
-        assert monitor.should_apply_sliding_window() is False
-
-        # critical 状态应触发
-        monitor.record_usage(input_tokens=10000, output_tokens=5000)
-        assert monitor.should_apply_sliding_window() is True
-
-        # 重置后测试 exceeded
-        monitor.reset()
-        monitor.record_usage(input_tokens=110000, output_tokens=0)
-        assert monitor.should_apply_sliding_window() is True
+        assert not hasattr(monitor, "should_apply_sliding_window")
 
     def test_reset(self) -> None:
         """重置累计值。"""
@@ -122,36 +106,36 @@ class TestContextMonitor:
         assert state.max_context == 128000
 
     def test_warning_threshold_boundary(self) -> None:
-        """测试 warning 阈值边界（刚好低于 60% 应为 normal）。"""
+        """测试 warning 阈值边界（刚好低于 70% 应为 normal）。"""
         monitor = ContextMonitor(max_tokens=100000)
 
-        # 59.99% - 应为 normal
-        state = monitor.record_usage(input_tokens=59990, output_tokens=0)
+        # 69.99% - 应为 normal
+        state = monitor.record_usage(input_tokens=69990, output_tokens=0)
         assert state.status == "normal"
 
-        # 再加 10 tokens，达到 60% - 应为 warning
-        state = monitor.record_usage(input_tokens=10, output_tokens=0)
+        # 直接传入 70000，达到 70% - 应为 warning
+        state = monitor.record_usage(input_tokens=70000, output_tokens=0)
         assert state.status == "warning"
 
     def test_critical_threshold_boundary(self) -> None:
-        """测试 critical 阈值边界（刚好低于 75% 应为 warning）。"""
+        """测试 critical 阈值边界（刚好低于 85% 应为 warning）。"""
         monitor = ContextMonitor(max_tokens=100000)
 
-        # 74.99% - 应为 warning
-        state = monitor.record_usage(input_tokens=74990, output_tokens=0)
+        # 84.99% - 应为 warning
+        state = monitor.record_usage(input_tokens=84990, output_tokens=0)
         assert state.status == "warning"
 
-        # 再加 10 tokens，达到 75% - 应为 critical
-        state = monitor.record_usage(input_tokens=10, output_tokens=0)
+        # 直接传入 85000，达到 85% - 应为 critical
+        state = monitor.record_usage(input_tokens=85000, output_tokens=0)
         assert state.status == "critical"
 
     def test_usage_ratio_calculation(self) -> None:
-        """验证 usage_ratio 计算逻辑（(input + output) / max_tokens）。"""
+        """验证 usage_ratio 计算逻辑（input_tokens / max_tokens）。"""
         monitor = ContextMonitor(max_tokens=200000)
 
         state = monitor.record_usage(input_tokens=100000, output_tokens=50000)
 
-        expected_ratio = 150000 / 200000  # 0.75
+        expected_ratio = 100000 / 200000  # 0.5（仅基于 input_tokens）
         assert state.usage_ratio == expected_ratio
 
     def test_get_state_returns_new_instance(self) -> None:
@@ -164,3 +148,60 @@ class TestContextMonitor:
 
         assert state1 is not state2  # 不同实例
         assert state1.input_tokens == state2.input_tokens  # 但值相同
+
+
+class TestContextMonitorNew:
+    """验证新的单次 token 语义。"""
+
+    def test_record_usage_tracks_last_input_tokens(self):
+        """usage_ratio 应基于本次请求 input_tokens，而非累计值。"""
+        monitor = ContextMonitor(max_tokens=100)
+        monitor.record_usage(input_tokens=50, output_tokens=10)
+        state = monitor.record_usage(input_tokens=60, output_tokens=10)
+        # 第二次请求 input=60，ratio=0.6，而非累计 (50+60+20)=130/100=1.3
+        assert state.usage_ratio == pytest.approx(0.6)
+        assert state.input_tokens == 60
+        assert state.status == "normal"  # 60% < 70% warning threshold
+
+    def test_warning_threshold_at_70_percent(self):
+        monitor = ContextMonitor(max_tokens=100)
+        state = monitor.record_usage(input_tokens=70, output_tokens=0)
+        assert state.status == "warning"
+
+    def test_critical_threshold_at_85_percent(self):
+        monitor = ContextMonitor(max_tokens=100)
+        state = monitor.record_usage(input_tokens=85, output_tokens=0)
+        assert state.status == "critical"
+
+    def test_exceeded_threshold_at_100_percent(self):
+        monitor = ContextMonitor(max_tokens=100)
+        state = monitor.record_usage(input_tokens=100, output_tokens=0)
+        assert state.status == "exceeded"
+
+    def test_get_state_does_not_mutate(self):
+        """get_state() 不应改变内部状态。"""
+        monitor = ContextMonitor(max_tokens=100)
+        monitor.record_usage(input_tokens=50, output_tokens=5)
+        s1 = monitor.get_state()
+        s2 = monitor.get_state()
+        assert s1.input_tokens == s2.input_tokens == 50
+
+    def test_reset_clears_last_tokens(self):
+        monitor = ContextMonitor(max_tokens=100)
+        monitor.record_usage(input_tokens=80, output_tokens=10)
+        monitor.reset()
+        state = monitor.get_state()
+        assert state.input_tokens == 0
+        assert state.usage_ratio == 0.0
+        assert state.status == "normal"
+
+    def test_no_should_apply_sliding_window_method(self):
+        """旧接口 should_apply_sliding_window 应已删除。"""
+        monitor = ContextMonitor()
+        assert not hasattr(monitor, "should_apply_sliding_window")
+
+    def test_no_total_input_property(self):
+        """旧 property total_input/total_output 应已删除。"""
+        monitor = ContextMonitor()
+        assert not hasattr(monitor, "total_input")
+        assert not hasattr(monitor, "total_output")

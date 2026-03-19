@@ -45,6 +45,6 @@ class ContextState:
     """上下文状态。"""
     status: str = "normal"       # "normal" | "warning" | "critical" | "exceeded"
     usage_ratio: float = 0.0     # 当前使用率 (0.0 - 1.0)
-    input_tokens: int = 0        # 累计输入 token
-    output_tokens: int = 0       # 累计输出 token
+    input_tokens: int = 0        # 本次请求的 input tokens（非累计）
+    output_tokens: int = 0       # 本次请求的 output tokens（非累计）
     max_context: int = 128000    # 模型的最大上下文窗口
