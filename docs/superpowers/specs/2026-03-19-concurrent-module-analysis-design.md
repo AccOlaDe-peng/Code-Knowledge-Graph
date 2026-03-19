@@ -151,17 +151,19 @@ def record_429(self) -> None:
             self._max_backoff,
         )
         should_abort = self._backoff_count > self._max_pauses
+        backoff_count_snapshot = self._backoff_count   # 在锁内捕获，避免闭包无锁读取
 
     if should_abort:
         with self._cond:
             self._should_abort = True   # 主线程检查此 flag 后触发 PartialResultError
             self._paused = False
+            self._is_backing_off = False  # 清零，防止实例复用时静默忽略后续 429
             self._cond.notify_all()
         return
 
     # 启动守护线程执行 sleep，不阻塞调用方（Worker 线程可以立即 release 并退出）
     def _do_backoff():
-        logger.warning("ConcurrencyController: 429 退避 %.0f 秒（第 %d 次）", backoff_sec, self._backoff_count)
+        logger.warning("ConcurrencyController: 429 退避 %.0f 秒（第 %d 次）", backoff_sec, backoff_count_snapshot)
         time.sleep(backoff_sec)
         with self._cond:
             self._is_backing_off = False
@@ -178,10 +180,11 @@ Worker 调用 `record_429()` 后的完整流程：
 # _run_module_worker 内
 except RateLimitExhaustedError:
     controller.record_429()   # 设置暂停标志，启动守护退避线程
-    # 注意：不在这里 raise，让 finally 的 release() 先执行
-# finally:
-    controller.release()      # 先释放槽位
-    # 然后由主线程检查 should_abort 决定是否触发 PartialResultError
+    return AgentOutput(status="rate_limited", ...)
+    # 使用 return 而非 raise，两者均触发 finally，
+    # 但 return 语义更清晰（rate limit 已由 controller 处理，不需要向上传播异常）
+finally:
+    controller.release()      # 无论如何释放槽位，由主线程检查 should_abort 决定是否终止
 ```
 
 #### 1.4 自适应并发规则
@@ -210,6 +213,16 @@ def run_module_analysis(self, modules, repo_name=None):
 
     # --- 不变：StructureIndexer 构建（只读，线程安全）---
     self._build_structure_index()
+
+    # --- 新增：从检查点批量注入聚合知识（替代原 _run_agent_for_module 内的逐次注入）---
+    # 原代码在每个模块启动前赋值 context.shared_knowledge.modules = ...（直接赋值），
+    # @property 无 setter，并发下会 AttributeError；改为在此一次性加载，Worker 无需重复注入。
+    if self.checkpoint_manager is not None:
+        aggregated = self.checkpoint_manager.get_aggregated_knowledge()
+        for m in aggregated.get("modules", []):
+            self.shared_knowledge.add_module(m)
+        for layer in aggregated.get("layers", []):
+            self.shared_knowledge.add_layer(layer)
 
     # --- 新增：初始化并发控制器 ---
     controller = ConcurrencyController(
@@ -251,7 +264,7 @@ def run_module_analysis(self, modules, repo_name=None):
                 raise   # 透传，不 catch
             except Exception as e:
                 logger.error("模块 %s 失败: %s", module_id, e)
-                self._reset_context_monitor()
+                # 并发模式下每个模块有独立 ContextMonitor，不需要调用 _reset_context_monitor()
 
     # 仅在全部完成时清除检查点（异常退出时保留，供断点续跑）
     if self.checkpoint_manager:
@@ -259,6 +272,11 @@ def run_module_analysis(self, modules, repo_name=None):
 
     ...
 ```
+
+> **注意**：`with ThreadPoolExecutor(...) as executor:` 的 `__exit__` 会调用 `shutdown(wait=True)`，
+> 即 `PartialResultError` 抛出后主线程仍需等待已提交的 Worker 完成。Python 3.9+ 可用
+> `executor.shutdown(wait=False, cancel_futures=True)` 提前取消尚未开始的任务，但正在运行的
+> LLM 调用（HTTP 请求）无法中断，只能等其自然返回。在可接受等待的场景下直接 `shutdown(wait=True)` 即可。
 
 #### 2.2 Worker 函数
 
@@ -407,7 +425,7 @@ class CheckpointManager:
 | 文件 | 操作 | 核心改动 |
 |---|---|---|
 | `backend/agent/concurrency.py` | **新建** | `ConcurrencyController`，单一 Condition + 守护退避线程 |
-| `backend/agent/orchestrator.py` | 修改 | `run_module_analysis` 并发化；`_create_context` 改为每次 `ContextMonitor(max_tokens=...)` 新建实例（废弃 `self.context_monitor` 单例） |
+| `backend/agent/orchestrator.py` | 修改 | `run_module_analysis` 并发化；`_create_context` 改为每次 `ContextMonitor(max_tokens=...)` 新建实例；**移除 `_run_agent_for_module` 中 `context.shared_knowledge.modules = ...` 和 `.layers = ...` 两处直接赋值**（`@property` 无 setter，直接赋值会引发 `AttributeError`）；改为在 `run_module_analysis` 开头通过 `add_module()`/`add_layer()` 批量注入检查点聚合知识 |
 | `backend/agent/context.py` | 修改 | `SharedKnowledgeBase` 从 dataclass 改为普通类，`_lock` 保护所有字段，读操作返回 list 快照，写操作提供 `add_*` 方法 |
 | `backend/agent/agents/architecture.py` | 修改 | 第 261 行：`.layers.append()` → `.add_layer()`（**唯一需改的 Agent**，其余 Agent 只写各自 per-module 的 `context.discoveries`，无需改动） |
 | `backend/agent/checkpoint.py` | 修改 | `CheckpointManager` 加 `RLock`，保护 `save`、`get_aggregated_knowledge`、`list_*` 等所有读写操作 |
