@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -27,6 +28,7 @@ from backend.agent.agents.call_graph import CallGraphAgent
 from backend.agent.agents.data_lineage import DataLineageAgent
 from backend.agent.agents.api_endpoint import APIEndpointAgent
 from backend.agent.agents.cross_module import CrossModuleAgent
+from backend.agent.concurrency import ConcurrencyController, MAX_POOL_SIZE
 from backend.graph.graph_schema import GraphNode, GraphEdge
 from backend.llm.client import LLMClient, RateLimitExhaustedError
 from backend.llm.context_monitor import ContextMonitor
@@ -37,6 +39,10 @@ logger = logging.getLogger(__name__)
 # 限速暂停配置（可通过环境变量覆盖）
 RATE_LIMIT_MAX_PAUSES = int(os.environ.get("RATE_LIMIT_MAX_PAUSES", "3"))
 RATE_LIMIT_PAUSE_MINUTES = int(os.environ.get("RATE_LIMIT_PAUSE_MINUTES", "10"))
+
+# 并发控制配置（可通过环境变量覆盖）
+CONCURRENT_WORKERS_INIT = int(os.environ.get("CONCURRENT_WORKERS_INIT", "2"))
+CONCURRENT_WORKERS_MAX = int(os.environ.get("CONCURRENT_WORKERS_MAX", "5"))
 
 
 class PartialResultError(Exception):
@@ -304,17 +310,34 @@ class AgentOrchestrator:
         """重置上下文监控器。"""
         self.context_monitor.reset()
 
+    def _run_module_worker(
+        self, module: dict, controller: ConcurrencyController
+    ) -> AgentOutput:
+        """Worker 线程执行函数。占 slot → 分析模块 → 释放 slot。"""
+        controller.wait_to_start()
+        try:
+            output = self._run_agent_for_module(module)
+            controller.record_success()
+            return output
+        except RateLimitExhaustedError:
+            controller.record_429()
+            # 使用 return 而非 raise：rate limit 已由 controller 处理，
+            # 两者均触发 finally，但 return 语义更清晰
+            return AgentOutput(status="rate_limited", nodes=[], edges=[])
+        except Exception:
+            raise
+        finally:
+            controller.release()  # 无论如何释放 slot
+
     def run_module_analysis(
         self,
         modules: list[dict],
         repo_name: str = None,
     ) -> OrchestratorResult:
-        """运行模块级分析（带检查点）。
+        """运行模块级分析（并发 + 检查点）。
 
-        对每个模块运行 ArchitectureAgent，支持：
-        - 检查点保存，支持断点续分析
-        - 模块间上下文重置，避免上下文溢出
-        - 聚合共享知识，跨模块传递分析结果
+        使用 ThreadPoolExecutor 并发执行，ConcurrencyController 动态控制并发度（2-5）。
+        主线程通过 as_completed 串行写检查点，确保线程安全。
 
         Args:
             modules: 模块列表，每个模块包含 id, name 等字段
@@ -330,10 +353,6 @@ class AgentOrchestrator:
         if self.config.max_modules:
             modules = modules[: self.config.max_modules]
 
-        all_nodes: list[GraphNode] = []
-        all_edges: list[GraphEdge] = []
-        module_outputs: dict[str, AgentOutput] = {}
-
         # 断点续跑：计算待处理模块
         all_module_ids = [m.get("id", f"module_{i}") for i, m in enumerate(modules)]
         if self.checkpoint_manager is not None:
@@ -345,7 +364,16 @@ class AgentOrchestrator:
         if completed_count > 0:
             logger.info("断点续跑：已完成 %d/%d 个模块，续跑剩余", completed_count, len(all_module_ids))
 
-        # [新增] 构建整个仓库的结构索引（零 LLM 调用，一次性）
+        # 从检查点批量注入聚合知识（替代原 _run_agent_for_module 内的逐次注入）
+        # 原代码直接赋值 context.shared_knowledge.modules = ... 在 @property 下会 AttributeError
+        if self.checkpoint_manager is not None:
+            aggregated = self.checkpoint_manager.get_aggregated_knowledge()
+            for m in aggregated.get("modules", []):
+                self.shared_knowledge.add_module(m)
+            for layer in aggregated.get("layers", []):
+                self.shared_knowledge.add_layer(layer)
+
+        # 构建整个仓库的结构索引（零 LLM 调用，一次性）
         try:
             from backend.agent.structure_indexer import StructureIndexer
             _raw_depth = self.config.preset.value if hasattr(self.config, "preset") else "standard"
@@ -356,111 +384,87 @@ class AgentOrchestrator:
         except Exception as _si_err:
             logger.warning("StructureIndexer 初始化失败，跳过结构索引：%s", _si_err)
 
-        pause_count = 0
-        i = 0
+        # 初始化并发控制器
+        controller = ConcurrencyController(
+            initial_workers=CONCURRENT_WORKERS_INIT,
+            max_workers=CONCURRENT_WORKERS_MAX,
+            max_pauses=RATE_LIMIT_MAX_PAUSES,
+            initial_backoff=float(os.environ.get("RATE_LIMIT_PAUSE_SECONDS", "10")),
+        )
 
-        while i < len(modules):
-            module = modules[i]
-            module_id = module.get("id", f"module_{i}")
-            module_name = module.get("name", f"Module {i}")
+        pending_modules = [m for m in modules if m.get("id") in pending_ids]
+        all_nodes: list[GraphNode] = []
+        all_edges: list[GraphEdge] = []
+        module_outputs: dict[str, AgentOutput] = {}
 
-            # 跳过已完成模块
-            if module_id not in pending_ids:
-                i += 1
-                continue
+        with ThreadPoolExecutor(max_workers=MAX_POOL_SIZE) as executor:
+            futures = {
+                executor.submit(self._run_module_worker, m, controller): m
+                for m in pending_modules
+            }
 
-            logger.info(f"分析模块 [{i + 1}/{len(modules)}]: {module_name}")
-            self._emit_progress(
-                "module_analysis",
-                "running",
-                f"开始分析模块: {module_name}",
-                module_id=module_id,
-            )
+            for future in as_completed(futures):
+                # 检查 should_abort（429 次数超限）
+                if controller.should_abort:
+                    completed = (
+                        len(self.checkpoint_manager.list_completed_modules())
+                        if self.checkpoint_manager else 0
+                    )
+                    raise PartialResultError(completed, len(modules))
 
-            try:
-                output = self._run_agent_for_module(module)
-                module_outputs[module_id] = output
+                module = futures[future]
+                module_id = module.get("id", "unknown")
+                module_name = module.get("name", module_id)
 
-                # 保存检查点
-                if self.checkpoint_manager is not None:
-                    # 映射 Agent 状态到 Checkpoint 状态
-                    checkpoint_status = output.status
-                    if output.status == "success":
+                try:
+                    output = future.result()
+                    module_outputs[module_id] = output
+
+                    # 主线程串行写检查点（CheckpointManager 内部已加 RLock，双重保险）
+                    if self.checkpoint_manager is not None:
                         checkpoint_status = CHECKPOINT_STATUS_COMPLETED
-                    elif output.status == "partial":
-                        checkpoint_status = CHECKPOINT_STATUS_PARTIAL
-                    elif output.status == "failed":
-                        checkpoint_status = CHECKPOINT_STATUS_FAILED
+                        if output.status == "partial":
+                            checkpoint_status = CHECKPOINT_STATUS_PARTIAL
+                        elif output.status in ("failed", "rate_limited"):
+                            checkpoint_status = CHECKPOINT_STATUS_FAILED
 
-                    # 获取运行时上下文（由 _run_agent_for_module 内部创建）
-                    context = self._create_context(module_id)
-                    checkpoint = ModuleCheckpoint(
-                        module_id=module_id,
-                        module_name=module_name,
-                        nodes=[n.model_dump() for n in output.nodes],
-                        edges=[e.model_dump() for e in output.edges],
-                        knowledge={
-                            "modules": context.shared_knowledge.modules,
-                            "layers": context.shared_knowledge.layers,
-                        },
-                        status=checkpoint_status,
-                    )
-                    self.checkpoint_manager.save(checkpoint)
+                        checkpoint = ModuleCheckpoint(
+                            module_id=module_id,
+                            module_name=module_name,
+                            nodes=[n.model_dump() for n in output.nodes],
+                            edges=[e.model_dump() for e in output.edges],
+                            knowledge={
+                                "modules": self.shared_knowledge.modules,
+                                "layers": self.shared_knowledge.layers,
+                            },
+                            status=checkpoint_status,
+                        )
+                        self.checkpoint_manager.save(checkpoint)
 
-                # 模块间重置上下文监控器
-                self._reset_context_monitor()
+                    if output.status == "success":
+                        all_nodes.extend(output.nodes)
+                        all_edges.extend(output.edges)
+                        logger.info(
+                            "模块 %s: %d 节点 / %d 边",
+                            module_name, len(output.nodes), len(output.edges),
+                        )
+                        self._emit_progress(
+                            "module_analysis", "success",
+                            f"完成模块分析: {module_name}",
+                            module_id=module_id,
+                            nodes=len(output.nodes),
+                            edges=len(output.edges),
+                        )
+                    else:
+                        logger.warning("模块 %s 分析结果: %s", module_name, output.status)
 
-                if output.status == "success":
-                    all_nodes.extend(output.nodes)
-                    all_edges.extend(output.edges)
-                    logger.info(
-                        f"  → {len(output.nodes)} 节点 / {len(output.edges)} 边"
-                    )
-                    self._emit_progress(
-                        "module_analysis",
-                        "success",
-                        f"完成模块分析: {module_name}",
-                        module_id=module_id,
-                        nodes=len(output.nodes),
-                        edges=len(output.edges),
-                    )
-                else:
-                    logger.warning(f"  → 模块 {module_name} 分析失败: {output.status}")
-                    self._emit_progress(
-                        "module_analysis",
-                        "failed",
-                        f"模块分析失败: {module_name}",
-                        module_id=module_id,
-                    )
+                except PartialResultError:
+                    raise  # 透传，不 catch
+                except Exception as e:
+                    logger.error("模块 %s 失败: %s", module_id, e, exc_info=True)
+                    # 并发模式下每个模块有独立 ContextMonitor，无需重置共享实例
 
-                i += 1  # 成功处理后才递进
-
-            except RateLimitExhaustedError:
-                pause_count += 1
-                if pause_count >= RATE_LIMIT_MAX_PAUSES:
-                    completed = len(self.checkpoint_manager.list_completed_modules()) if self.checkpoint_manager else 0
-                    raise PartialResultError(
-                        completed_count=completed,
-                        total_count=len(modules),
-                    )
-                pause_minutes = RATE_LIMIT_PAUSE_MINUTES * (2 ** (pause_count - 1))
-                logger.warning("持续限速（第 %d 次暂停），等待 %d 分钟", pause_count, pause_minutes)
-                self._wait_with_heartbeat(pause_minutes)
-                # i 不递进，等待后重试同一模块
-
-            except Exception as e:
-                logger.error(f"模块 {module_name} 执行失败: {e}", exc_info=True)
-                self._emit_progress(
-                    "module_analysis",
-                    "error",
-                    f"模块执行失败: {module_name} - {e}",
-                    module_id=module_id,
-                )
-                # 重置上下文监控器，确保下一个模块能正常开始
-                self._reset_context_monitor()
-                i += 1  # 非限速错误跳过
-
-        # 全部完成，清理检查点
+        # 仅在全部完成时清除检查点（异常退出时保留，供断点续跑）
         if self.checkpoint_manager is not None:
             self.checkpoint_manager.clear()
 
@@ -484,5 +488,6 @@ class AgentOrchestrator:
                 "successful_modules": len(successful),
                 "total_nodes": len(all_nodes),
                 "total_edges": len(all_edges),
+                "concurrent": True,
             },
         )
