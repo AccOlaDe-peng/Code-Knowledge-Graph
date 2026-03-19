@@ -60,9 +60,11 @@ class SlidingWindow:
         # 计算当前轮数
         total_rounds = self._count_rounds(messages, provider)
 
-        # 如果轮数不超过保留的轮数，不裁剪
+        # 如果轮数不超过保留的轮数，不裁剪（但仍检查孤立 tool_result）
         if total_rounds <= self.keep_recent_rounds:
-            return messages.copy(), False
+            result = messages.copy()
+            result = self._heal_orphan_tool_results(result)
+            return result, False
 
         # 计算需要保留的最近消息条数
         # 每轮约2条消息（assistant + user/tool）
@@ -74,7 +76,9 @@ class SlidingWindow:
         minimum_messages = self.keep_first_messages + recent_message_count
 
         if total_messages <= minimum_messages:
-            return messages.copy(), False
+            result = messages.copy()
+            result = self._heal_orphan_tool_results(result)
+            return result, False
 
         # 构建裁剪后的消息列表
         result: list[dict[str, Any]] = []
@@ -89,6 +93,9 @@ class SlidingWindow:
         # 3. 保留最近的消息
         recent_start = total_messages - recent_message_count
         result.extend(messages[recent_start:])
+
+        # 自愈检查：移除孤立 tool_result 消息，防止 Anthropic API 返回 400 错误
+        result = self._heal_orphan_tool_results(result)
 
         logger.info(
             "Sliding window applied: %d messages -> %d messages "
@@ -123,6 +130,62 @@ class SlidingWindow:
         else:
             # Anthropic 格式：assistant + user 为一轮
             return sum(1 for m in messages if m.get("role") == "assistant")
+
+    def _heal_orphan_tool_results(
+        self,
+        messages: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """移除消息列表中孤立的 tool_result 消息。
+
+        孤立 tool_result 是指 user 消息仅包含 tool_result 内容块，
+        但在消息列表中找不到对应 tool_use_id 的 assistant tool_use 块。
+        此类孤立消息会导致 Anthropic API 返回 400 错误。
+
+        Args:
+            messages: 消息列表。
+
+        Returns:
+            清理后的消息列表。
+        """
+        # 收集所有 tool_use id
+        tool_use_ids: set[str] = set()
+        for msg in messages:
+            content = msg.get("content", [])
+            if not isinstance(content, list):
+                continue
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    tool_id = block.get("id")
+                    if tool_id:
+                        tool_use_ids.add(tool_id)
+
+        # 过滤孤立 tool_result 消息
+        healed: list[dict[str, Any]] = []
+        for msg in messages:
+            content = msg.get("content", [])
+            if (
+                msg.get("role") == "user"
+                and isinstance(content, list)
+                and content
+                and all(
+                    isinstance(b, dict) and b.get("type") == "tool_result"
+                    for b in content
+                )
+            ):
+                # 全部都是 tool_result 块 — 检查是否有孤立项
+                orphaned = any(
+                    b.get("tool_use_id") not in tool_use_ids
+                    for b in content
+                    if isinstance(b, dict)
+                )
+                if orphaned:
+                    logger.warning(
+                        "Sliding window: removed orphan tool_result message to preserve pairing"
+                    )
+                    continue
+            healed.append(msg)
+
+        return healed
 
     def _create_placeholder(self, provider: str) -> dict[str, Any]:
         """创建占位符消息。

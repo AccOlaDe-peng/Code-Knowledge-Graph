@@ -246,3 +246,101 @@ class TestSlidingWindow:
         # 2轮 = 2个 assistant 消息
         rounds = window._count_rounds(messages, "openai")
         assert rounds == 2
+
+
+class TestSlidingWindowPairingHeal:
+    """验证 apply() 的配对完整性自愈逻辑。"""
+
+    def _make_tool_round(self, tool_use_id: str = "tu_1") -> list[dict]:
+        """构造一轮完整的 tool_use / tool_result 消息对。"""
+        return [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": tool_use_id, "name": "read_file", "input": {"path": "x.py"}}
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": tool_use_id, "content": "file content"}
+                ],
+            },
+        ]
+
+    def test_normal_truncation_keeps_pairs(self):
+        """正常截断时，tool_use 和 tool_result 应始终成对。"""
+        first_msg = {"role": "user", "content": "analyze this repo"}
+        rounds = []
+        for i in range(4):
+            rounds += self._make_tool_round(f"tu_{i}")
+        messages = [first_msg] + rounds
+
+        sw = SlidingWindow(keep_recent_rounds=2, keep_first_messages=1)
+        result, truncated = sw.apply(messages, "anthropic")
+
+        assert truncated is True
+        # Collect tool_use ids and tool_result ids from result
+        tool_use_ids = set()
+        tool_result_ids = set()
+        for m in result:
+            content = m.get("content", [])
+            if not isinstance(content, list):
+                continue
+            for b in content:
+                if not isinstance(b, dict):
+                    continue
+                if b.get("type") == "tool_use":
+                    tool_use_ids.add(b.get("id"))
+                elif b.get("type") == "tool_result":
+                    tool_result_ids.add(b.get("tool_use_id"))
+        # All tool_use ids must have matching tool_result ids
+        assert tool_use_ids == tool_result_ids, f"Unpaired: tool_use={tool_use_ids}, tool_result={tool_result_ids}"
+
+    def test_heal_removes_orphan_tool_result(self):
+        """若截断后第一条非首消息是孤立 tool_result，应自动跳过。"""
+        # Construct a scenario where odd-numbered message split would create an orphan
+        # We'll create messages where keep_recent_rounds=1 (2 messages) from the end
+        # but the first of those 2 is a tool_result (orphan) not a tool_use
+        first_msg = {"role": "user", "content": "start task"}
+        # Create rounds where after keep_first + placeholder + 2 recent msgs,
+        # the boundary falls at a tool_result message
+        orphan_tool_result = {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "orphan_id", "content": "some result"}
+            ],
+        }
+        normal_round = self._make_tool_round("normal_tu")
+        # messages: [first, orphan_tool_result, normal_assistant, normal_user]
+        # With keep_recent_rounds=1 and keep_first=1:
+        # keeps first[0:1] + placeholder + last 2 messages = [normal_assistant, normal_user]
+        # This should be fine - but test the healing logic
+        messages = [first_msg] + [orphan_tool_result] + normal_round
+
+        sw = SlidingWindow(keep_recent_rounds=1, keep_first_messages=1)
+        result, _ = sw.apply(messages, "anthropic")
+
+        # Verify no orphaned tool_result at first position after placeholder
+        non_first = [m for m in result
+                     if m.get("content") != SlidingWindow.PLACEHOLDER_CONTENT
+                     and m.get("content") != first_msg.get("content")]
+        for m in non_first:
+            content = m.get("content", [])
+            if not isinstance(content, list):
+                continue
+            block_types = [b.get("type") for b in content if isinstance(b, dict)]
+            # A user message with only tool_result blocks should not be orphaned
+            # (i.e., there should be a corresponding tool_use somewhere before it)
+            if "tool_result" in block_types and m.get("role") == "user":
+                # Find the tool_use_id referenced
+                for b in content:
+                    if isinstance(b, dict) and b.get("type") == "tool_result":
+                        tu_id = b.get("tool_use_id")
+                        # Check that a tool_use with this id exists somewhere
+                        found = any(
+                            isinstance(blk, dict) and blk.get("id") == tu_id
+                            for msg in result
+                            for blk in (msg.get("content", []) if isinstance(msg.get("content"), list) else [])
+                        )
+                        assert found, f"Orphan tool_result referencing {tu_id} not paired with tool_use"
