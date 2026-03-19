@@ -115,7 +115,11 @@ class ContextMonitor:
         self._last_output_tokens = 0
 ```
 
-**旧 `should_apply_sliding_window()` 处理**：该方法**删除**。`tool_call_loop` 中原有的调用点替换为新的 pre-flight 分级压缩逻辑（见 1.3 节）。旧阈值常量 `WARNING_THRESHOLD`、`CRITICAL_THRESHOLD` 同步删除。
+**旧接口清理**：
+- `should_apply_sliding_window()` 方法**删除**；`tool_call_loop` 中原调用点替换为 pre-flight 分级压缩（见 1.3 节）
+- 旧字段 `_total_input` / `_total_output` **删除**
+- 旧常量 `WARNING_THRESHOLD = 0.6` / `CRITICAL_THRESHOLD = 0.75` **删除**
+- 旧 property `total_input` / `total_output`（对外暴露累计值）**删除**；如有调用方，同步移除引用
 
 **`ContextState` 字段语义调整**（`backend/llm/types.py`）：
 - `input_tokens`：注释改为"本次请求的 input tokens（非累计）"
@@ -180,7 +184,7 @@ Level 3（>95%）  ：仅保留 system prompt + 最近 1 轮完整消息，其�
 Anthropic 要求 `tool_use`（在 assistant 消息中）与 `tool_result`（在 user 消息中）必须成对存在，否则返回 400。
 
 - **Level 2**：只替换 `tool_result` 的 `content` 字段，保留 `tool_use_id`，assistant 消息中的 `tool_use` block 不动。配对关系不受影响。
-- **Level 3**：`SlidingWindow` 删除旧轮次时，**必须以「完整轮」为单位删除**，即一对相邻的 `{role: assistant}` + `{role: user}` 消息始终一起保留或一起删除。`SlidingWindow._count_rounds()` 已按 `assistant` 消息数计算轮数，`apply()` 已按 2 条/轮从末尾截取，此逻辑**不需要修改**。但需在 `SlidingWindow` 加断言验证：裁剪后首条消息不能是 `tool_result` 类型的 user 消息（否则说明配对被破坏），遇到此情况则多删一轮。
+- **Level 3**：`SlidingWindow` 删除旧轮次时，**必须以「完整轮」为单位删除**，即一对相邻的 `{role: assistant}` + `{role: user}` 消息始终一起保留或一起删除。`SlidingWindow._count_rounds()` 已按 `assistant` 消息数计算轮数，`apply()` 已按 2 条/轮从末尾截取，此逻辑**不需要修改**。但需在 `apply()` 末尾加**运行时自愈检查**（非 assert，不崩溃）：若裁剪后第一条非 keep_first 消息是 role=user 且包含 `tool_result` 类型 block，说明截断破坏了配对，则再向后多偏移 1 条消息（跳过这条孤立的 tool_result user 消息）。
 
 压缩函数实现：
 
@@ -201,18 +205,28 @@ def _apply_compression(
         return _compress_large_tool_results(compressed, max_chars=2000)
 
     if level == 3:
-        # 仅保留首条 + 最近 1 轮（SlidingWindow 保证配对完整性）
+        # 仅保留首条（任务描述，有意不压缩）+ 最近 1 轮（SlidingWindow 保证配对完整性）
         sw = SlidingWindow(keep_recent_rounds=1, keep_first_messages=1)
         compressed, _ = sw.apply(messages, provider)
-        # 对保留轮的 tool result 也压缩（上限 500 chars）
-        return _compress_large_tool_results(compressed, max_chars=500)
+        # 对保留轮的 tool result 压缩（上限 500 chars）；首条消息不做压缩
+        return _compress_large_tool_results(compressed[0:1], max_chars=500, skip_first=True)
 
 def _compress_large_tool_results(
-    messages: list[dict], max_chars: int
+    messages: list[dict],
+    max_chars: int,
+    skip_first: bool = False,   # Level 3 用于跳过首条任务消息
 ) -> list[dict]:
-    """替换超限 tool result content，保留 tool_use_id 确保配对完整"""
+    """替换超限 tool result content，保留 tool_use_id 确保配对完整。
+
+    仅处理 content 为 str 的 tool_result block（现有代码路径均为 str）。
+    content 为 list[ContentBlock]（如含图片）的情况不做处理，原样保留——
+    此类结果在当前 agent 工具集中不会出现，有意跳过。
+    """
     result = []
-    for msg in messages:
+    for i, msg in enumerate(messages):
+        if skip_first and i == 0:
+            result.append(msg)
+            continue
         if msg.get("role") != "user":
             result.append(msg)
             continue
@@ -225,13 +239,10 @@ def _compress_large_tool_results(
             if (
                 isinstance(block, dict)
                 and block.get("type") == "tool_result"
-                and isinstance(block.get("content"), str)
+                and isinstance(block.get("content"), str)   # 仅处理 str content
                 and len(block["content"]) > max_chars
             ):
-                new_content.append({
-                    **block,
-                    "content": COMPRESSED_PLACEHOLDER,
-                })
+                new_content.append({**block, "content": COMPRESSED_PLACEHOLDER})
             else:
                 new_content.append(block)
         result.append({**msg, "content": new_content})
@@ -290,7 +301,7 @@ class StructureIndexer:
     def build_index(self, repo_path: Path) -> None:
         """扫描整个仓库，将结果存入 self._index（无 LLM 调用）。"""
 
-    def search(
+    def search_structure(
         self,
         annotation: str = None,
         base_class: str = None,
@@ -300,7 +311,9 @@ class StructureIndexer:
         max_results: int = 30,         # 结果文件数上限
         max_output_tokens: int = 4096, # 输出 token 预算（chars = tokens × 4）
     ) -> dict:
-        """查询 self._index，返回匹配骨架 + 精确行号。"""
+        """查询 self._index，返回匹配骨架 + 精确行号。
+        方法名与工具名 search_structure 保持一致，确保 _dispatch_tool 路由正确。
+        """
 
     def _scan_java(self, file_path: Path) -> FileSkeleton | None:
         """优先使用 javalang 解析；失败时降级正则；再失败返回 None"""
@@ -393,19 +406,31 @@ class BaseAgent:
             self._tool_executors[name] = executor
 ```
 
-```python
-# backend/llm/client.py  —  tool_call_loop 新增参数
-# tool_executor_map: dict[str, Any] = None
-#
-# 工具分发逻辑（Anthropic 分支和 OpenAI 分支共用同一段 dispatch helper）：
+**`tool_call_loop` 签名新增参数**（`backend/llm/client.py`）：
 
+```python
+def tool_call_loop(
+    self,
+    system: str,
+    messages: list[dict],
+    tools: list[dict],
+    max_iterations: int = 20,
+    tool_executor: Any = None,
+    context_monitor: "ContextMonitor | None" = None,
+    tool_executor_map: dict[str, Any] | None = None,  # 新增：工具名 → 专属 executor
+) -> ToolCallLoopResult:
+```
+
+**新增模块级辅助函数** `_dispatch_tool`（放在 `client.py` 顶部，模块级函数）：
+
+```python
 def _dispatch_tool(
     tool_name: str,
     tool_input: dict,
     tool_executor_map: dict | None,
     tool_executor: Any | None,
 ) -> Any:
-    """统一工具路由，Anthropic 和 OpenAI 分支都调用此函数，避免分支遗漏。"""
+    """统一工具路由。Anthropic 和 OpenAI 分支均调用此函数，避免分支遗漏。"""
     executor_map = tool_executor_map or {}
     dedicated = executor_map.get(tool_name)
     if dedicated and hasattr(dedicated, tool_name):
@@ -415,9 +440,21 @@ def _dispatch_tool(
     raise ValueError(f"No executor found for tool: {tool_name}")
 ```
 
-将现有 Anthropic 分支和 OpenAI 分支中各自的工具执行代码统一替换为 `_dispatch_tool(...)` 调用，确保两条分支行为一致，且 `search_structure` 在所有 provider 下都能正确路由。
+**现有工具执行代码替换**：在 `tool_call_loop` 的 Anthropic 分支（`stop_reason == "tool_use"` 处）和 OpenAI 分支（`finish_reason == "tool_calls"` 处），将各自现有的 `getattr(tool_executor, tool_name)(...)` 调用替换为 `_dispatch_tool(tool_name, tool_input, tool_executor_map, tool_executor)`。
 
-`ArchitectureAgent.run()` 在调用 `tool_call_loop` 时传入 `tool_executor_map=self._tool_executors`。
+**`ArchitectureAgent.run()` 修改**（`backend/agent/agents/architecture.py`）：
+
+```python
+result = self.llm_client.tool_call_loop(
+    system=self.get_system_prompt(),
+    messages=messages,
+    tools=self._tools,
+    max_iterations=self.context.max_iterations,
+    tool_executor=self._file_tools,
+    context_monitor=self.context.context_monitor,
+    tool_executor_map=self._tool_executors,  # 新增
+)
+```
 
 ---
 
