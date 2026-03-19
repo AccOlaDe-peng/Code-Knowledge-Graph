@@ -209,7 +209,7 @@ def _apply_compression(
         sw = SlidingWindow(keep_recent_rounds=1, keep_first_messages=1)
         compressed, _ = sw.apply(messages, provider)
         # 对保留轮的 tool result 压缩（上限 500 chars）；首条消息不做压缩
-        return _compress_large_tool_results(compressed[0:1], max_chars=500, skip_first=True)
+        return _compress_large_tool_results(compressed, max_chars=500, skip_first=True)
 
 def _compress_large_tool_results(
     messages: list[dict],
