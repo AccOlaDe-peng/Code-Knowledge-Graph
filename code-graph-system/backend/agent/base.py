@@ -26,14 +26,17 @@ class BaseAgent(ABC):
         self.context = context
         self.llm_client = llm_client
         self._tools: list[dict] = []
+        self._tool_executors: dict[str, Any] = {}
 
-    def register_tool(self, name: str, description: str, input_schema: dict) -> None:
-        """注册工具。"""
+    def register_tool(self, name: str, description: str, input_schema: dict, executor: Any = None) -> None:
+        """注册工具。executor 为可选的工具执行器对象，用于 per-tool 路由。"""
         self._tools.append({
             "name": name,
             "description": description,
             "input_schema": input_schema,
         })
+        if executor is not None:
+            self._tool_executors[name] = executor
 
     @abstractmethod
     def get_system_prompt(self) -> str:
