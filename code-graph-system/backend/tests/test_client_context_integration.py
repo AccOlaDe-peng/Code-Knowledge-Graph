@@ -125,7 +125,7 @@ class TestContextMonitorIntegration:
     """测试 ContextMonitor 在 tool_call_loop 中的集成。"""
 
     def test_context_monitor_records_usage(self):
-        """测试 context_monitor 记录 token 使用量。"""
+        """测试 context_monitor 记录最近一次请求的 token 使用量。"""
         monitor = ContextMonitor(max_tokens=100000)
 
         # 记录第一次使用
@@ -134,49 +134,42 @@ class TestContextMonitorIntegration:
         assert state.output_tokens == 2000
         assert state.status == "normal"
 
-        # 记录第二次使用
+        # 记录第二次使用（返回最近一次的值，非累计）
         state = monitor.record_usage(3000, 1500)
-        assert state.input_tokens == 8000
-        assert state.output_tokens == 3500
+        assert state.input_tokens == 3000
+        assert state.output_tokens == 1500
 
     def test_context_monitor_warning_threshold(self):
-        """测试 context_monitor 警告阈值。"""
+        """测试 context_monitor 警告阈值（70%）。"""
         monitor = ContextMonitor(max_tokens=10000)
 
-        # 使用 60% (warning 阈值)
-        state = monitor.record_usage(5000, 1000)
+        # 使用 70% (warning 阈值)，input_tokens = 7000
+        state = monitor.record_usage(7000, 0)
         assert state.status == "warning"
-        assert state.usage_ratio >= 0.6
+        assert state.usage_ratio >= 0.70
 
     def test_context_monitor_critical_threshold(self):
-        """测试 context_monitor 严重阈值。"""
+        """测试 context_monitor 严重阈值（85%）。"""
         monitor = ContextMonitor(max_tokens=10000)
 
-        # 使用 75% (critical 阈值)
-        state = monitor.record_usage(7000, 1000)
+        # 使用 85% (critical 阈值)，input_tokens = 8500
+        state = monitor.record_usage(8500, 0)
         assert state.status == "critical"
-        assert state.usage_ratio >= 0.75
+        assert state.usage_ratio >= 0.85
 
     def test_context_monitor_exceeded(self):
-        """测试 context_monitor 超限状态。"""
+        """测试 context_monitor 超限状态（>= 100%）。"""
         monitor = ContextMonitor(max_tokens=10000)
 
-        # 超过 100%
-        state = monitor.record_usage(9000, 2000)
+        # 超过 100%，input_tokens = 10000
+        state = monitor.record_usage(10000, 0)
         assert state.status == "exceeded"
         assert state.usage_ratio >= 1.0
 
     def test_should_apply_sliding_window(self):
-        """测试 should_apply_sliding_window 判断。"""
+        """should_apply_sliding_window 接口已删除，验证其不存在。"""
         monitor = ContextMonitor(max_tokens=10000)
-
-        # 正常状态，不应触发
-        monitor.record_usage(3000, 1000)
-        assert monitor.should_apply_sliding_window() is False
-
-        # critical 状态，应触发
-        monitor.record_usage(4000, 1000)
-        assert monitor.should_apply_sliding_window() is True
+        assert not hasattr(monitor, "should_apply_sliding_window")
 
 
 class TestSlidingWindowApplication:
@@ -224,10 +217,10 @@ class TestSlidingWindowApplication:
 
         client = LLMClient(provider="anthropic", api_key="test-key")
 
-        # 创建一个已经处于 critical 状态的 monitor
+        # 创建一个已经处于 exceeded 状态的 monitor（新语义：input >= max_tokens）
         monitor = ContextMonitor(max_tokens=200)
-        monitor.record_usage(150, 50)  # 200/200 = 100% exceeded
-        assert monitor.should_apply_sliding_window() is True
+        monitor.record_usage(200, 0)  # 200/200 = 100% exceeded
+        assert monitor.get_state().status == "exceeded"
 
         # 创建足够多的消息以触发滑动窗口
         messages = [{"role": "user", "content": f"消息 {i}"} for i in range(20)]

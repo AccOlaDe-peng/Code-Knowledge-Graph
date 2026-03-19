@@ -48,7 +48,7 @@ class TestContextManager:
         assert manager.summarizer.llm_client == mock_client
 
     def test_record_usage(self) -> None:
-        """测试记录 token 使用。"""
+        """测试记录 token 使用（基于 input_tokens，非累计）。"""
         manager = ContextManager()
 
         # 记录第一次使用
@@ -56,16 +56,12 @@ class TestContextManager:
         assert state.input_tokens == 1000
         assert state.output_tokens == 500
         assert state.status == "normal"
-        assert state.usage_ratio == pytest.approx(1500 / 128000, rel=0.01)
+        assert state.usage_ratio == pytest.approx(1000 / 128000, rel=0.01)
 
-        # 记录第二次使用
+        # 记录第二次使用（返回最近一次的值，非累计）
         state = manager.record_usage(2000, 1000)
-        assert state.input_tokens == 3000
-        assert state.output_tokens == 1500
-
-        # 验证 monitor 的累计值
-        assert manager.monitor.total_input == 3000
-        assert manager.monitor.total_output == 1500
+        assert state.input_tokens == 2000
+        assert state.output_tokens == 1000
 
     def test_get_state(self) -> None:
         """测试获取当前状态。"""
@@ -76,11 +72,11 @@ class TestContextManager:
         assert state.status == "normal"
         assert state.usage_ratio == 0.0
 
-        # 记录大量使用（达到 warning）
-        manager.record_usage(40000, 40000)  # 80k tokens, ~62.5%
+        # 记录大量使用（达到 warning）：新阈值 70%，需 input >= 0.7 * 128000 = 89600
+        manager.record_usage(90000, 0)  # 90k / 128k = 70.3% => warning
         state = manager.get_state()
         assert state.status == "warning"
-        assert state.usage_ratio == pytest.approx(80000 / 128000, rel=0.01)
+        assert state.usage_ratio == pytest.approx(90000 / 128000, rel=0.01)
 
     def test_process_messages_normal(self) -> None:
         """测试 normal 状态不处理消息。"""
@@ -118,8 +114,8 @@ class TestContextManager:
         """测试 exceeded 状态强制滑动窗口。"""
         manager = ContextManager()
 
-        # 设置到 exceeded 状态
-        manager.record_usage(70000, 70000)  # 140k / 128k > 100%
+        # 设置到 exceeded 状态（新语义：input_tokens >= max_tokens）
+        manager.record_usage(130000, 0)  # 130k / 128k > 100%
 
         messages = [
             {"role": "user", "content": "First"},
@@ -148,8 +144,8 @@ class TestContextManager:
         """测试 critical 状态无 summarizer 时使用滑动窗口。"""
         manager = ContextManager()  # 无 LLM 客户端
 
-        # 设置到 critical 状态
-        manager.record_usage(50000, 50000)  # 100k / 128k = 78%
+        # 设置到 critical 状态（新语义：input_tokens >= 85% * max_tokens = 108800）
+        manager.record_usage(110000, 0)  # 110k / 128k = 85.9% => critical
 
         messages = [
             {"role": "user", "content": "First"},
@@ -179,8 +175,8 @@ class TestContextManager:
 
         manager = ContextManager(llm_client=mock_client)
 
-        # 设置到 critical 状态
-        manager.record_usage(50000, 50000)  # 100k / 128k = 78%
+        # 设置到 critical 状态（新语义：input >= 85% * max_tokens）
+        manager.record_usage(110000, 0)  # 110k / 128k = 85.9% => critical
 
         messages = [
             {"role": "user", "content": "First"},
@@ -211,8 +207,8 @@ class TestContextManager:
 
         manager = ContextManager(llm_client=mock_client)
 
-        # 设置到 critical 状态
-        manager.record_usage(50000, 50000)  # 100k / 128k = 78%
+        # 设置到 critical 状态（新语义：input >= 85% * max_tokens）
+        manager.record_usage(110000, 0)  # 110k / 128k = 85.9% => critical
 
         messages = [
             {"role": "user", "content": "First"},
@@ -240,7 +236,7 @@ class TestContextManager:
 
         # 记录一些使用
         manager.record_usage(10000, 5000)
-        assert manager.monitor.total_input == 10000
+        assert manager.monitor._last_input_tokens == 10000
 
         # 重置
         manager.reset()
@@ -289,8 +285,8 @@ class TestContextManager:
         """测试 OpenAI 提供商的消息处理。"""
         manager = ContextManager()
 
-        # 设置到 exceeded 状态
-        manager.record_usage(70000, 70000)
+        # 设置到 exceeded 状态（新语义：input >= max_tokens = 128000）
+        manager.record_usage(130000, 0)
 
         messages = [
             {"role": "user", "content": "First"},

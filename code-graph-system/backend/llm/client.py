@@ -251,8 +251,8 @@ class LLMClient:
             iterations += 1
             iteration_start = time.time()
 
-            # 检查是否需要应用滑动窗口
-            if context_monitor and context_monitor.should_apply_sliding_window():
+            # 检查是否需要应用滑动窗口（critical 或 exceeded 时触发）
+            if context_monitor and context_monitor.get_state().status in ("critical", "exceeded"):
                 sliding_window = SlidingWindow()
                 current_messages, truncated = sliding_window.apply(current_messages, self.provider)
                 if truncated:
