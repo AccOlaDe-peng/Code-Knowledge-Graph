@@ -129,11 +129,8 @@ class AgentOrchestrator:
         module_id = module.get("id", "unknown")
         context = self._create_context(module_id)
 
-        # 注入聚合的共享知识
-        if self.checkpoint_manager is not None:
-            aggregated = self.checkpoint_manager.get_aggregated_knowledge()
-            context.shared_knowledge.modules = aggregated.get("modules", [])
-            context.shared_knowledge.layers = aggregated.get("layers", [])
+        # 注意：共享知识注入已移至 run_module_analysis 开头批量执行（并发安全）
+        # 这里不再直接赋值 context.shared_knowledge.modules = ...（@property 无 setter）
 
         agent = ArchitectureAgent(context=context, llm_client=self.llm_client)
 
@@ -177,13 +174,13 @@ class AgentOrchestrator:
         return agent.run()
 
     def _create_context(self, module_id: str = None) -> AgentContext:
-        """创建 Agent 上下文。"""
+        """创建 Agent 上下文。每次调用创建独立 ContextMonitor 实例（并发安全）。"""
         return AgentContext(
             repo_path=str(self.repo_path),
             module_id=module_id or f"repo:{self.repo_path.name}",
             shared_knowledge=self.shared_knowledge,
             max_iterations=self.max_iterations,
-            context_monitor=self.context_monitor,
+            context_monitor=ContextMonitor(max_tokens=self.config.context_window),
         )
 
     def run_module_detection(self) -> AgentOutput:
