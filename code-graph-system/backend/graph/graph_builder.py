@@ -132,6 +132,66 @@ class GraphBuilder:
         self._nodes[node.id] = node
         return self
 
+    def merge_node_properties(
+        self,
+        node: GraphNode,
+        merge_strategy: str = "field_level",
+    ) -> "GraphBuilder":
+        """合并节点属性（字段级合并，保留静态分析的高置信度元数据）。
+
+        与 add_node 的区别：
+        - add_node：整体覆盖
+        - merge_node_properties：字段级合并
+
+        合并策略：
+        - 如果已有节点 source="static"，新节点 source="ai_enhanced"：
+          - 保留静态节点的 source、confidence
+          - 追加 AI 节点的 purpose、layer、technology 字段
+        - 其他情况：新节点覆盖旧节点
+
+        Args:
+            node: 新节点
+            merge_strategy: 合并策略（"field_level" | "overwrite"）
+
+        Returns:
+            self（支持链式调用）
+        """
+        if merge_strategy == "overwrite" or node.id not in self._nodes:
+            return self.add_node(node)
+
+        existing = self._nodes[node.id]
+        existing_source = existing.properties.get("source", "")
+        new_source = node.properties.get("source", "")
+
+        # 静态节点 + AI 节点合并
+        if existing_source == "static" and new_source == "ai_enhanced":
+            merged_props = dict(existing.properties)
+
+            # AI 专属字段：追加到静态节点
+            ai_fields = ["purpose", "layer", "technology", "description", "module_id"]
+            for field in ai_fields:
+                if field in node.properties:
+                    merged_props[field] = node.properties[field]
+
+            # 保留静态的 source 和 confidence
+            merged_props["source"] = "static"
+            if "confidence" in existing.properties:
+                merged_props["confidence"] = existing.properties["confidence"]
+
+            # 创建合并后的节点
+            merged_node = GraphNode(
+                id=existing.id,
+                type=existing.type,
+                name=existing.name,
+                properties=merged_props,
+            )
+            self._nodes[node.id] = merged_node
+        else:
+            # 其他情况：覆盖
+            self._nodes[node.id] = node
+
+        return self
+
     def add_edge(self, edge: GraphEdge) -> "GraphBuilder":
         """添加单条边（(from, to, type) 三元组去重）。返回 self。"""
         key = (edge.from_, edge.to, edge.type)
