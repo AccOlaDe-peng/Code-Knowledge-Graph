@@ -79,6 +79,7 @@ class AIPipeline:
         graph_repo: Optional[GraphRepository] = None,
         vector_store: Optional[VectorStore] = None,
         rag_engine: Optional[GraphRAGEngine] = None,
+        enable_optimization: bool = False,
     ):
         """初始化 AIPipeline。
 
@@ -87,11 +88,13 @@ class AIPipeline:
             graph_repo: 图谱存储仓库，None 创建默认实例
             vector_store: 向量存储，None 创建默认实例
             rag_engine: GraphRAG 引擎，None 创建默认实例
+            enable_optimization: 是否启用优化流水线（OptimizedPipeline）
         """
         self.config = config or AIAnalysisConfig()
         self._repo = graph_repo or GraphRepository()
         self._vector_store = vector_store
         self._rag_engine = rag_engine
+        self._enable_optimization = enable_optimization
 
     def analyze(
         self,
@@ -123,6 +126,23 @@ class AIPipeline:
             raise ValueError(f"仓库路径不存在: {repo_path}")
         if not repo_path.is_dir():
             raise ValueError(f"路径不是目录: {repo_path}")
+
+        # 使用优化流水线
+        if self._enable_optimization:
+            from backend.pipeline.optimized_pipeline import OptimizedPipeline
+
+            optimized = OptimizedPipeline(
+                config=self.config,
+                graph_repo=self._repo,
+                vector_store=self._vector_store,
+                rag_engine=self._rag_engine,
+            )
+            return optimized.analyze(
+                repo_path,
+                repo_name=repo_name,
+                enable_rag=enable_rag,
+                on_progress=on_progress,
+            )
 
         # Step 1: RepoScanner — 扫描文件列表
         self._emit_progress(on_progress, "scanner", "start", "开始扫描文件...")
