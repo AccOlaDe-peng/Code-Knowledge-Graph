@@ -549,6 +549,10 @@ const Repository: React.FC = () => {
       message.error("缺少仓库路径，无法分析");
       return;
     }
+    if (repo.status === "analyzing") {
+      message.warning("该仓库正在分析中，请勿重复提交");
+      return;
+    }
 
     try {
       const response = await graphEndpoints.analyzeRepository({
