@@ -280,6 +280,7 @@ def analyze_repository(
     languages: Optional[list[str]] = None,
     tmp_dir: Optional[str] = None,
     depth: str = "standard",
+    store_repo_id: Optional[str] = None,
 ) -> dict[str, Any]:
     """全量分析代码仓库，构建并持久化知识图谱（默认启用 AI + RAG）。
 
@@ -368,9 +369,11 @@ def analyze_repository(
     config = AnalysisConfig.from_preset(depth)
     logger.info("分析配置: max_modules=%s, agents=%s", config.max_modules, config.agents)
 
-    # 使用 repo_name 或路径名作为 repo_id
+    # 使用 repo_name 或路径名作为 repo_id（status_store 用）
     repo_id = repo_name or path.name
     _initial_repo_id = repo_id  # 覆盖前置定义，确保一致
+    # analysis_store 优先使用前端传入的 store_repo_id（与 repo_store 主键一致）
+    _analysis_repo_id = store_repo_id or repo_id
 
     # ── 标记为分析中 ──────────────────────────────────────────────
     status_store.set_analyzing(
@@ -447,7 +450,7 @@ def analyze_repository(
         _analysis_store = get_analysis_store()
         _analysis_store.write_completed(
             task_id=task_id,
-            repo_id=repo_id,
+            repo_id=_analysis_repo_id,
             depth=depth or "standard",
             status="failed",
             error=str(exc),
@@ -496,7 +499,7 @@ def analyze_repository(
         _analysis_store = get_analysis_store()
         _analysis_store.write_completed(
             task_id=task_id,
-            repo_id=repo_id,
+            repo_id=_analysis_repo_id,
             depth=depth or "standard",
             status="completed_partial",
             graph_id=result.graph_id,
@@ -551,7 +554,7 @@ def analyze_repository(
     _analysis_store = get_analysis_store()
     _analysis_store.write_completed(
         task_id=task_id,
-        repo_id=repo_id,
+        repo_id=_analysis_repo_id,
         depth=depth or "standard",
         status="completed",
         graph_id=result.graph_id,

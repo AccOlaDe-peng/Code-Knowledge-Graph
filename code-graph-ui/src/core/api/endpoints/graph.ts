@@ -121,6 +121,7 @@ export const graphEndpoints = {
   async analyzeRepository(data: {
     repo_path: string;
     repo_name?: string;
+    repo_id?: string;
     branch?: string;
     languages?: string[];
     depth?: "quick" | "standard" | "deep";

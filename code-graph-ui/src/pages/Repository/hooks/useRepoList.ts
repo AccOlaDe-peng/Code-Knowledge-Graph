@@ -33,7 +33,7 @@ export function useRepoList() {
       updatedAt: (r.updated_at ?? r.updatedAt ?? new Date().toISOString()) as string,
       nodeCount: (latest?.node_count ?? r.node_count ?? r.nodeCount ?? 0) as number,
       edgeCount: (latest?.edge_count ?? r.edge_count ?? r.edgeCount ?? 0) as number,
-      status: (latest?.status ?? r.status ?? "completed") as RepoInfo["status"],
+      status: (latest?.status ?? r.status ?? "saved") as RepoInfo["status"],
       taskId: (latest?.task_id ?? r.task_id) as string | undefined,
       lastAnalyzedAt: (latest?.finished_at ?? r.updated_at) as string | undefined,
     };

@@ -120,6 +120,7 @@ const Repository: React.FC = () => {
         const response = await graphEndpoints.analyzeRepository({
           repo_path: repo.repoPath,
           repo_name: repo.repoName,
+          repo_id: repo.repoId,
           branch: repo.branch,
           languages: repo.language.length > 0 ? repo.language : undefined,
           depth,

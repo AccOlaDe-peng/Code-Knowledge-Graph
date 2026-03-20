@@ -103,6 +103,7 @@ class AnalyzeRequest(BaseModel):
     """POST /analyze/repository 请求体。"""
     repo_path:  str            = Field(description="仓库根目录（本地绝对路径）或 Git 仓库 URL（https/ssh）")
     repo_name:  str            = Field(default="", description="图谱名称（空字符串则用目录名）")
+    repo_id:    Optional[str]  = Field(default=None, description="前端 repo_store 中的仓库 ID（用于 analysis_store 关联）")
     branch:     Optional[str]  = Field(default=None, description="Git 分支名（仅当 repo_path 为 Git URL 时生效）")
     languages:  Optional[list[str]] = Field(default=None, description="限定分析语言，如 ['python', 'typescript']")
     depth:      str            = Field(default="standard", description="分析深度 (quick | standard | deep)")
@@ -210,6 +211,7 @@ def analyze_repository(req: AnalyzeRequest):
             "branch": req.branch,
             "languages": req.languages,
             "depth": req.depth,
+            "store_repo_id": req.repo_id,
         },
     )
     task_id: str = job.id
@@ -217,15 +219,26 @@ def analyze_repository(req: AnalyzeRequest):
 
     # 在状态存储中注册分析任务
     from backend.store.repo_status_store import get_repo_status_store
+    from backend.store.analysis_store import get_analysis_store
     from pathlib import Path
-    repo_id = req.repo_name or Path(req.repo_path).name.split("?")[0]
+    legacy_repo_id = req.repo_name or Path(req.repo_path).name.split("?")[0]
     status_store = get_repo_status_store()
     status_store.set_analyzing(
-        repo_id,
+        legacy_repo_id,
         task_id=task_id,
-        repo_name=req.repo_name or repo_id,
+        repo_name=req.repo_name or legacy_repo_id,
         repo_path=req.repo_path,
     )
+
+    # 写入 analysis_store "analyzing" 记录（供 GET /repos 读取当前状态）
+    if req.repo_id:
+        analysis_store = get_analysis_store()
+        analysis_store.write_completed(
+            task_id=task_id,
+            repo_id=req.repo_id,
+            depth=req.depth,
+            status="analyzing",
+        )
 
     logger.info("任务已提交  task_id=%s  repo=%s  depth=%s", task_id, req.repo_path, req.depth)
 
