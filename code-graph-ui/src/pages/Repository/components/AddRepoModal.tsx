@@ -22,6 +22,7 @@ type RepoFormValues = {
   repoName?: string;
   branch?: string;
   languages?: string[];
+  sourceMode?: "local" | "git";
 };
 
 interface AddRepoModalProps {
@@ -68,6 +69,7 @@ export const AddRepoModal: React.FC<AddRepoModalProps> = ({
     setSubmitError(null);
     setLoading(true);
 
+    const valuesWithMode = { ...values, sourceMode };
     const repoPath = sourceMode === "git" ? values.gitUrl : values.repoPath;
 
     if (!isEditMode && repoPath) {
@@ -80,7 +82,7 @@ export const AddRepoModal: React.FC<AddRepoModalProps> = ({
     }
 
     try {
-      await onSubmit(values, isEditMode ? "edit" : "create");
+      await onSubmit(valuesWithMode, isEditMode ? "edit" : "create");
       onClose();
       form.resetFields();
     } catch (err) {

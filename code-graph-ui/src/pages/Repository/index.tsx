@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button, message, Space } from "antd";
 import { PlusOutlined, ReloadOutlined } from "@ant-design/icons";
-import { graphEndpoints } from "../../core/api/endpoints/graph";
+import { graphEndpoints, repoEndpoints } from "../../core/api/endpoints/graph";
 import { useRepoStore } from "../../store/repoStore";
 import { useGraphStore } from "../../store/graphStore";
 import { usePipelineStore } from "../../store/pipelineStore";
@@ -33,7 +33,6 @@ const Repository: React.FC = () => {
   const navigate = useNavigate();
 
   const repos = useRepoStore((s) => s.repos ?? []);
-  const addRepo = useRepoStore((s) => s.addRepo);
   const updateRepo = useRepoStore((s) => s.updateRepo);
   const setRepos = useRepoStore((s) => s.setRepos);
   const { setActiveGraphId } = useGraphStore();
@@ -69,7 +68,7 @@ const Repository: React.FC = () => {
 
   const handleSaveRepo = useCallback(
     async (values: RepoFormValues, mode: "create" | "edit") => {
-      const sourceMode = editRepo?.sourceMode ?? "git";
+      const sourceMode = values.sourceMode ?? editRepo?.sourceMode ?? "git";
       const repoPath =
         sourceMode === "git" ? values.gitUrl : values.repoPath;
 
@@ -80,11 +79,8 @@ const Repository: React.FC = () => {
       const repoName = inferRepoName(repoPath, values.repoName);
 
       if (mode === "create") {
-        const repoId = `repo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-        // 持久化到后端
-        await graphEndpoints.saveRepo({
-          repo_id: repoId,
+        // 持久化到后端（POST /repos），与 GET /repos 使用同一存储
+        await repoEndpoints.createRepo({
           repo_name: repoName,
           repo_path: repoPath!,
           branch: values.branch,
@@ -92,21 +88,8 @@ const Repository: React.FC = () => {
           language: values.languages ?? [],
         });
 
-        addRepo({
-          repoId,
-          graphId: "",
-          repoName,
-          language: values.languages ?? [],
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          nodeCount: 0,
-          edgeCount: 0,
-          repoPath,
-          branch: values.branch,
-          sourceMode,
-          status: "saved",
-        });
-
+        // 从后端重新同步，确保列表数据一致
+        await syncRepos({ force: true });
         message.success("仓库已保存，可在列表中发起分析");
       } else if (mode === "edit" && editRepo) {
         // 编辑模式：调用 PUT /repos/:id
@@ -119,7 +102,7 @@ const Repository: React.FC = () => {
         message.success("仓库已更新");
       }
     },
-    [addRepo, updateRepo, editRepo],
+    [updateRepo, editRepo, syncRepos],
   );
 
   const startAnalysis = useCallback(
@@ -211,12 +194,7 @@ const Repository: React.FC = () => {
   const handleDelete = useCallback(
     async (repo: RepoInfo) => {
       try {
-        // 调用删除 API
-        await graphEndpoints.saveRepo({
-          repo_id: repo.repoId,
-          repo_name: repo.repoName,
-          repo_path: repo.repoPath || "",
-        });
+        await repoEndpoints.deleteRepo(repo.repoId);
         // 删除后重新从后端同步
         await syncRepos({ force: true });
         message.success("仓库已删除");
