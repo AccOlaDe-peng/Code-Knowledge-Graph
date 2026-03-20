@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -41,9 +42,10 @@ from backend.pipeline.stages.base import StageBase
 
 logger = logging.getLogger(__name__)
 
-# 并发配置
+# 并发配置（支持通过环境变量按 API 限额调整）
 MAX_POOL_SIZE = 8
 MAX_RETRIES = 2
+_DEFAULT_CONCURRENCY = int(os.getenv("LLM_MAX_CONCURRENCY", str(MAX_POOL_SIZE)))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -136,7 +138,7 @@ class AISemanticEnhanceStage(StageBase):
 
     def __init__(
         self,
-        max_concurrency: int = 3,
+        max_concurrency: int = _DEFAULT_CONCURRENCY,
         max_retries: int = MAX_RETRIES,
     ):
         """
