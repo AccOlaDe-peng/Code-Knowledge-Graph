@@ -110,39 +110,61 @@ class FileInfo:
     line_count: int              # 行数
     modified_time: float         # mtime
 
-@dataclass
 class SharedKnowledgePool:
-    """共享知识池"""
+    """共享知识池（线程安全）"""
 
-    # 文件索引：路径 → FileInfo
-    file_index: dict[str, FileInfo]
+    def __init__(
+        self,
+        repo_path: Path,
+        max_content_cache_bytes: int = 100 * 1024 * 1024,  # 100MB
+    ):
+        self.repo_path = repo_path
+        self.file_index: dict[str, FileInfo] = {}
 
-    # 结构索引：复用现有 StructureIndexer
-    structure_indexer: StructureIndexer
+        # 结构索引：复用现有 StructureIndexer，build_index() 在 Stage 1 调用
+        self.structure_indexer: StructureIndexer = StructureIndexer(depth="standard")
 
-    # 文件内容缓存：LRU 策略
-    content_cache: LRUCache[str, str]
-
-    # 配置
-    max_content_cache_bytes: int = 100 * 1024 * 1024  # 100MB
+        # 文件内容缓存：线程安全 LRU（使用 threading.Lock + OrderedDict 实现）
+        self._content_cache: dict[str, str] = {}
+        self._cache_lock = threading.Lock()
+        self._max_cache_bytes = max_content_cache_bytes
+        self._current_cache_bytes = 0
 
     def get_file_info(self, path: str) -> FileInfo | None:
         """获取文件元信息"""
 
     def get_structure(self, path: str) -> FileSkeleton | None:
-        """获取文件骨架（类/方法）"""
+        """获取文件骨架（类/方法），直接委托给 structure_indexer._index"""
 
     def get_content(self, path: str) -> str | None:
-        """获取文件内容（自动缓存）"""
+        """获取文件内容（自动缓存，线程安全）"""
 
     def estimate_tokens(self, paths: list[str]) -> int:
-        """估算一组文件的 Token 数"""
+        """估算一组文件的 Token 数（GLM 计算规则：中文字符 / 1.6，其余字节 / 4）"""
 ```
 
+**线程安全说明**：
+- `file_index` 在 Stage 1 构建后只读，无需加锁
+- `structure_indexer._index` 在 Stage 1 构建后只读，无需加锁
+- `_content_cache` 并发读写需加锁，使用 `threading.Lock` 保护
+
 **文件内容缓存策略**：
-- LRU 淘汰策略，最大 100MB
-- 读取时自动缓存，后续读取直接从内存返回
-- 提供手动预加载接口 `preload_contents(paths)`
+- LRU 淘汰策略，最大 100MB（按字节计）
+- 读取时自动缓存，后续读取直接从内存返回，多线程竞争时仅第一个线程读磁盘
+- 提供手动预加载接口 `preload_contents(paths)` 在 Stage 3 开始前预热
+
+**GLM Token 估算公式**：
+```python
+def estimate_tokens(self, paths: list[str]) -> int:
+    total = 0
+    for path in paths:
+        content = self.get_content(path) or ""
+        # GLM Token 规则：1 Token ≈ 1.6 中文字符，英文约 4 字节/Token
+        chinese_chars = sum(1 for c in content if '\u4e00' <= c <= '\u9fff')
+        other_bytes = len(content.encode("utf-8")) - chinese_chars * 3
+        total += int(chinese_chars / 1.6) + int(other_bytes / 4)
+    return total
+```
 
 ### 2. StageCacheManager（阶段缓存管理器）
 
@@ -186,10 +208,23 @@ class StageCacheManager:
 - 内存缓存：分析期间所有阶段数据都在内存中
 - 可选持久化：分析完成后可选择持久化到 `data/cache/{repo_name}/`
 - 校验和验证：加载缓存时校验数据完整性
+- **非 Git 仓库降级**：`commit_sha` 为空时，Key 改用目录 mtime 哈希：
+  ```python
+  def get_cache_key(self, repo_name: str, commit_sha: str, stage: str) -> str:
+      sha = commit_sha[:8] if commit_sha else f"mtime{self._dir_mtime_hash(repo_name)}"
+      return f"{repo_name}:{sha}:{stage}"
+  ```
+  与现有 `AnalysisCache.put()` 一致：非 Git 仓库跳过磁盘持久化，仅保留内存缓存。
 
 ### 3. IntelligentScheduler（智能调度器）
 
 **职责**：根据模块特征智能调度分析任务，优化 GLM API 调用效率。
+
+**GLM API 速率限制（设计依据）**：
+- GLM-4 / GLM-4-Plus：**2 并发**（新用户默认，可申请提升）
+- GLM-4-Flash：**200 并发**
+- 并发限制触发 429 错误，非 RPM 限制
+- 因此初始并发度从 **2** 开始（而非文档草稿中的 3），避免立刻触发限速
 
 **数据结构**：
 
@@ -200,57 +235,62 @@ class ModuleScheduleInfo:
     module_id: str
     module_name: str
     file_count: int
-    estimated_tokens: int        # 预估 Token 数
+    estimated_tokens: int        # 预估 Token 数（GLM 计算规则）
     complexity_score: float      # 复杂度评分 (0-1)
     priority: int                # 调度优先级
 
 @dataclass
 class SchedulerConfig:
     """调度器配置"""
-    initial_concurrency: int = 3         # 初始并发度
-    max_concurrency: int = 8             # 最大并发度
+    initial_concurrency: int = 2         # 初始并发度（GLM-4 默认 2 并发）
+    max_concurrency: int = 5             # 最大并发度（与现有 ConcurrencyController 一致）
     min_concurrency: int = 1             # 最小并发度
     batch_token_threshold: int = 8000    # 批次合并阈值
-    response_time_threshold_ms: int = 3000  # 响应时间阈值
-    rate_limit_backoff_base: float = 5.0    # 速率限制退避基数
+    response_time_threshold_fast_ms: int = 3000   # 响应时间快阈值（增加并发）
+    response_time_threshold_slow_ms: int = 8000   # 响应时间慢阈值（降低并发）
+    rate_limit_backoff_base: float = 5.0    # 速率限制退避基数（秒）
+    rate_limit_max_consecutive: int = 3     # 最大连续 429 次数后减半并发
 
 class IntelligentScheduler:
-    """智能调度器"""
+    """智能调度器（基于 ThreadPoolExecutor，与现有 AgentOrchestrator 一致）"""
 
     def __init__(self, config: SchedulerConfig, pool: SharedKnowledgePool):
         self.config = config
         self.pool = pool
         self.current_concurrency = config.initial_concurrency
         self.response_times: deque[float] = deque(maxlen=10)
-        self.rate_limit_count = 0
+        self._rate_limit_count = 0
+        self._lock = threading.Lock()   # 保护 current_concurrency 的并发修改
 
     def schedule(self, modules: list[ModuleInfo]) -> list[ModuleBatch]:
-        """生成调度计划"""
+        """生成调度计划（排序 + 分批）"""
 
     def adjust_concurrency(self, response_time_ms: float) -> None:
-        """根据响应时间调整并发度"""
+        """根据响应时间调整并发度（加锁保护）"""
 
     def on_rate_limit(self) -> float:
-        """处理速率限制，返回等待时间"""
+        """处理速率限制，返回等待时间（指数退避）"""
 
     def on_success(self, response_time_ms: float) -> None:
-        """处理成功响应"""
+        """处理成功响应，重置 rate_limit_count"""
 ```
 
 **调度策略**：
 
 1. **优先级排序**：
-   - 按 `complexity_score` 升序排序（小模块优先）
-   - 复杂度计算：`complexity_score = estimated_tokens / max_tokens + file_count / 100`
+   - 按 `complexity_score` 升序排序（小模块优先完成，快速释放 slot）
+   - 复杂度计算：`complexity_score = estimated_tokens / 16000 + file_count / 50`
 
 2. **批次合并**：
-   - 相邻的小型模块（Token ≤ 8000）合并为单次 LLM 调用
-   - 合并后的总 Token 不超过 16000
+   - 相邻的小型模块（单模块 Token ≤ 8000）合并为单次 LLM `complete()` 调用
+   - 合并后总 Token 上限 16000（GLM-4 标准上下文的安全区间）
+   - 批次合并使用简化的 `complete()` 而非 Agent tool_call_loop，适合结构清晰的小模块
 
-3. **自适应并发**：
-   - 响应时间 < 3s：并发度 +1（不超过 max）
-   - 响应时间 > 5s：并发度 -1（不低于 min）
-   - 连续 3 次 429：并发度减半，退避等待
+3. **自适应并发（基于 ThreadPoolExecutor）**：
+   - 响应时间 < 3s（连续 3 次）：并发度 +1（不超过 max）
+   - 响应时间 > 8s（连续 3 次）：并发度 -1（不低于 min）
+   - 连续 3 次 429：并发度减半，指数退避等待（5s, 10s, 20s...）
+   - `current_concurrency` 变化时动态调整 `ThreadPoolExecutor.max_workers`
 
 ### 4. 批次合并调用
 
@@ -309,6 +349,23 @@ class ModuleBatch:
 只输出 JSON，不要其他解释。
 ```
 
+**批次合并失败的降级策略**：
+
+批次合并失败（JSON 解析错误、模块 key 缺失等）时，执行两步降级：
+
+```
+Level 1 降级：尝试解析合并响应中已存在的模块 key，跳过缺失/错误的模块
+    ↓（Level 1 也失败，或缺失模块数 > 50%）
+Level 2 降级：将失败的模块拆分回单独请求，逐个重新分析
+    ↓（单个模块也失败）
+Level 3 降级：记录 FailedModule，继续下一个模块（与现有 AIPipeline 行为一致）
+```
+
+实现要点：
+- `ModuleBatch.parse_response()` 负责 Level 1 降级，返回 `{module_id: result | None}`
+- `ParallelAnalysis.run_stage_3()` 检测 `None` 结果，触发 Level 2 降级（重新入队）
+- Level 2 降级复用现有 `AgentOrchestrator` 逻辑，无需额外实现
+
 ---
 
 ## 数据流详细设计
@@ -347,42 +404,87 @@ def run_stage_0(repo_path: Path) -> FileIndex:
 **输入**：`FileIndex`
 
 **处理**：
+
+现有 `StructureIndexer.build_index(repo_path: Path)` 内部自行遍历文件系统。为复用 Stage 0 已构建的 FileIndex，需为 `StructureIndexer` 新增一个接受文件列表的重载方法（不改变现有接口）：
+
 ```python
-def run_stage_1(file_index: FileIndex) -> StructureIndexer:
-    indexer = StructureIndexer(depth="standard")
-    indexer.build_index_from_file_index(file_index)
-    return indexer
+# 新增方法（不修改现有 build_index）
+def build_index_from_files(self, repo_path: Path, file_paths: list[str]) -> None:
+    """从已知文件列表构建索引，跳过目录遍历。
+
+    与 build_index() 的区别：不再 rglob 整个目录，
+    直接遍历 file_paths 中已过滤好的路径列表。
+    """
+    self._index.clear()
+    for rel_path in file_paths:
+        file_path = repo_path / rel_path
+        suffix = file_path.suffix.lower()
+        skeleton = None
+        if suffix == ".java":
+            skeleton = self._scan_java(file_path)
+        elif suffix == ".py":
+            skeleton = self._scan_python(file_path)
+        else:
+            skeleton = self._scan_generic(file_path)
+        if skeleton is not None:
+            skeleton.relative_path = rel_path
+            self._index[rel_path] = skeleton
 ```
 
-**输出**：`StructureIndexer`（已构建索引）
+```python
+def run_stage_1(pool: SharedKnowledgePool) -> None:
+    # 直接使用 Stage 0 的文件列表，避免二次遍历
+    pool.structure_indexer.build_index_from_files(
+        pool.repo_path,
+        list(pool.file_index.keys()),
+    )
+```
+
+**输出**：`pool.structure_indexer`（原地构建，通过 SharedKnowledgePool 传递）
 
 **耗时预估**：10-30s（1000 文件，取决于语言分布）
 
 ### Stage 2: ModuleBoundary
 
-**输入**：`FileIndex + StructureIndexer`
+**输入**：`SharedKnowledgePool`（含 FileIndex + StructureIndexer）
 
 **处理**：
+
+`AgentContext` 是 `@dataclass`，不支持动态添加字段。为传递 `StructureIndexer`，需在 `AgentContext` 中新增可选字段（保持向后兼容）：
+
+```python
+# backend/agent/context.py 修改
+@dataclass
+class AgentContext:
+    repo_path: str
+    module_id: str
+    shared_knowledge: SharedKnowledgeBase = field(default_factory=SharedKnowledgeBase)
+    discoveries: DiscoveryRegistry = field(default_factory=DiscoveryRegistry)
+    max_iterations: int = 20
+    timeout_seconds: int = 300
+    context_monitor: Optional["ContextMonitor"] = None
+    structure_indexer: Optional["StructureIndexer"] = None   # 新增（可选）
+```
+
 ```python
 def run_stage_2(pool: SharedKnowledgePool, llm_client: LLMClient) -> ModulePlan:
-    # 使用结构索引辅助模块识别
     context = AgentContext(
-        repo_path=pool.repo_path,
+        repo_path=str(pool.repo_path),
         module_id="scanner",
         shared_knowledge=SharedKnowledgeBase(),
+        structure_indexer=pool.structure_indexer,   # 传入预构建索引
     )
-
-    # 注入结构索引到 context
-    context.structure_indexer = pool.structure_indexer
 
     agent = ModuleScannerAgent(context=context, llm_client=llm_client)
     scan_result = ScanResult(
         repo_path=str(pool.repo_path),
-        files=[f for f in pool.file_index.values()],
+        files=list(pool.file_index.values()),
     )
 
     return agent.scan(scan_result)
 ```
+
+`ModuleScannerAgent` 内部检查 `context.structure_indexer`：若非 None，直接使用预构建索引（跳过内部的 `build_index()` 调用）。
 
 **输出**：`ModulePlan`（模块列表 + 架构提示）
 
@@ -391,6 +493,8 @@ def run_stage_2(pool: SharedKnowledgePool, llm_client: LLMClient) -> ModulePlan:
 ### Stage 3: ParallelAnalysis
 
 **输入**：`ModulePlan + SharedKnowledgePool`
+
+**并行实现方式**：使用 `ThreadPoolExecutor`，与现有 `AgentOrchestrator` 保持一致，避免引入 asyncio 依赖。
 
 **处理**：
 ```python
@@ -402,32 +506,57 @@ def run_stage_3(
 ) -> list[ModuleResult]:
     scheduler = IntelligentScheduler(config, pool)
 
-    # 生成调度计划
+    # 生成调度计划（排序 + 分批）
     batches = scheduler.schedule(modules)
 
-    results = []
-    for batch in batches:
-        if batch.is_merged:
-            # 批次合并调用
-            prompt = batch.to_prompt(pool)
-            response = llm_client.complete(prompt, max_tokens=8192)
-            batch_results = batch.parse_response(response)
-            results.extend(batch_results.values())
-        else:
-            # 单模块 Agent 分析
-            for module in batch.modules:
-                result = run_agent_for_module(module, pool, llm_client)
-                results.append(result)
+    results: list[ModuleResult] = []
+    retry_queue: list[ModuleInfo] = []   # Level 2 降级队列
 
-                # 更新调度器状态
-                scheduler.on_success(result.execution_time_ms)
+    # 并行执行所有批次
+    with ThreadPoolExecutor(max_workers=scheduler.current_concurrency) as executor:
+        future_to_batch = {
+            executor.submit(_execute_batch, batch, pool, llm_client): batch
+            for batch in batches
+        }
+
+        for future in as_completed(future_to_batch):
+            batch = future_to_batch[future]
+            start_time = time.time()
+            try:
+                batch_results = future.result()
+                elapsed_ms = (time.time() - start_time) * 1000
+                scheduler.on_success(elapsed_ms)
+
+                # Level 1 降级：收集解析失败的模块进入重试队列
+                for module_id, result in batch_results.items():
+                    if result is None:
+                        failed_module = batch.get_module(module_id)
+                        if failed_module:
+                            retry_queue.append(failed_module)
+                    else:
+                        results.append(result)
+
+            except RateLimitExhaustedError:
+                wait = scheduler.on_rate_limit()
+                time.sleep(wait)
+                # 重新提交该批次
+                retry_queue.extend(batch.modules)
+
+    # Level 2 降级：逐个重分析失败模块
+    if retry_queue:
+        for module in retry_queue:
+            result = _run_agent_for_single_module(module, pool, llm_client)
+            if result:
+                results.append(result)
 
     return results
 ```
 
+**注意**：`ThreadPoolExecutor.max_workers` 不支持运行时动态修改。自适应并发通过以下方式实现：当 `scheduler.current_concurrency` 发生变化时，在当前 Executor 耗尽后以新的 `max_workers` 重建 Executor（分批提交策略），不需要实时修改运行中的线程池。
+
 **输出**：`list[ModuleResult]`
 
-**耗时预估**：主要耗时阶段，取决于模块数量和 GLM API 速率
+**耗时预估**：主要耗时阶段，1000 文件（~20 模块）× GLM 平均响应 15s / 并发 2 ≈ 2.5 分钟
 
 ### Stage 4: GraphMerge
 
@@ -479,34 +608,33 @@ def run_stage_4(results: list[ModuleResult]) -> BuiltGraph:
 backend/
 ├── pipeline/
 │   ├── __init__.py
-│   ├── ai_analyze.py              # 重构后的入口
-│   ├── optimized_pipeline.py      # 新的优化流水线
+│   ├── ai_analyze.py              # 重构后的入口（保持 AIPipeline 接口不变）
+│   ├── optimized_pipeline.py      # 新的优化流水线（OptimizedPipeline）
 │   ├── stages/
 │   │   ├── __init__.py
-│   │   ├── base.py                # Stage 基类
+│   │   ├── base.py                # Stage 基类（StageBase）
 │   │   ├── file_index.py          # Stage 0: 文件索引
 │   │   ├── structure_parse.py     # Stage 1: 结构解析
 │   │   ├── module_boundary.py     # Stage 2: 模块边界
 │   │   ├── parallel_analysis.py   # Stage 3: 并行分析
 │   │   └── graph_merge.py         # Stage 4: 图谱合并
-│   └── stage_cache.py             # 阶段缓存管理
+│   ├── stage_cache.py             # 阶段缓存管理
+│   └── pipeline_scheduler.py      # 智能调度器（避免与 Celery scheduler/ 冲突）
 │
 ├── cache/
 │   ├── __init__.py
 │   ├── shared_knowledge_pool.py   # 共享知识池
-│   ├── content_cache.py           # 文件内容 LRU 缓存
-│   └── stage_cache_manager.py     # 阶段缓存管理器
+│   └── content_cache.py           # 文件内容 LRU 缓存（线程安全）
 │
-├── scheduler/
-│   ├── __init__.py
-│   ├── intelligent_scheduler.py   # 智能调度器
-│   └── module_batch.py            # 模块批次
+├── scheduler/                     # 【保持不变】Celery 相关（celery_app.py, tasks.py）
 │
 └── agent/
-    ├── orchestrator.py            # 重构：使用 SharedKnowledgePool
-    └── agents/
-        └── architecture.py        # 重构：从池中获取文件内容
+    ├── context.py                 # 新增 structure_indexer 可选字段
+    ├── orchestrator.py            # 重构：接受 SharedKnowledgePool 参数
+    └── structure_indexer.py       # 新增 build_index_from_files() 方法
 ```
+
+**注意**：智能调度器放在 `backend/pipeline/pipeline_scheduler.py`，而非 `backend/scheduler/`，避免与现有 Celery scheduler 目录混淆。
 
 ---
 
@@ -586,7 +714,36 @@ class OptimizationConfig:
 
 ## 验收标准
 
-1. **功能正确性**：优化后的分析结果与原流程一致
-2. **性能提升**：1000 文件仓库分析时间降低 50% 以上
-3. **稳定性**：连续运行 10 次无崩溃，断点续跑正常
-4. **兼容性**：原有 API 调用方式不变
+### 功能正确性
+- 优化后的图谱节点数、边数与原流程误差 ≤ 5%（允许 Agent 随机性）
+- `AIPipeline.analyze()` 接口签名不变，返回类型 `AIAnalysisResult` 不变
+- 断点续跑：中途停止后重新运行，Stage 0-2 的缓存命中，不重复 LLM 调用
+
+### 性能基准测试方案
+
+**测试仓库**：使用项目自身 `code-graph-system/` 作为基准（约 80 个 Python 文件），大型测试用 `code-graph-system/` + 外部仓库 [spring-petclinic](https://github.com/spring-projects/spring-petclinic)（约 50 个 Java 文件）模拟混合场景。
+
+**测量指标**：
+| 指标 | 测量方式 | 目标 |
+|------|----------|------|
+| 挂钟时间 | `time.time()` 首尾差值 | 降低 ≥ 50% |
+| LLM 调用次数 | `ToolCallRecord` 计数 | 降低 ≥ 20%（批次合并效果） |
+| Token 消耗 | `extract_token_usage()` 累计 | 降低 ≥ 20% |
+| 文件读取次数 | 在 `get_content()` 中插桩计数 | 磁盘读取次数降低 ≥ 60% |
+
+**基准测试脚本**：`backend/tests/benchmark_pipeline.py`
+```python
+# 运行方式
+pytest backend/tests/benchmark_pipeline.py -v -s --benchmark
+```
+
+**对比基线**：优化前后各运行 3 次取中位数，使用相同的 `repo_path` 和 LLM 配置。
+
+### 稳定性
+- 模拟网络中断（mock 429 响应），确认退避重试正常
+- 模拟 Stage 2 中途停止，重新运行后 Stage 0/1 缓存命中
+- ContentCache 并发读写：10 线程同时访问同一文件，无数据竞争
+
+### 回归测试
+- 现有测试 `backend/tests/test_ai_pipeline.py` 全部通过（无修改）
+- 现有测试 `backend/tests/test_ai_pipeline_e2e.py` 全部通过（需要 LLM API Key）
