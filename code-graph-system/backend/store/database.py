@@ -109,7 +109,12 @@ def migrate_from_json(db: Database, json_path: str) -> None:
         node_count   = entry.get("node_count", 0)
         edge_count   = entry.get("edge_count", 0)
 
-        # 插入 Repo（已存在则忽略）
+        # 插入 Repo（已存在则忽略；同时按 path 去重，避免与 POST /repos 创建的记录重复）
+        path_exists = db.execute_one("SELECT id FROM repo WHERE path=?", (repo_path,))
+        if path_exists:
+            logger.debug("迁移跳过 repo_id=%s，路径已存在（已有 id=%s）", repo_id, path_exists["id"])
+            migrated += 1
+            continue
         db.execute(
             """INSERT OR IGNORE INTO repo
                (id, name, path, branch, source_mode, language, created_at, updated_at)
@@ -144,9 +149,9 @@ def migrate_from_json(db: Database, json_path: str) -> None:
 
     logger.info("已从 %s 迁移 %d 条记录", json_path, migrated)
 
-    # 重命名原文件
+    # 重命名原文件（Windows 上 rename 不覆盖已存在文件，用 replace 代替）
     migrated_path = path.with_suffix(".json.migrated")
-    path.rename(migrated_path)
+    path.replace(migrated_path)
     logger.info("status.json 已重命名为 %s", migrated_path.name)
 
 
