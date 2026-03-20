@@ -182,3 +182,57 @@ class TestSearchStructure:
             classes = first.get("classes", [])
             if classes:
                 assert "line" in classes[0]
+
+
+# ── build_index_from_files 跳过目录遍历 ────────────────────────────────────────
+
+
+class TestBuildIndexFromFiles:
+    """测试 build_index_from_files 跳过目录遍历。"""
+
+    def test_indexes_only_provided_files(self, tmp_path: Path):
+        """只索引传入的文件，不扫描其他文件。"""
+        (tmp_path / "a.py").write_text("class A: pass", encoding="utf-8")
+        (tmp_path / "b.py").write_text("class B: pass", encoding="utf-8")
+
+        indexer = StructureIndexer(depth="standard")
+        indexer.build_index_from_files(tmp_path, ["a.py"])  # 只传 a.py
+
+        assert "a.py" in indexer._index
+        assert "b.py" not in indexer._index  # b.py 未传入，不应被索引
+
+    def test_result_matches_build_index(self, tmp_path: Path):
+        """build_index_from_files 结果与 build_index 一致。"""
+        (tmp_path / "main.py").write_text(
+            "class Foo:\n    def bar(self): pass\n", encoding="utf-8"
+        )
+
+        indexer1 = StructureIndexer(depth="standard")
+        indexer1.build_index(tmp_path)
+
+        indexer2 = StructureIndexer(depth="standard")
+        indexer2.build_index_from_files(tmp_path, ["main.py"])
+
+        sk1 = indexer1._index["main.py"]
+        sk2 = indexer2._index["main.py"]
+        assert [c.name for c in sk1.classes] == [c.name for c in sk2.classes]
+
+    def test_skips_nonexistent_file(self, tmp_path: Path):
+        """不存在的文件跳过，不抛异常。"""
+        (tmp_path / "real.py").write_text("x = 1", encoding="utf-8")
+        indexer = StructureIndexer(depth="standard")
+        indexer.build_index_from_files(tmp_path, ["real.py", "ghost.py"])
+        assert "real.py" in indexer._index
+        assert "ghost.py" not in indexer._index
+
+    def test_handles_java_files(self, tmp_path: Path):
+        """正确处理 Java 文件。"""
+        (tmp_path / "Test.java").write_text(
+            "public class Test { public void run() {} }\n", encoding="utf-8"
+        )
+        indexer = StructureIndexer(depth="standard")
+        indexer.build_index_from_files(tmp_path, ["Test.java"])
+        assert "Test.java" in indexer._index
+        sk = indexer._index["Test.java"]
+        assert sk.language == "java"
+        assert any(c.name == "Test" for c in sk.classes)

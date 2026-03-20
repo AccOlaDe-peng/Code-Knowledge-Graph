@@ -120,6 +120,43 @@ class StructureIndexer:
 
         logger.info("StructureIndexer: 索引构建完成，共 %d 个文件", len(self._index))
 
+    def build_index_from_files(self, repo_path: Path, file_paths: list[str]) -> None:
+        """从已知文件列表构建骨架索引，跳过目录遍历。
+
+        与 build_index() 区别：不再 rglob 整个目录，
+        直接遍历 file_paths 中已过滤好的相对路径列表。
+
+        Args:
+            repo_path: 仓库根目录（绝对路径）
+            file_paths: 相对于 repo_path 的文件路径列表
+        """
+        repo_path = Path(repo_path).resolve()
+        self._index.clear()
+
+        for rel_path in file_paths:
+            file_path = repo_path / rel_path
+            if not file_path.is_file():
+                continue
+
+            suffix = file_path.suffix.lower()
+            skeleton = None
+
+            if suffix == ".java":
+                skeleton = self._scan_java(file_path)
+            elif suffix == ".py":
+                skeleton = self._scan_python(file_path)
+            else:
+                skeleton = self._scan_generic(file_path)
+
+            if skeleton is not None:
+                skeleton.relative_path = rel_path
+                self._index[rel_path] = skeleton
+
+        logger.info(
+            "StructureIndexer.build_index_from_files: 索引完成，共 %d 个文件",
+            len(self._index),
+        )
+
     def search_structure(
         self,
         annotation: str | None = None,
