@@ -154,3 +154,71 @@ export const graphEndpoints = {
 };
 
 export default graphEndpoints;
+
+// ─── Repo API (/repos/*) ──────────────────────────────────────────────────────
+
+export type CreateRepoPayload = {
+  repo_id?: string;
+  repo_name: string;
+  repo_path: string;
+  source_mode?: "local" | "git" | "zip";
+  branch?: string;
+  language?: string[];
+};
+
+export const repoEndpoints = {
+  /**
+   * GET /repos
+   * List all repositories
+   */
+  async listRepos(): Promise<{ repos: Record<string, unknown>[] }> {
+    return apiClient.get("/repos");
+  },
+
+  /**
+   * POST /repos
+   * Create a new repository
+   */
+  async createRepo(payload: CreateRepoPayload): Promise<Record<string, unknown>> {
+    return apiClient.post("/repos", payload);
+  },
+
+  /**
+   * PUT /repos/:id
+   * Update repository metadata
+   */
+  async updateRepo(
+    repoId: string,
+    patch: { repo_name?: string; branch?: string; language?: string[] },
+  ): Promise<Record<string, unknown>> {
+    return apiClient.put(`/repos/${repoId}`, patch);
+  },
+
+  /**
+   * DELETE /repos/:id
+   * Delete repository and associated data
+   */
+  async deleteRepo(repoId: string): Promise<void> {
+    return apiClient.delete(`/repos/${repoId}`);
+  },
+
+  /**
+   * GET /repos/:id/analyses
+   * List analysis history for a repository
+   */
+  async listAnalyses(
+    repoId: string,
+    taskId?: string,
+  ): Promise<{ analyses: Record<string, unknown>[] }> {
+    const params = taskId ? `?task_id=${taskId}` : "";
+    return apiClient.get(`/repos/${repoId}/analyses${params}`);
+  },
+
+  /**
+   * GET /api/pipeline/stages
+   * Get pipeline stage definitions
+   */
+  async getPipelineStages(): Promise<{ stages: { key: string; label: string; description: string }[]; total: number }> {
+    return apiClient.get("/api/pipeline/stages");
+  },
+};
