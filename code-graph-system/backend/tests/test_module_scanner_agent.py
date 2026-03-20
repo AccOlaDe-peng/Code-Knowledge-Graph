@@ -342,3 +342,24 @@ class TestModuleScannerAgentPromptBuilding:
 
         assert "python" in prompt
         assert "typescript" in prompt
+
+
+class TestAgentContextStructureIndexer:
+    """测试 AgentContext 支持预构建 StructureIndexer。"""
+
+    def test_context_accepts_structure_indexer(self):
+        """AgentContext 接受 structure_indexer 可选字段。"""
+        from backend.agent.structure_indexer import StructureIndexer
+
+        indexer = StructureIndexer(depth="standard")
+        ctx = AgentContext(
+            repo_path="/tmp",
+            module_id="test",
+            structure_indexer=indexer,
+        )
+        assert ctx.structure_indexer is indexer
+
+    def test_context_structure_indexer_defaults_to_none(self):
+        """不传 structure_indexer 时默认为 None（向后兼容）。"""
+        ctx = AgentContext(repo_path="/tmp", module_id="test")
+        assert ctx.structure_indexer is None

@@ -10,6 +10,7 @@ from backend.models.discovery import DiscoveryRegistry
 
 if TYPE_CHECKING:
     from backend.llm.context_monitor import ContextMonitor
+    from backend.agent.structure_indexer import StructureIndexer
 
 
 class SharedKnowledgeBase:
@@ -75,3 +76,4 @@ class AgentContext:
     max_iterations: int = 20
     timeout_seconds: int = 300
     context_monitor: Optional["ContextMonitor"] = None
+    structure_indexer: Optional["StructureIndexer"] = None   # 预构建索引（可选）
