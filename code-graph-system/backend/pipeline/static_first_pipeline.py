@@ -351,10 +351,20 @@ class StaticFirstPipeline:
             observer.emit_end()
 
         logger.info(
-            "StaticFirstPipeline 完成: status=%s, 耗时=%.2fs, graph_id=%s",
+            "StaticFirstPipeline 完成: status=%s, 耗时=%.2fs, graph_id=%s"
+            " | 节点=%d, 边=%d"
+            " | 静态节点=%.1f%%, AI节点=%.1f%%, 低置信度边=%.1f%%"
+            " | 失败模块=%d, 告警=%d",
             status,
             duration,
             graph_id,
+            built.node_count,
+            built.edge_count,
+            quality_report.static_node_ratio * 100,
+            quality_report.ai_node_ratio * 100,
+            quality_report.low_confidence_edge_ratio * 100,
+            len(quality_report.failed_modules),
+            len(quality_report.warnings),
         )
 
         # 将质量报告警告添加到结果中

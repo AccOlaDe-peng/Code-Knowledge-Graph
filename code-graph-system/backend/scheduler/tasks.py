@@ -589,9 +589,21 @@ def analyze_repository(
         "analyzed_at":      datetime.now(timezone.utc).isoformat(),
         "depth":            depth,
     }
+    node_types = built.meta.get("node_type_counts", {})
+    edge_types = built.meta.get("edge_type_counts", {})
+    node_types_str = ", ".join(f"{k}={v}" for k, v in node_types.items()) or "无"
+    edge_types_str = ", ".join(f"{k}={v}" for k, v in edge_types.items()) or "无"
     logger.info(
-        "analyze_repository DONE  graph=%s  nodes=%d  edges=%d  %.2fs  depth=%s",
+        "analyze_repository DONE  graph=%s  nodes=%d  edges=%d  %.2fs  depth=%s"
+        "\n  节点类型: [%s]"
+        "\n  边类型:   [%s]"
+        "\n  循环依赖: %d  告警: %d  commit: %s",
         result.graph_id, result.node_count, result.edge_count, duration, depth,
+        node_types_str,
+        edge_types_str,
+        len(result.circular_deps),
+        len(result.warnings),
+        git_commit[:12] if git_commit else "N/A",
     )
     return payload
 
