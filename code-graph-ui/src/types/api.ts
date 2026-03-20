@@ -5,20 +5,50 @@ import type { Graph, GraphMetrics, GraphNode, GraphEdge } from "./graph";
 /** 分析深度预设 */
 export type AnalysisDepth = "quick" | "standard" | "deep";
 
-export type RepoInfo = {
+/** 分析状态 */
+export type AnalysisStatus =
+  | "saved"
+  | "pending"
+  | "analyzing"
+  | "completed"
+  | "completed_partial"
+  | "failed"
+  | "canceled";
+
+/** 仓库配置（对应后端 Repo 表）*/
+export type Repo = {
   repoId: string;
-  graphId: string;
   repoName: string;
+  repoPath?: string;
+  branch?: string;
+  sourceMode?: "local" | "git" | "zip";
   language: string[];
   createdAt: string;
+  updatedAt?: string;
+};
+
+/** 分析摘要（最近一次分析 + 实时状态）*/
+export type LatestAnalysis = {
+  taskId?: string;
+  status: AnalysisStatus;
+  graphId?: string;
   nodeCount: number;
   edgeCount: number;
-  gitCommit?: string;
-  // 重新分析所需的信息
-  repoPath?: string; // 原始路径或 Git URL
-  branch?: string; // Git 分支
-  sourceMode?: "local" | "git" | "zip"; // 源模式
-  status?: "saved" | "analyzing" | "completed" | "failed" | "canceled";
+  depth?: AnalysisDepth;
+  analysisStage?: string;
+  analysisStep?: number;
+  analysisTotal?: number;
+  analysisMessage?: string;
+  lastAnalyzedAt?: string;
+  error?: string;
+};
+
+/** 页面展示用（保留 RepoInfo 名称减少改动范围）*/
+export type RepoInfo = Repo & {
+  graphId: string; // 保留兼容旧代码
+  nodeCount: number; // 保留兼容旧代码
+  edgeCount: number; // 保留兼容旧代码
+  status?: AnalysisStatus;
   taskId?: string;
   analysisStep?: number;
   analysisTotal?: number;
@@ -27,7 +57,9 @@ export type RepoInfo = {
   analysisElapsedSeconds?: number;
   error?: string;
   lastAnalyzedAt?: string;
-  depth?: AnalysisDepth; // 分析深度
+  depth?: AnalysisDepth;
+  gitCommit?: string;
+  latestAnalysis?: LatestAnalysis;
 };
 
 // ─── GET /graph ───────────────────────────────────────────────────────────────

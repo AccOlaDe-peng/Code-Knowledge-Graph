@@ -67,9 +67,12 @@ export const graphApi = {
           repoName: g.repo_name as string,
           language: (g.languages ?? g.language ?? []) as string[],
           createdAt: g.created_at as string,
+          updatedAt: (g.updated_at ?? g.created_at) as string,
           nodeCount: g.node_count as number,
           edgeCount: g.edge_count as number,
           gitCommit: g.git_commit as string | undefined,
+          sourceMode: (g.source_mode ?? "local") as "local" | "git" | "zip",
+          repoPath: g.repo_path as string | undefined,
           status:
             (g.status as string | undefined as
               | "saved"
@@ -84,7 +87,6 @@ export const graphApi = {
           analysisTotal: g.total as number | undefined,
           analysisMessage: g.message as string | undefined,
           error: g.error as string | undefined,
-          repoPath: g.repo_path as string | undefined,
           lastAnalyzedAt: g.updated_at as string | undefined,
         })),
       };

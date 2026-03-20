@@ -19,7 +19,8 @@ interface RepoState {
 const dedupeRepos = (incoming: RepoInfo[]): RepoInfo[] => {
   const byKey = new Map<string, RepoInfo>();
   for (const repo of incoming) {
-    const key = repo.graphId || repo.repoId;
+    // 优先用 repoId 去重，repoId 是稳定 ID；graphId 仅作展示用
+    const key = repo.repoId || repo.graphId;
     if (!key) continue;
     byKey.set(key, {
       ...repo,
@@ -52,11 +53,10 @@ export const useRepoStore = create<RepoState>()((set) => ({
 
   addRepo: (repo) =>
     set((state) => {
-      // 按 repoPath 去重，避免同一个仓库被添加多次
+      // 按 repoPath 或 repoId 去重，避免同一个仓库被添加多次
       const existingIndex = state.repos.findIndex(
         (r) =>
-          r.repoPath === repo.repoPath ||
-          (repo.graphId && r.graphId === repo.graphId) ||
+          (repo.repoPath && r.repoPath === repo.repoPath) ||
           r.repoId === repo.repoId,
       );
 

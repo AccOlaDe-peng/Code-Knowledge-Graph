@@ -531,6 +531,7 @@ const Repository: React.FC = () => {
       repoName,
       language: values.languages ?? [],
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       nodeCount: 0,
       edgeCount: 0,
       repoPath,
