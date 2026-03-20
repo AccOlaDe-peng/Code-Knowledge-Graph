@@ -117,7 +117,7 @@ export type AnalyzeAsyncResponse = {
 };
 
 export type AnalysisProgressEvent = {
-  status: "pending" | "running" | "completed" | "failed" | "error" | "canceled";
+  status: "pending" | "running" | "completed" | "completed_partial" | "failed" | "error" | "canceled";
   step?: number;
   total?: number;
   stage?: string;
