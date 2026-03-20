@@ -46,6 +46,15 @@ pytest backend/tests/test_module_scanner_agent.py -v
 pytest backend/tests/test_ai_pipeline.py -v
 pytest backend/tests/test_ai_pipeline_e2e.py -v  # 需要 LLM API Key
 
+# 运行静态优先流水线测试（Phase 1-6）
+pytest backend/tests/test_phase2_static_analysis.py -v
+pytest backend/tests/test_static_first_pipeline.py -v
+pytest backend/tests/test_phase5_incremental.py -v
+pytest backend/tests/test_phase6_integration.py -v
+
+# 运行所有 Phase 测试
+pytest backend/tests/test_phase*.py backend/tests/test_static_first_pipeline.py -v
+
 # 运行所有 Agent 系统测试
 pytest backend/tests/test_agent_orchestrator.py -v
 pytest backend/tests/test_agent_*.py -v
@@ -65,6 +74,23 @@ celery -A backend.scheduler.celery_app worker --beat --loglevel=info  # Worker +
 
 ### 核心数据流
 
+**静态优先流水线（推荐，默认启用）：**
+
+```
+代码仓库
+  → FileIndexStage           扫描文件 + Git 增量检测
+  → DeepStaticAnalysisStage  AST 解析 + Spring 框架分析（产出 A+B）
+  → DirectoryClusterStage    目录聚类（零 LLM）|| 并行
+  → SpringDIEventStaticStage Spring DI/Event 静态解析 || 并行
+  → AISemanticEnhanceStage   AI 语义增强（模块并行）
+  → SpringDIEventAIStage     AI 解析歧义（仅处理无法静态解析的）
+  → GraphMergeWithQuality    合并图谱 + 质量报告
+  → GraphRepository          持久化 JSON / Neo4j
+  → GraphRAGEngine           向量化写入 ChromaDB（可选）
+```
+
+**传统 AI 流水线（备用）：**
+
 ```
 代码仓库
   → RepoScanner       扫描文件 + Git 信息
@@ -75,9 +101,48 @@ celery -A backend.scheduler.celery_app worker --beat --loglevel=info  # Worker +
   → GraphRAGEngine    向量化写入 ChromaDB（可选）
 ```
 
+### 静态优先流水线（`backend/pipeline/static_first_pipeline.py`）
+
+**特点：**
+- 静态分析产出结构层数据（高置信度，~0.95）
+- AI 增强补充语义信息（低置信度字段追加，不覆盖静态数据）
+- Stage 3 (DirectoryCluster) 和 Stage 4a (SpringDIEventStatic) 并行执行
+- LLM 调用量减少 > 50%，相同 commit SHA 重跑模块边界 100% 可复现
+
+**Stage 编排：**
+
+| Stage | 类                         | 说明                                      |
+| ----- | -------------------------- | ----------------------------------------- |
+| 1     | `FileIndexStage`           | 异步文件索引 + Git 增量检测               |
+| 2     | `DeepStaticAnalysisStage`  | AST 解析 + Spring 框架分析                |
+| 3     | `DirectoryClusterStage`    | 目录聚类（零 LLM）                        |
+| 4a    | `SpringDIEventStaticStage` | Spring DI/Event 静态解析（零 LLM）        |
+| 3b    | `AISemanticEnhanceStage`   | AI 语义增强（两次调用：边界 + 边验证）    |
+| 4b    | `SpringDIEventAIStage`     | AI 解析歧义（DI/Topic/Event）             |
+| 5     | `GraphMergeWithQuality`    | 合并图谱 + 质量报告                       |
+
+**置信度体系：**
+- 静态分析：0.80-0.98（直接导入、注解驱动、框架模式）
+- AI 增强：0.65-0.75（语义描述、新发现关系）
+- 字段级合并：静态节点的 source/confidence 保持不变，AI 字段追加
+
+**增量分析：**
+- Git diff 检测变更文件
+- 模块级缓存：只重分析包含变更文件的模块
+- 缓存持久化：`data/pipeline_cache/{repo_name}/modules/`
+
 ### 分析流水线（`backend/pipeline/ai_analyze.py`）
 
-`AIPipeline.analyze(repo_path, *, repo_name, enable_rag)` 执行 6 步 AI 驱动分析，返回 `AnalysisResult`：
+`AIPipeline.analyze(repo_path, *, repo_name, enable_rag)` 根据 `enable_static_first` 参数选择流水线：
+
+**默认行为（`enable_static_first=True`）：**
+使用 `StaticFirstPipeline`，静态优先、AI 增强。
+
+**备用行为（`enable_static_first=False, enable_optimization=True`）：**
+使用 `OptimizedPipeline`，旧的 5 阶段优化流水线。
+
+**传统行为（都为 False）：**
+使用传统 6 步 AI 驱动分析：
 
 | 步骤 | 类                   | 说明                             |
 | ---- | -------------------- | -------------------------------- |
@@ -89,8 +154,6 @@ celery -A backend.scheduler.celery_app worker --beat --loglevel=info  # Worker +
 | 6    | `GraphRAGEngine`     | 向量化（可选）                   |
 
 任意步骤失败只记录警告，不中断整体流水线。
-
-**注意**：旧的 `AnalysisPipeline`（13 步 AST 分析）现已弃用，内部封装为 `AIPipeline` 的包装器以保持向后兼容。
 
 ### 多 Agent 系统（`backend/agent/`）
 
@@ -160,26 +223,33 @@ engine.rag_query(graph_id, "登录如何实现？")
 
 ### API 端点（`backend/api/server.py`）
 
-| 方法   | 路径                  | 说明                                                    |
-| ------ | --------------------- | ------------------------------------------------------- |
-| GET    | `/health`             | 健康检查                                                |
-| POST   | `/analyze/repository` | 全量分析（本地路径或 Git URL），返回 graph_id + 统计    |
-| POST   | `/analyze/upload-zip` | 上传 ZIP 文件分析，返回 graph_id + 统计                 |
-| POST   | `/analyze/graph`      | GraphPipeline 直接分析，返回图谱数据                    |
-| GET    | `/graph`              | 无 `graph_id` 返回列表；有则返回节点+边                 |
-| GET    | `/graph/data`         | 通用图谱数据（按 node_types/edge_types 过滤）           |
-| GET    | `/graph/call`         | 调用图（Function/API 节点 + calls 边，类似 /callgraph） |
-| GET    | `/graph/module`       | 模块依赖图（Module 节点 + depends_on 边）               |
-| GET    | `/graph/summary`      | 图谱摘要统计                                            |
-| GET    | `/graph/export`       | 导出图谱（JSON/CSV 格式）                               |
-| DELETE | `/graph/{graph_id}`   | 删除指定图谱（JSON + ChromaDB）                         |
-| GET    | `/callgraph`          | Function/API 节点 + calls 边                            |
-| GET    | `/lineage`            | depends_on / reads / writes / produces / consumes 边    |
-| GET    | `/events`             | Event/Topic 节点 + produces/consumes 边                 |
-| GET    | `/services`           | Service / Cluster / Database 节点                       |
-| POST   | `/query`              | GraphRAG 自然语言查询                                   |
+| 方法   | 路径                     | 说明                                                    |
+| ------ | ------------------------ | ------------------------------------------------------- |
+| GET    | `/health`                | 健康检查                                                |
+| POST   | `/analyze/repository`    | 全量分析（本地路径或 Git URL），返回 graph_id + 统计    |
+| POST   | `/analyze/upload-zip`    | 上传 ZIP 文件分析，返回 graph_id + 统计                 |
+| POST   | `/analyze/graph`         | GraphPipeline 直接分析，返回图谱数据                    |
+| GET    | `/analysis/stream/{id}`  | SSE 实时进度流（AnalysisObserver 事件）                 |
+| GET    | `/graph`                 | 无 `graph_id` 返回列表；有则返回节点+边                 |
+| GET    | `/graph/data`            | 通用图谱数据（按 node_types/edge_types 过滤）           |
+| GET    | `/graph/call`            | 调用图（Function/API 节点 + calls 边，类似 /callgraph） |
+| GET    | `/graph/module`          | 模块依赖图（Module 节点 + depends_on 边）               |
+| GET    | `/graph/summary`         | 图谱摘要统计                                            |
+| GET    | `/graph/export`          | 导出图谱（JSON/CSV 格式）                               |
+| DELETE | `/graph/{graph_id}`      | 删除指定图谱（JSON + ChromaDB）                         |
+| GET    | `/callgraph`             | Function/API 节点 + calls 边                            |
+| GET    | `/lineage`               | depends_on / reads / writes / produces / consumes 边    |
+| GET    | `/events`                | Event/Topic 节点 + produces/consumes 边                 |
+| GET    | `/services`              | Service / Cluster / Database 节点                       |
+| POST   | `/query`                 | GraphRAG 自然语言查询                                   |
 
 四个全局单例通过 `lifespan` 管理：`_graph_repo`、`_vector_store`、`_pipeline`、`_rag_engine`。
+
+**SSE 事件类型（`backend/pipeline/observer.py`）：**
+- `stage_started` / `stage_completed` — Stage 开始/完成
+- `module_analysis_started` / `module_analysis_completed` / `module_analysis_failed` — 模块级事件
+- `low_confidence_warning` / `boundary_warning` — 警告事件
+- `analysis_completed` — 分析完成（含质量报告）
 
 ### Celery 异步任务（`backend/scheduler/`）
 

@@ -224,11 +224,29 @@ class AnalysisCompleted(AnalysisEvent):
     @classmethod
     def create(
         cls,
-        quality_report: dict[str, Any],
+        graph_id: str = "",
+        node_count: int = 0,
+        edge_count: int = 0,
+        elapsed_ms: int = 0,
+        warnings: list[str] | None = None,
+        errors: list[str] | None = None,
+        quality_report: dict[str, Any] | None = None,
     ) -> "AnalysisCompleted":
+        data: dict[str, Any] = {
+            "graph_id": graph_id,
+            "node_count": node_count,
+            "edge_count": edge_count,
+            "elapsed_ms": elapsed_ms,
+        }
+        if warnings:
+            data["warnings"] = warnings
+        if errors:
+            data["errors"] = errors
+        if quality_report:
+            data["quality_report"] = quality_report
         return cls(
             event_type="analysis_completed",
-            data={"quality_report": quality_report},
+            data=data,
         )
 
 

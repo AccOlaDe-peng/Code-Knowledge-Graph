@@ -80,6 +80,7 @@ class AIPipeline:
         vector_store: Optional[VectorStore] = None,
         rag_engine: Optional[GraphRAGEngine] = None,
         enable_optimization: bool = False,
+        enable_static_first: bool = True,
     ):
         """初始化 AIPipeline。
 
@@ -89,9 +90,14 @@ class AIPipeline:
             vector_store: 向量存储，None 创建默认实例
             rag_engine: GraphRAG 引擎，None 创建默认实例
             enable_optimization: 是否启用优化流水线（OptimizedPipeline）
+            enable_static_first: 是否启用静态优先流水线（StaticFirstPipeline，默认启用）
         """
         self.config = config or AIAnalysisConfig()
         self._repo = graph_repo or GraphRepository()
+        self._vector_store = vector_store
+        self._rag_engine = rag_engine
+        self._enable_optimization = enable_optimization
+        self._enable_static_first = enable_static_first
         self._vector_store = vector_store
         self._rag_engine = rag_engine
         self._enable_optimization = enable_optimization
@@ -127,7 +133,24 @@ class AIPipeline:
         if not repo_path.is_dir():
             raise ValueError(f"路径不是目录: {repo_path}")
 
-        # 使用优化流水线
+        # 使用静态优先流水线（推荐）
+        if self._enable_static_first and not self._enable_optimization:
+            from backend.pipeline.static_first_pipeline import StaticFirstPipeline
+
+            static_first = StaticFirstPipeline(
+                config=self.config,
+                graph_repo=self._repo,
+                vector_store=self._vector_store,
+                rag_engine=self._rag_engine,
+            )
+            return static_first.analyze(
+                repo_path,
+                repo_name=repo_name,
+                enable_rag=enable_rag,
+                on_progress=on_progress,
+            )
+
+        # 使用优化流水线（旧版）
         if self._enable_optimization:
             from backend.pipeline.optimized_pipeline import OptimizedPipeline
 
