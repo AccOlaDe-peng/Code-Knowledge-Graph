@@ -37,14 +37,21 @@ Stage 1: 深度静态分析     ProcessPoolExecutor + 多语言 AST + Spring 专
     ↓
 Stage 2: 目录聚类         目录层级主信号 + 导入图验证，零 LLM，可复现
     ↓
-Stage 3: AI 语义增强      并发，Pydantic 约束输出，仅增量增强（非全量生成）
-    ↓
-Stage 4: Spring DI/Event  4a 静态解析（75-80%）→ 4b AI 解析歧义（20-25%）
-    ↓
+Stage 3 ──────────────────────────────────────── 并行 ──────────────────────────────── Stage 4a
+AI 语义增强（并发，per module）                                Spring DI/Event 静态解析（零 LLM）
+Pydantic 约束输出，仅增量增强                                  framework_patterns → 静态绑定
+    ↓                                                                ↓
+    └──────────────────────── 合并歧义列表 ──────────────────────────┘
+                                    ↓
+                          Stage 4b: AI 解析歧义
+                          按类型分批，max 20 项/批
+                                    ↓
 Stage 5: 图谱合并         节点先写/边后写，质量评分，流式写入
 
 横切关注点：AnalysisObserver 事件总线（SSE 实时推送）
 ```
+
+**Stage 3 与 Stage 4a 并行说明**：两者均只依赖 Stage 1 产出，互不依赖，可同时启动。Stage 4b 需等两者均完成后合并歧义列表再执行。
 
 ### 与现有 OptimizedPipeline 的对应关系
 
@@ -188,10 +195,16 @@ LargeJavaRepoConfig:   dir_depth=2, coupling_threshold=8   # 2000+ 文件 Java�
 
 **职责**：在静态图谱基础上做增量增强，不从零生成
 
-**每个模块候选独立发起一次 AI 调用**，AI 被要求完成三件事：
+**每个模块候选拆为两次 AI 调用**，按需触发：
+
+**调用 A（必发）**：轻量，确认边界 + 语义描述
 1. 确认/调整模块边界（若有 `boundary_warnings`）
-2. 补充 `low_confidence_edges` 中属于该模块的低置信度边的验证结果
-3. 添加模块语义描述（name、purpose、layer、technology）
+2. 添加模块语义描述（name、purpose、layer、technology）
+
+**调用 B（按需）**：仅当该模块有 `low_confidence_edges` 时才发
+3. 补充低置信度边的验证结果
+
+两次调用拆开的原因：任务 1+2 prompt 固定轻量（< 2K tokens）；任务 3 的 prompt 大小取决于低置信度边数量，可能很大。混在一起会导致没有低置信度边的模块也承担不必要的 prompt 开销，且影响 AI 专注度。
 
 **低置信度边的分发规则**：
 - 按边的 `from_` 节点所在文件归属到对应模块
@@ -265,7 +278,7 @@ class ModuleEnhancement(BaseModel):
 | 动态 topic | `kafkaTemplate.send(topicPrefix + "-" + env, ...)` | 推断 topic 的实际值 |
 | 事件多态 | `@EventListener` 监听父类，子类也触发 | 识别所有子类发布者 |
 
-**批处理策略**：按类型分组（DI 歧义一批、Kafka 动态 topic 一批、事件多态一批），prompt 小且聚焦。
+**批处理策略**：按类型分组（DI 歧义一批、Kafka 动态 topic 一批、事件多态一批），每批最多 `max_items_per_batch=20` 个歧义项，超出则拆分为多批。`max_items_per_batch` 可配置，与 Stage 3 的 `IntelligentScheduler` 批次策略对齐。
 
 **若 Stage 4a 的 `framework_patterns` 为空**：Stage 4 直接跳过。
 
@@ -332,10 +345,12 @@ class AnalysisObserver:
         self._sync_queue.put(event)        # 任意线程调用，非阻塞
 
     async def stream(self):               # FastAPI async generator，供 SSE endpoint 使用
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()  # Python 3.10+，在 coroutine 内使用
         while True:
             # 在 executor 中阻塞等待，不阻塞 asyncio 事件循环
             event = await loop.run_in_executor(None, self._sync_queue.get)
+            if isinstance(event, StreamEnd):
+                break
             yield event
 ```
 
@@ -381,7 +396,16 @@ Stage 0/1/2：{repo_name}:{commit_sha[:8]}:stage_{n}
 Stage 3/4（模块级）：{repo_name}:{commit_sha[:8]}:module_{module_id}
 ```
 
-**注意**：Stage 2（目录聚类）在增量模式下仍需全量重跑（因为新文件可能改变目录结构），但因为是零 LLM 的纯算法，耗时可忽略不计（< 1 秒）。
+**Stage 2 增量优化**：不是无条件全量重跑，而是先检查是否有目录变化：
+```python
+new_dirs = {Path(f).parent for f in changed_files}
+cached_dirs = load_cached_module_dirs()
+if not (new_dirs - cached_dirs):
+    # 无新目录出现，直接复用上次 Stage 2 结果
+    return cached_module_candidates
+# 有新目录，全量重跑聚类（纯算法，< 1 秒）
+```
+大多数增量场景（只改文件内容，不新增目录）可完全跳过 Stage 2 重跑。
 
 ---
 
