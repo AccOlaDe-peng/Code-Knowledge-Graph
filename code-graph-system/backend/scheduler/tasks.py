@@ -442,6 +442,18 @@ def analyze_repository(
             "elapsed_seconds": duration,
         })
         status_store.set_failed(repo_id, error=str(exc))
+        # ── 写入 AnalysisStore 历史记录（失败） ───────────────────────
+        from backend.store.analysis_store import get_analysis_store
+        _analysis_store = get_analysis_store()
+        _analysis_store.write_completed(
+            task_id=task_id,
+            repo_id=repo_id,
+            depth=depth or "standard",
+            status="failed",
+            error=str(exc),
+            started_at=datetime.fromtimestamp(t_start, tz=timezone.utc).isoformat(),
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
         logger.error("analyze_repository FAILED (bad input): %s", exc)
         raise
     except PartialResultError as exc:
@@ -478,6 +490,20 @@ def analyze_repository(
             node_count=result.node_count,
             edge_count=result.edge_count,
             duration_seconds=duration,
+        )
+        # ── 写入 AnalysisStore 历史记录（部分完成） ───────────────────────
+        from backend.store.analysis_store import get_analysis_store
+        _analysis_store = get_analysis_store()
+        _analysis_store.write_completed(
+            task_id=task_id,
+            repo_id=repo_id,
+            depth=depth or "standard",
+            status="completed_partial",
+            graph_id=result.graph_id,
+            node_count=result.node_count,
+            edge_count=result.edge_count,
+            started_at=datetime.fromtimestamp(t_start, tz=timezone.utc).isoformat(),
+            finished_at=datetime.now(timezone.utc).isoformat(),
         )
         logger.warning(
             "analyze_repository PARTIAL: graph=%s nodes=%d edges=%d completed=%d/%d",
@@ -518,6 +544,21 @@ def analyze_repository(
         node_count=result.node_count,
         edge_count=result.edge_count,
         duration_seconds=duration,
+    )
+
+    # ── 写入 AnalysisStore 历史记录 ───────────────────────────────────────
+    from backend.store.analysis_store import get_analysis_store
+    _analysis_store = get_analysis_store()
+    _analysis_store.write_completed(
+        task_id=task_id,
+        repo_id=repo_id,
+        depth=depth or "standard",
+        status="completed",
+        graph_id=result.graph_id,
+        node_count=result.node_count,
+        edge_count=result.edge_count,
+        started_at=datetime.fromtimestamp(t_start, tz=timezone.utc).isoformat(),
+        finished_at=datetime.now(timezone.utc).isoformat(),
     )
 
     # ── 发布完成事件 ───────────────────────────────────────────────
