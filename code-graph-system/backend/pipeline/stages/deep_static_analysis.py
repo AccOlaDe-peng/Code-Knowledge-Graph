@@ -53,12 +53,14 @@ class DeepStaticAnalysisStage(StageBase):
     def __init__(
         self,
         max_workers: int = MAX_WORKERS,
-        use_process_pool: bool = True,
+        use_process_pool: bool = False,
     ):
         """
         Args:
             max_workers: 并行 Worker 数量
-            use_process_pool: 是否使用 ProcessPoolExecutor（False 则用 ThreadPoolExecutor）
+            use_process_pool: 是否使用 ProcessPoolExecutor（默认 False 用 ThreadPoolExecutor）
+                注意：macOS 上 spawn 方式的子进程不继承 sys.path，ProcessPoolExecutor 会
+                导致 ModuleNotFoundError: No module named 'backend'，因此默认禁用。
         """
         self.max_workers = max_workers
         self.use_process_pool = use_process_pool
