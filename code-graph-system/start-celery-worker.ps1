@@ -63,6 +63,21 @@ if (-not (Test-Path $logsDir)) {
 $timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm"
 $logFile = Join-Path $logsDir "celery-worker-$timestamp.log"
 
+# Clear Redis queues and results
+Write-Host "Clearing Redis task queues and results..." -ForegroundColor Yellow
+$brokerDb  = if ($env:CELERY_BROKER_URL)     { ($env:CELERY_BROKER_URL     -replace '.*/', '') } else { "0" }
+$backendDb = if ($env:CELERY_RESULT_BACKEND) { ($env:CELERY_RESULT_BACKEND -replace '.*/', '') } else { "1" }
+try {
+    # Flush broker db (task queue)
+    redis-cli -n $brokerDb FLUSHDB | Out-Null
+    # Flush result backend db (task results)
+    redis-cli -n $backendDb FLUSHDB | Out-Null
+    Write-Host "Redis cleared (broker db=$brokerDb, result db=$backendDb)" -ForegroundColor Green
+} catch {
+    Write-Host "Warning: Failed to clear Redis — $_" -ForegroundColor Yellow
+}
+Write-Host ""
+
 Write-Host "Starting Celery Worker..." -ForegroundColor Green
 Write-Host "Log file: $logFile"
 Write-Host ""
