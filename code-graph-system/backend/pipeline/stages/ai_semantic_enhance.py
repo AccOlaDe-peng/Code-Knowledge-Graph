@@ -236,7 +236,7 @@ class AISemanticEnhanceStage(StageBase):
         if failed_modules:
             msg += f" | {len(failed_modules)} 个失败"
 
-        logger.info("Stage 3 完成: %s", msg)
+        logger.info("[ai_semantic_enhance] 完成: %s", msg)
         if on_progress:
             on_progress(
                 {

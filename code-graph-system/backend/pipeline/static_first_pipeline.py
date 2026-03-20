@@ -138,7 +138,7 @@ class StaticFirstPipeline:
             )
 
         logger.info(
-            "Stage 1 完成: %d 文件, 增量=%s",
+            "[file_index] 完成: %d 文件, 增量=%s",
             len(file_index_result.all_files),
             file_index_result.is_incremental,
         )
@@ -169,7 +169,7 @@ class StaticFirstPipeline:
             )
 
         logger.info(
-            "Stage 2 完成: %d 节点, %d 边, %d 框架模式",
+            "[deep_static_analysis] 完成: %d 节点, %d 边, %d 框架模式",
             len(static_result.structural_nodes),
             len(static_result.structural_edges),
             len(static_result.framework_patterns),
@@ -220,7 +220,7 @@ class StaticFirstPipeline:
             )
 
         logger.info(
-            "Stage 3 + Stage 4a 完成: %d 模块候选, %d DI/Event 边, %d 歧义",
+            "[parallel_stage] 完成: %d 模块候选, %d DI/Event 边, %d 歧义",
             len(module_candidates),
             len(di_event_edges),
             len(di_event_ambiguities),
@@ -253,7 +253,7 @@ class StaticFirstPipeline:
             )
 
         logger.info(
-            "Stage 3b 完成: %d 增强, %d 新节点, %d 新边, %d 失败",
+            "[ai_semantic_enhance] 完成: %d 增强, %d 新节点, %d 新边, %d 失败",
             len(enhancements),
             len(ai_nodes),
             len(ai_edges),
@@ -292,9 +292,9 @@ class StaticFirstPipeline:
                     }
                 )
 
-            logger.info("Stage 4b 完成: %d 条 AI 解析边", len(ai_di_edges))
+            logger.info("[spring_di_event_ai] 完成: %d 条 AI 解析边", len(ai_di_edges))
         else:
-            logger.info("Stage 4b 跳过: 无歧义")
+            logger.info("[spring_di_event_ai] 跳过: 无歧义")
 
         # ── Stage 5: GraphMerge + QualityReport ───────────────────────────────
         merge_stage = GraphMergeWithQualityStage()
