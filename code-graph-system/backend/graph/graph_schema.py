@@ -122,6 +122,13 @@ class EdgeType(str, Enum):
 _VALID_NODE_TYPES: frozenset[str] = frozenset(t.value for t in NodeType)
 _VALID_EDGE_TYPES: frozenset[str] = frozenset(t.value for t in EdgeType)
 
+# 架构视图默认展示的节点类型（高层节点，不含 Class/Function 等细粒度元素）
+ARCHITECTURE_NODE_TYPES: frozenset[str] = frozenset({
+    "Module", "Component", "Service", "API", "APIEndpoint",
+    "Database", "Layer", "Domain", "BoundedContext",
+    "DataSource", "DataSink", "ExternalAPI",
+})
+
 # Expected property keys for each AI-generated node type.
 # Used by validate_graph() to emit targeted warnings.
 # Values are (required_props, recommended_props).
