@@ -159,6 +159,7 @@ def test_get_expand_basic(client):
     assert "node_count" in data
     assert "edge_count" in data
     assert isinstance(data["has_more"], bool)
+    assert all(n["id"] != first_node_id for n in data["nodes"]), "root 节点不应出现在展开结果中"
 
 
 def test_get_expand_node_not_found(client):
