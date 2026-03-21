@@ -244,6 +244,66 @@ def get_lineage(
     }
 
 
+_DEFAULT_EXPAND_EDGE_TYPES = ",".join(sorted(STRUCTURAL_EDGE_TYPES))
+
+@router.get("/graph/expand", tags=["图谱视图"])
+def get_expand(
+    repo_id:    str = Query(description="仓库 ID"),
+    node_id:    str = Query(description="要展开的节点 ID"),
+    depth:      int = Query(default=1, ge=1, le=3, description="BFS 深度，最大 3"),
+    edge_types: str = Query(
+        default=_DEFAULT_EXPAND_EDGE_TYPES,
+        description="逗号分隔的边类型，框架图不传 calls",
+    ),
+) -> dict[str, Any]:
+    """
+    节点展开：返回指定节点的邻居和子节点（结构性边）。
+
+    - 单次最多返回 50 个节点；超出时优先保留架构层节点，has_more=true 表示截断。
+    - 响应中不包含 root 节点本身（调用方已有）。
+    """
+    graph = _storage_load_or_404(repo_id)
+    all_nodes: list[dict] = graph.get("nodes", [])
+    all_edges: list[dict] = graph.get("edges", [])
+
+    # 节点 ID 不存在时返回 404
+    node_ids = {n["id"] for n in all_nodes if n.get("id")}
+    if node_id not in node_ids:
+        raise HTTPException(status_code=404, detail=f"节点不存在: {node_id}")
+
+    target_edge_types = frozenset(t.strip() for t in edge_types.split(",") if t.strip())
+    result = _bfs_subgraph(all_nodes, all_edges, node_id, target_edge_types, depth)
+
+    expanded_nodes: list[dict] = result.get("nodes", [])
+    expanded_edges: list[dict] = result.get("edges", [])
+
+    # 移除 root 节点本身
+    expanded_nodes = [n for n in expanded_nodes if n.get("id") != node_id]
+
+    # 单次上限 50 个节点；优先保留架构层节点
+    NODE_LIMIT = 50
+    has_more = False
+    if len(expanded_nodes) > NODE_LIMIT:
+        has_more = True
+        arch_nodes  = [n for n in expanded_nodes if n.get("type") in ARCHITECTURE_NODE_TYPES]
+        other_nodes = [n for n in expanded_nodes if n.get("type") not in ARCHITECTURE_NODE_TYPES]
+        expanded_nodes = (arch_nodes + other_nodes)[:NODE_LIMIT]
+        kept_ids = {n["id"] for n in expanded_nodes} | {node_id}
+        expanded_edges = [
+            e for e in expanded_edges
+            if e.get("from") in kept_ids and e.get("to") in kept_ids
+        ]
+
+    return {
+        "node_id":    node_id,
+        "nodes":      expanded_nodes,
+        "edges":      expanded_edges,
+        "node_count": len(expanded_nodes),
+        "edge_count": len(expanded_edges),
+        "has_more":   has_more,
+    }
+
+
 # ── Legacy Endpoints (GraphRepository / graph_id) — preserved ────────────────
 
 

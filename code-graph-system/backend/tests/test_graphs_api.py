@@ -143,3 +143,47 @@ def test_get_node_types(client):
     assert "contains" in data["structural_edge_types"]
     assert "calls" in data["call_edge_types"]
     assert isinstance(data["version"], str)
+
+
+# ─── /graph/expand ────────────────────────────────────────────────────────────
+
+def test_get_expand_basic(client):
+    """展开存在的节点，返回正确结构。"""
+    first_node_id = SAMPLE_GRAPH["nodes"][0]["id"]
+    resp = client.get(f"/graph/expand?repo_id=test-repo&node_id={first_node_id}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["node_id"] == first_node_id
+    assert "nodes" in data
+    assert "edges" in data
+    assert "node_count" in data
+    assert "edge_count" in data
+    assert isinstance(data["has_more"], bool)
+
+
+def test_get_expand_node_not_found(client):
+    """展开不存在的节点，返回 404。"""
+    resp = client.get("/graph/expand?repo_id=test-repo&node_id=nonexistent-xyz")
+    assert resp.status_code == 404
+
+
+def test_get_expand_repo_not_found(mock_graph_storage):
+    """仓库不存在时返回 404。"""
+    from backend.storage.graph_storage import RepoNotFoundError
+    # 覆盖 fixture 默认行为，让 load_graph 抛出 RepoNotFoundError
+    mock_graph_storage.load_graph.side_effect = RepoNotFoundError("no-such-repo")
+    from backend.api.server import app
+    from unittest.mock import patch
+    from fastapi.testclient import TestClient
+    with patch("backend.api.routers.graphs.get_graph_storage", return_value=mock_graph_storage):
+        with TestClient(app) as c:
+            resp = c.get("/graph/expand?repo_id=no-such-repo&node_id=any")
+    assert resp.status_code == 404
+    assert "repo not found" in resp.json()["detail"]
+
+
+def test_get_expand_depth_limit(client):
+    """depth 超过最大值 3 时返回 422。"""
+    first_node_id = SAMPLE_GRAPH["nodes"][0]["id"]
+    resp = client.get(f"/graph/expand?repo_id=test-repo&node_id={first_node_id}&depth=4")
+    assert resp.status_code == 422
