@@ -126,10 +126,10 @@ celery -A backend.scheduler.celery_app worker --beat --loglevel=info  # Worker +
 - AI 增强：0.65-0.75（语义描述、新发现关系）
 - 字段级合并：静态节点的 source/confidence 保持不变，AI 字段追加
 
-**增量分析：**
-- Git diff 检测变更文件
-- 模块级缓存：只重分析包含变更文件的模块
-- 缓存持久化：`data/pipeline_cache/{repo_name}/modules/`
+**增量分析与阶段缓存（`backend/pipeline/stage_cache.py`）：**
+- Git diff 检测变更文件；模块级缓存只重分析含变更文件的模块
+- `StageCacheManager` 按 `(repo_name, commit_sha)` 缓存各 Stage 输出，支持断点续跑
+- 缓存路径：`data/pipeline_cache/{repo_name}/`（modules/ 子目录存模块级缓存）
 
 ### 分析流水线（`backend/pipeline/ai_analyze.py`）
 
@@ -184,7 +184,7 @@ celery -A backend.scheduler.celery_app worker --beat --loglevel=info  # Worker +
 - 前端（TypeScript）：`source` / `target`
 - 转换函数：`src/api/graphApi.ts` 中的 `rawEdgeToGraphEdge()`
 
-节点类型：`Repository`, `Module`, `File`, `Class`, `Function`, `Component`, `Service`, `API`, `DataObject`, `Table`, `Event`, `Topic`, `Pipeline`, `Cluster`, `Database`, `Layer`, `Flow`, `BusinessFlow`, `Domain`, `BoundedContext`, `DomainEntity`
+节点类型：`Repository`, `Module`, `File`, `Class`, `Function`, `Component`, `Service`, `API`, `APIEndpoint`, `DataObject`, `DataSource`, `DataSink`, `Table`, `Event`, `EventHandler`, `Topic`, `MessageQueue`, `Pipeline`, `Cluster`, `Database`, `Layer`, `Flow`, `BusinessFlow`, `Domain`, `BoundedContext`, `DomainEntity`, `ExternalAPI`, `Infrastructure`
 
 **`BuiltGraph`**（`backend/graph/graph_builder.py`）— 流水线输出容器：
 
@@ -221,35 +221,74 @@ engine.rag_query(graph_id, "登录如何实现？")
 # 返回: {question, answer, nodes, edges, sources, confidence}
 ```
 
-### API 端点（`backend/api/server.py`）
+### API 端点
 
-| 方法   | 路径                     | 说明                                                    |
-| ------ | ------------------------ | ------------------------------------------------------- |
-| GET    | `/health`                | 健康检查                                                |
-| POST   | `/analyze/repository`    | 全量分析（本地路径或 Git URL），返回 graph_id + 统计    |
-| POST   | `/analyze/upload-zip`    | 上传 ZIP 文件分析，返回 graph_id + 统计                 |
-| POST   | `/analyze/graph`         | GraphPipeline 直接分析，返回图谱数据                    |
-| GET    | `/analysis/stream/{id}`  | SSE 实时进度流（AnalysisObserver 事件）                 |
-| GET    | `/graph`                 | 无 `graph_id` 返回列表；有则返回节点+边                 |
-| GET    | `/graph/data`            | 通用图谱数据（按 node_types/edge_types 过滤）           |
-| GET    | `/graph/call`            | 调用图（Function/API 节点 + calls 边，类似 /callgraph） |
-| GET    | `/graph/module`          | 模块依赖图（Module 节点 + depends_on 边）               |
-| GET    | `/graph/summary`         | 图谱摘要统计                                            |
-| GET    | `/graph/export`          | 导出图谱（JSON/CSV 格式）                               |
-| DELETE | `/graph/{graph_id}`      | 删除指定图谱（JSON + ChromaDB）                         |
-| GET    | `/callgraph`             | Function/API 节点 + calls 边                            |
-| GET    | `/lineage`               | depends_on / reads / writes / produces / consumes 边    |
-| GET    | `/events`                | Event/Topic 节点 + produces/consumes 边                 |
-| GET    | `/services`              | Service / Cluster / Database 节点                       |
-| POST   | `/query`                 | GraphRAG 自然语言查询                                   |
+API 分为 4 个 Router，均挂载在 `backend/api/server.py`：
+
+**仓库管理（`routers/repos.py`）：**
+
+| 方法   | 路径                        | 说明                                           |
+| ------ | --------------------------- | ---------------------------------------------- |
+| GET    | `/repos`                    | 列出所有仓库（含最近一次分析摘要）             |
+| POST   | `/repos`                    | 创建仓库配置                                   |
+| PUT    | `/repos/{repo_id}`          | 编辑仓库配置（名称、分支、语言）               |
+| DELETE | `/repos/{repo_id}`          | 删除仓库及所有分析历史、关联图谱、向量集合     |
+| GET    | `/repos/{repo_id}/analyses` | 获取仓库分析历史（含进行中任务虚拟记录）       |
+| GET    | `/api/pipeline/stages`      | 获取流水线阶段定义                             |
+
+**分析任务（`routers/analysis.py`）：**
+
+| 方法   | 路径                          | 说明                                                              |
+| ------ | ----------------------------- | ----------------------------------------------------------------- |
+| GET    | `/health`                     | 健康检查                                                          |
+| POST   | `/analyze/repository`         | 异步提交分析任务，**立即返回 `task_id`**（非 graph_id）           |
+| GET    | `/analyze/stream/{task_id}`   | SSE 实时进度（Redis Pub/Sub），支持断线重连；心跳每 15 秒一次    |
+| GET    | `/analyze/status/{task_id}`   | 轮询分析状态（断线重连恢复用）                                    |
+| POST   | `/analyze/cancel/{task_id}`   | 取消分析任务（revoke Celery 任务 + 发布 canceled 事件）           |
+| POST   | `/analyze/upload-zip`         | 上传 ZIP 文件分析，**同步**返回 graph_id + 统计                   |
+| POST   | `/analyze/graph`              | GraphPipeline 直接分析（文件级 LLM），仅支持本地绝对路径          |
+
+**图谱数据（`routers/graphs.py`）：**
+
+| 方法   | 路径              | 说明                                                    |
+| ------ | ----------------- | ------------------------------------------------------- |
+| GET    | `/graph`          | 无 `graph_id` 返回列表；有则返回节点+边                 |
+| GET    | `/graph/data`     | 通用图谱数据（按 node_types/edge_types 过滤）           |
+| GET    | `/graph/call`     | 调用图（Function/API 节点 + calls 边）                  |
+| GET    | `/graph/module`   | 模块依赖图（Module 节点 + depends_on 边）               |
+| GET    | `/graph/summary`  | 图谱摘要统计                                            |
+| GET    | `/graph/export`   | 导出图谱（JSON/CSV 格式）                               |
+| DELETE | `/graph/{id}`     | 删除图谱 JSON + Neo4j 数据                              |
+| DELETE | `/repo/{repo_id}` | 删除仓库状态记录（无 graph_id 的仓库，如分析失败后）    |
+| GET    | `/callgraph`      | Function/API 节点 + calls 边                            |
+| GET    | `/lineage`        | depends_on / reads / writes / produces / consumes 边    |
+| GET    | `/events`         | Event/Topic 节点 + produces/consumes 边                 |
+| GET    | `/services`       | Service / Cluster / Database 节点                       |
+
+**查询（`routers/query.py`）：**
+
+| 方法 | 路径     | 说明                   |
+| ---- | -------- | ---------------------- |
+| POST | `/query` | GraphRAG 自然语言查询  |
 
 四个全局单例通过 `lifespan` 管理：`_graph_repo`、`_vector_store`、`_pipeline`、`_rag_engine`。
 
-**SSE 事件类型（`backend/pipeline/observer.py`）：**
-- `stage_started` / `stage_completed` — Stage 开始/完成
-- `module_analysis_started` / `module_analysis_completed` / `module_analysis_failed` — 模块级事件
-- `low_confidence_warning` / `boundary_warning` — 警告事件
-- `analysis_completed` — 分析完成（含质量报告）
+**`/analyze/repository` 异步流程：**
+1. POST 立即返回 `{task_id, status: "pending"}`
+2. GET `/analyze/stream/{task_id}` 订阅 SSE（Redis Pub/Sub channel `progress:{task_id}`）
+3. SSE 数据格式：`{step, total, stage, message, log, status, elapsed_seconds}`；完成时含 `{graph_id, node_count, edge_count}`
+4. GET `/analyze/status/{task_id}` 用于轮询或断线重连恢复
+
+**`/analyze/repository` 的 `depth` 参数：** `quick` | `standard`（默认）| `deep`
+
+### LLM 上下文管理（`backend/llm/`）
+
+`client.py` 在调用 LLM 前自动压缩 context，三级阈值（context 使用率）：
+- **L1（70%）**：滑动窗口裁剪旧轮次
+- **L2（85%）**：同上 + 压缩保留轮次中的大 tool result（替换为占位符）
+- **L3（95%）**：极简保留，仅首条系统消息 + 最近 1 轮
+
+其他模块：`context_manager.py`（上下文构建）、`context_monitor.py`（用量监控）、`sliding_window.py`、`summarizer.py`（历史摘要）。
 
 ### Celery 异步任务（`backend/scheduler/`）
 
@@ -358,6 +397,23 @@ src/
 ├── types/                  # 全局类型定义
 └── theme/                  # 设计系统
 ```
+
+**`graph-engine/` 子系统（`src/graph-engine/`）：**
+
+独立的高性能图渲染引擎，用于大规模图谱场景：
+- `loader/GraphLoader.ts` — 批量按需加载，`BatchQueue` 控制并发
+- `store/graphEngineStore.ts` — 独立 Zustand store，管理 LOD/视口/集群/过滤状态
+- `types/` — 引擎专属类型：`EngineGraphNode`、`EngineGraphEdge`、LOD 层级、视口、集群
+
+LOD（Level-of-Detail）：按缩放级别自动切换可见节点类型，减少渲染压力。后端 `name` 字段在引擎中映射为 `label`。`GraphCanvas`（`components/graph/GraphCanvas/`）是配套的 Cytoscape.js 渲染器。
+
+**Zustand Store 说明（`src/store/`）：**
+
+| Store | 文件 | 职责 |
+|-------|------|------|
+| `useGraphStore` | `graphStore.ts` | 图谱数据、选中节点、各视图（调用图/血缘/事件/模块/全图） |
+| `usePipelineStore` | `pipelineStore.ts` | 分析任务状态、SSE 进度 |
+| `useRepoStore` | `repoStore.ts` | 仓库列表 |
 
 **使用新架构的组件：**
 

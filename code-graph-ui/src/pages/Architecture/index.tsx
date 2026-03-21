@@ -23,14 +23,28 @@ const NODE_TYPE_GROUPS: Record<string, string[]> = {
   '外部': ['ExternalAPI', 'Cluster', 'Infrastructure'],
 }
 
+/** 架构视图：只展示高层节点，过滤掉 Class / Function 等细粒度类型 */
+const ARCH_TYPES = new Set([
+  'Repository', 'Module', 'Component', 'Service', 'API', 'APIEndpoint',
+  'Database', 'Table', 'DataSource', 'DataSink',
+  'Event', 'Topic', 'MessageQueue',
+  'Flow', 'BusinessFlow', 'Pipeline',
+  'Layer', 'Domain', 'BoundedContext', 'DomainEntity',
+  'Cluster', 'ExternalAPI', 'Infrastructure',
+])
+
 /**
  * 根据类型计数动态生成过滤器选项
  */
 function buildFilterOptions(typeCounts: Record<string, number>) {
   const allCount = Object.values(typeCounts).reduce((a, b) => a + b, 0)
+  const archCount = Object.entries(typeCounts)
+    .filter(([t]) => ARCH_TYPES.has(t))
+    .reduce((a, [, c]) => a + c, 0)
 
   const options: Array<{ type: string; label: string; color: string; count: number }> = [
-    { type: 'all', label: '全部', color: '#6e7a99', count: allCount },
+    { type: 'arch', label: '架构视图', color: '#00d4ff', count: archCount },
+    { type: 'all',  label: '全部',    color: '#6e7a99', count: allCount  },
   ]
 
   // 按分组顺序添加有数据的类型
@@ -180,7 +194,7 @@ const LayoutBtn: React.FC<LayoutBtnProps> = ({ icon, label, active, onClick }) =
 const Architecture: React.FC = () => {
   const { activeGraphId, graph, loadGraph, setSelectedNode } = useGraphStore()
   const [panelNode, setPanelNode] = useState<GraphNode | null>(null)
-  const [activeFilter, setActiveFilter] = useState<string>('all')
+  const [activeFilter, setActiveFilter] = useState<string>('arch')
   const [layout, setLayout] = useState<LayoutName>('force')
 
   useEffect(() => {
@@ -209,7 +223,10 @@ const Architecture: React.FC = () => {
   const { filteredNodes, filteredEdges } = useMemo(() => {
     if (activeFilter === 'all') return { filteredNodes: allNodes, filteredEdges: allEdges }
 
-    const filtered = allNodes.filter(n => n.type === activeFilter)
+    const filtered = activeFilter === 'arch'
+      ? allNodes.filter(n => ARCH_TYPES.has(n.type))
+      : allNodes.filter(n => n.type === activeFilter)
+
     const ids = new Set(filtered.map(n => n.id))
     const edges = allEdges.filter(e => ids.has(e.source) && ids.has(e.target))
 

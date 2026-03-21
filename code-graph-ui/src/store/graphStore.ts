@@ -68,7 +68,28 @@ export const useGraphStore = create<GraphStore>((set) => ({
     set({ graph: { data: null, loading: true, error: null } })
     try {
       const res = await graphApi.getGraph(graphId)
-      set({ graph: { data: res, loading: false, error: null } })
+      // Backend returns { id, type, name, properties } — normalise to { id, type, label, properties }
+      const data = {
+        ...res,
+        nodes: res.nodes.map(n => {
+          const raw = n as unknown as { id: string; type: string; name?: string; label?: string; properties?: Record<string, unknown> }
+          return {
+            id:         raw.id,
+            type:       raw.type,
+            label:      raw.label ?? raw.name ?? raw.id.split(':').pop()?.split('\\').pop() ?? raw.id,
+            properties: raw.properties,
+          }
+        }),
+        edges: res.edges.map(e => {
+          const raw = e as unknown as { from?: string; source?: string; to?: string; target?: string; type: string }
+          return {
+            source: raw.source ?? raw.from ?? '',
+            target: raw.target ?? raw.to ?? '',
+            type:   raw.type,
+          }
+        }),
+      }
+      set({ graph: { data, loading: false, error: null } })
     } catch (e) {
       set({ graph: { data: null, loading: false, error: String(e) } })
     }
