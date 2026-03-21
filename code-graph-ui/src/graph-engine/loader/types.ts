@@ -27,7 +27,7 @@ export type RawEdge = {
 // ─── API Request Parameters ───────────────────────────────────────────────────
 
 export type SummaryParams = {
-  graph_id: string
+  repo_id: string
 }
 
 export type ExpandParams = {

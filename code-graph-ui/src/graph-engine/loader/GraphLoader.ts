@@ -270,20 +270,34 @@ export class GraphLoader {
 
   /**
    * Attempt to fetch the LOD-0 summary.
-   * Falls back to the full /graph endpoint filtered to Repository+Module types
-   * if the /graph/summary endpoint returns 404 (not yet implemented on backend).
+   * Calls /graph/framework?repo_id=&node_types=Repository,Module
+   * Falls back to full graph with all node types if the framework endpoint returns 404.
    */
   private async fetchSummary(): Promise<SummaryResponse> {
     const signal = this.abortController?.signal
 
+    type FrameworkRaw = {
+      repo_id:    string
+      node_count: number
+      edge_count: number
+      nodes:      RawNode[]
+      edges:      RawEdge[]
+    }
+
     try {
-      return await apiClient.get<SummaryResponse>('/graph/summary', {
-        params: { graph_id: this.graphId },
+      const raw = await apiClient.get<FrameworkRaw>('/graph/framework', {
+        params: { repo_id: this.graphId, node_types: 'Repository,Module' },
         signal,
       })
+      // 映射新字段名到 SummaryResponse 结构（保持下游消费者不变）
+      return {
+        graph_id:          this.graphId,
+        nodes:             raw.nodes,
+        edges:             raw.edges,
+        total_node_count:  raw.node_count,
+        total_edge_count:  raw.edge_count,
+      }
     } catch (err) {
-      // Graceful fallback: if the dedicated summary endpoint doesn't exist yet,
-      // fetch the full graph and filter client-side.
       if (isNotFound(err)) {
         return this.fetchSummaryFallback(signal)
       }
@@ -292,33 +306,32 @@ export class GraphLoader {
   }
 
   /**
-   * Fallback: GET /graph?graph_id= and filter to Repository+Module nodes.
-   * Used while the backend /graph/summary endpoint is not yet deployed.
+   * Fallback: GET /graph/framework?repo_id=&node_types=all and filter to Repository+Module nodes.
+   * Used when the filtered endpoint returns 404.
    */
   private async fetchSummaryFallback(
     signal?: AbortSignal,
   ): Promise<SummaryResponse> {
-    type FullGraphRaw = {
-      nodes: RawNode[]
-      edges: RawEdge[]
+    type FrameworkRaw = {
+      repo_id: string; node_count: number; edge_count: number;
+      nodes: RawNode[]; edges: RawEdge[]
     }
 
-    const full = await apiClient.get<FullGraphRaw>('/graph', {
-      params: { graph_id: this.graphId },
+    const raw = await apiClient.get<FrameworkRaw>('/graph/framework', {
+      params: { repo_id: this.graphId, node_types: 'all' },
       signal,
     })
 
     const summaryTypes = new Set(['Repository', 'Module'])
-    let summaryNodes = full.nodes.filter(n => summaryTypes.has(n.type))
+    let summaryNodes = raw.nodes.filter(n => summaryTypes.has(n.type))
     let summaryEdges: RawEdge[]
 
-    // 若图谱中没有 Repository/Module 节点，退化为显示全图
     if (summaryNodes.length === 0) {
-      summaryNodes = full.nodes
-      summaryEdges = full.edges
+      summaryNodes = raw.nodes
+      summaryEdges = raw.edges
     } else {
       const summaryNodeIds = new Set(summaryNodes.map(n => n.id))
-      summaryEdges = full.edges.filter(
+      summaryEdges = raw.edges.filter(
         e => summaryNodeIds.has(e.from) && summaryNodeIds.has(e.to),
       )
     }
@@ -327,8 +340,8 @@ export class GraphLoader {
       graph_id:         this.graphId,
       nodes:            summaryNodes,
       edges:            summaryEdges,
-      total_node_count: full.nodes.length,
-      total_edge_count: full.edges.length,
+      total_node_count: raw.node_count,
+      total_edge_count: raw.edge_count,
     }
   }
 

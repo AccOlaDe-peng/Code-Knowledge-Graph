@@ -20,16 +20,16 @@ const API_BASE_URL =
 
 export const graphEndpoints = {
   /**
-   * GET /graph
-   * List all analyzed graphs
+   * GET /repos
+   * List all repositories (which contain graph data)
    */
   async listGraphs(): Promise<GraphListResponse> {
-    const raw: { graphs: Record<string, unknown>[] } =
-      await apiClient.get("/graph");
+    const raw: { repos: Record<string, unknown>[] } =
+      await apiClient.get("/repos");
     return {
-      graphs: (raw.graphs ?? []).map((g) => ({
-        repoId: g.graph_id as string,
-        graphId: g.graph_id as string,
+      graphs: (raw.repos ?? []).map((g) => ({
+        repoId: g.repo_id as string,
+        graphId: g.repo_id as string,
         repoName: g.repo_name as string,
         language: (g.languages ?? g.language ?? []) as string[],
         createdAt: g.created_at as string,
@@ -60,27 +60,27 @@ export const graphEndpoints = {
   },
 
   /**
-   * GET /graph?graph_id={id}
+   * GET /graph/framework?repo_id={id}&node_types=all
    * Get full graph details
    */
-  async getGraph(graphId: string): Promise<GraphDetailResponse> {
-    return apiClient.get("/graph", { params: { graph_id: graphId } });
+  async getGraph(repoId: string): Promise<GraphDetailResponse> {
+    return apiClient.get("/graph/framework", { params: { repo_id: repoId, node_types: 'all' } });
   },
 
   /**
-   * GET /callgraph?graph_id={id}
+   * GET /graph/call?repo_id={id}
    * Get call graph (Function/API nodes + calls edges)
    */
-  async getCallGraph(graphId: string): Promise<CallGraphResponse> {
-    return apiClient.get("/callgraph", { params: { graph_id: graphId } });
+  async getCallGraph(repoId: string): Promise<CallGraphResponse> {
+    return apiClient.get("/graph/call", { params: { repo_id: repoId } });
   },
 
   /**
-   * GET /lineage?graph_id={id}
+   * GET /graph/lineage?repo_id={id}
    * Get data lineage graph
    */
-  async getLineageGraph(graphId: string): Promise<LineageGraphResponse> {
-    return apiClient.get("/lineage", { params: { graph_id: graphId } });
+  async getLineageGraph(repoId: string): Promise<LineageGraphResponse> {
+    return apiClient.get("/graph/lineage", { params: { repo_id: repoId } });
   },
 
   /**
