@@ -31,7 +31,7 @@ export type SummaryParams = {
 }
 
 export type ExpandParams = {
-  graph_id: string
+  repo_id: string
   node_id:  string
   /** Max depth of children to return. Default 1. */
   depth?:   number
@@ -62,17 +62,15 @@ export type SummaryResponse = {
   total_edge_count:  number
 }
 
-/**
- * GET /graph/expand?graph_id=&node_id=
- * Returns direct children of the given node plus their connecting edges.
- */
+/** GET /graph/expand 响应格式 */
 export type ExpandResponse = {
-  node_id:  string
-  graph_id: string
-  nodes:    RawNode[]
-  edges:    RawEdge[]
-  /** True when the expanded node has grandchildren not yet returned. */
-  has_more: boolean
+  node_id:    string
+  nodes:      RawNode[]
+  edges:      RawEdge[]
+  node_count: number
+  edge_count: number
+  /** true = 结果超过 50 个节点上限被截断 */
+  has_more:   boolean
 }
 
 /**
@@ -134,4 +132,12 @@ export type BatchProgress = {
   total:     number
   /** Fraction 0–1. */
   ratio:     number
+}
+
+/** GET /meta/node-types 响应格式 */
+export type MetaResponse = {
+  architecture_types:    string[]
+  structural_edge_types: string[]
+  call_edge_types:       string[]
+  version:               string
 }
