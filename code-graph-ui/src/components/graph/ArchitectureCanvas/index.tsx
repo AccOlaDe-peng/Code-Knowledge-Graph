@@ -89,6 +89,8 @@ export const ArchitectureCanvas: React.FC<ArchitectureCanvasProps> = ({
     })
 
     cyRef.current = cy
+    // NOTE: 调用方必须用 useCallback 稳定 onNodeExpand/onNodeCollapse 引用，
+    // 否则 prop 变化会导致 cy.destroy() + 重建，丢失图谱状态。
     return () => { cy.destroy(); cyRef.current = null }
   }, [onNodeExpand, onNodeCollapse])
 
@@ -147,8 +149,8 @@ export const ArchitectureCanvas: React.FC<ArchitectureCanvasProps> = ({
   const handleUncollapse = useCallback((evt: Event) => {
     const cy = cyRef.current
     if (!cy) return
-    const { nodeId } = (evt as CustomEvent).detail as { nodeId: string }
-    ;(cy.getElementById(nodeId).neighborhood().filter(':hidden') as any).show()
+    const { childIds } = (evt as CustomEvent).detail as { nodeId: string; childIds: string[] }
+    childIds.forEach(id => (cy.getElementById(id) as any).show())
   }, [])
 
   // ── 监听 graphloader:prune — pruneDistantNodes ────────────────────────────
@@ -172,8 +174,8 @@ export const ArchitectureCanvas: React.FC<ArchitectureCanvasProps> = ({
     const scores = visibleNodes.map(node => {
       if (node.id() === centerNodeId) return { node, score: -1 }
       const topoDist    = dijkstra.distanceTo(node) ?? 999
-      const pos1        = centerEl.renderedPosition()
-      const pos2        = node.renderedPosition()
+      const pos1        = centerEl.position()
+      const pos2        = node.position()
       const visualDist  = Math.min(
         Math.sqrt((pos1.x - pos2.x) ** 2 + (pos1.y - pos2.y) ** 2) / 1000,
         1,

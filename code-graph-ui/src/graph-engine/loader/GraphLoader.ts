@@ -96,7 +96,8 @@ export class GraphLoader {
 
     if (this.collapsedNodes.has(nodeId)) {
       // 已折叠 → 通知 Canvas uncollapse，不发请求
-      this._dispatch('graphloader:uncollapse', { nodeId })
+      const childIds = this.collapsedNodes.get(nodeId) ?? []
+      this._dispatch('graphloader:uncollapse', { nodeId, childIds })
       this.collapsedNodes.delete(nodeId)
       useGraphEngineStore.getState().clearCollapsedCount(nodeId)
       return null
