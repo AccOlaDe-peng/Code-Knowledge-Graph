@@ -110,7 +110,10 @@ export class GraphLoader {
       return cached
     }
 
-    const structuralEdgeTypes = useMetaStore.getState().structuralEdgeTypes.join(',')
+    const rawEdgeTypes = useMetaStore.getState().structuralEdgeTypes
+    const structuralEdgeTypes = rawEdgeTypes.length > 0
+      ? rawEdgeTypes.join(',')
+      : 'contains,depends_on,imports,extends,uses,implements,overrides,belongs_to'
     const data = await apiClient.get<ExpandResponse>('/graph/expand', {
       params: {
         repo_id:    this.repoId,
