@@ -113,6 +113,8 @@ class EdgeType(str, Enum):
     # ── AI 分析新增关系 ────────────────────────────────────────────────
     ASYNC_CALLS = "async_calls"  # Asynchronous function call
     HANDLES = "handles"          # API endpoint handled by function
+    EXTENDS = "extends"          # Class/interface inheritance
+    OVERRIDES = "overrides"      # Method override relationship
 
 
 # ---------------------------------------------------------------------------
