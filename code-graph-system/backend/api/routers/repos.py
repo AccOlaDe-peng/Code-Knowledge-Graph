@@ -157,6 +157,20 @@ def delete_repo(repo_id: str):
             except Exception as exc:
                 logger.warning("删除向量集合失败 graph_id=%s: %s", gid, exc)
 
+    # 删除 GraphStorage 中的图谱文件（新体系）
+    try:
+        from backend.storage.graph_storage import GraphStorage
+        GraphStorage().delete_repo(repo_id)
+    except Exception as exc:
+        logger.warning("删除 GraphStorage 失败 repo_id=%s: %s", repo_id, exc)
+
+    # 删除运行时状态记录
+    try:
+        from backend.store.repo_status_store import get_repo_status_store
+        get_repo_status_store().delete(repo_id)
+    except Exception as exc:
+        logger.warning("删除 repo_status_store 失败 repo_id=%s: %s", repo_id, exc)
+
     analysis_store.delete_by_repo(repo_id)
     store.delete(repo_id)
     return {"deleted": repo_id}
