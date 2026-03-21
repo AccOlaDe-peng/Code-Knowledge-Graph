@@ -32,12 +32,12 @@ type GraphStore = {
   setSelectedNode:  (node: GraphNode | null) => void
 
   // Actions — async loaders
-  loadGraph:       (graphId: string) => Promise<void>
-  loadCallGraph:   (graphId: string) => Promise<void>
-  loadLineage:     (graphId: string) => Promise<void>
-  loadEvents:      (graphId: string) => Promise<void>
-  loadModuleGraph: (graphId: string) => Promise<void>  // NEW
-  loadFullGraph:   (graphId: string) => Promise<void>  // NEW
+  loadGraph:       (repoId: string) => Promise<void>
+  loadCallGraph:   (repoId: string) => Promise<void>
+  loadLineage:     (repoId: string) => Promise<void>
+  loadEvents:      (repoId: string) => Promise<void>
+  loadModuleGraph: (repoId: string) => Promise<void>  // NEW
+  loadFullGraph:   (repoId: string) => Promise<void>  // NEW
 
   // Actions — reset
   clearGraphs: () => void
@@ -64,30 +64,13 @@ export const useGraphStore = create<GraphStore>((set) => ({
 
   // ── Loaders ─────────────────────────────────────────────────────────────────
 
-  loadGraph: async (graphId) => {
+  loadGraph: async (repoId) => {
     set({ graph: { data: null, loading: true, error: null } })
     try {
-      const res = await graphApi.getGraph(graphId)
-      // Backend returns { id, type, name, properties } — normalise to { id, type, label, properties }
+      const res = await graphApi.getFramework(repoId, 'all')
       const data = {
-        ...res,
-        nodes: res.nodes.map(n => {
-          const raw = n as unknown as { id: string; type: string; name?: string; label?: string; properties?: Record<string, unknown> }
-          return {
-            id:         raw.id,
-            type:       raw.type,
-            label:      raw.label ?? raw.name ?? raw.id.split(':').pop()?.split('\\').pop() ?? raw.id,
-            properties: raw.properties,
-          }
-        }),
-        edges: res.edges.map(e => {
-          const raw = e as unknown as { from?: string; source?: string; to?: string; target?: string; type: string }
-          return {
-            source: raw.source ?? raw.from ?? '',
-            target: raw.target ?? raw.to ?? '',
-            type:   raw.type,
-          }
-        }),
+        nodes: res.nodes.map(rawNodeToGraphNode),
+        edges: res.edges.map(rawEdgeToGraphEdge),
       }
       set({ graph: { data, loading: false, error: null } })
     } catch (e) {
@@ -96,52 +79,50 @@ export const useGraphStore = create<GraphStore>((set) => ({
   },
 
   // Uses new /graph/call endpoint (GraphStorage-backed, lowercase node types)
-  loadCallGraph: async (graphId) => {
+  loadCallGraph: async (repoId) => {
     set({ callGraph: { data: null, loading: true, error: null } })
     try {
-      const res = await graphApi.getCallSubgraph(graphId)
-      const graph: Graph = {
+      const res = await graphApi.getCallView(repoId)
+      const graph = {
         nodes: res.nodes.map(rawNodeToGraphNode),
         edges: res.edges.map(rawEdgeToGraphEdge),
       }
       set({ callGraph: { data: graph, loading: false, error: null } })
-    } catch {
-      // Fallback to old /callgraph endpoint
-      try {
-        const res = await graphApi.getCallGraph(graphId)
-        set({ callGraph: { data: res, loading: false, error: null } })
-      } catch (e2) {
-        set({ callGraph: { data: null, loading: false, error: String(e2) } })
-      }
+    } catch (e) {
+      set({ callGraph: { data: null, loading: false, error: String(e) } })
     }
   },
 
-  loadLineage: async (graphId) => {
+  loadLineage: async (repoId) => {
     set({ lineageGraph: { data: null, loading: true, error: null } })
     try {
-      const res = await graphApi.getLineageGraph(graphId)
-      set({ lineageGraph: { data: res, loading: false, error: null } })
+      const res = await graphApi.getLineageView(repoId)
+      const graph = {
+        nodes: res.nodes.map(rawNodeToGraphNode),
+        edges: res.edges.map(rawEdgeToGraphEdge),
+      }
+      set({ lineageGraph: { data: graph, loading: false, error: null } })
     } catch (e) {
       set({ lineageGraph: { data: null, loading: false, error: String(e) } })
     }
   },
 
-  loadEvents: async (graphId) => {
+  loadEvents: async (repoId) => {
     set({ eventGraph: { data: null, loading: true, error: null } })
     try {
-      const res = await graphApi.getEventsGraph(graphId)
+      const res = await graphApi.getEventsGraph(repoId)
       set({ eventGraph: { data: res, loading: false, error: null } })
     } catch (e) {
       set({ eventGraph: { data: null, loading: false, error: String(e) } })
     }
   },
 
-  // NEW: Uses /graph/module (contains + imports edges)
-  loadModuleGraph: async (graphId) => {
+  // NEW: Uses /graph/framework?node_types=Module,File (contains + imports edges)
+  loadModuleGraph: async (repoId) => {
     set({ moduleGraph: { data: null, loading: true, error: null } })
     try {
-      const res = await graphApi.getModuleSubgraph(graphId, 'all')
-      const graph: Graph = {
+      const res = await graphApi.getFramework(repoId, 'Module,File')
+      const graph = {
         nodes: res.nodes.map(rawNodeToGraphNode),
         edges: res.edges.map(rawEdgeToGraphEdge),
       }
@@ -151,12 +132,12 @@ export const useGraphStore = create<GraphStore>((set) => ({
     }
   },
 
-  // NEW: Uses /graph/data (full graph, all node/edge types)
-  loadFullGraph: async (graphId) => {
+  // NEW: Uses /graph/framework?node_types=all (full graph, all node/edge types)
+  loadFullGraph: async (repoId) => {
     set({ fullGraph: { data: null, loading: true, error: null } })
     try {
-      const res = await graphApi.getGraphData(graphId)
-      const graph: Graph = {
+      const res = await graphApi.getFramework(repoId, 'all')
+      const graph = {
         nodes: res.nodes.map(rawNodeToGraphNode),
         edges: res.edges.map(rawEdgeToGraphEdge),
       }
