@@ -28,6 +28,27 @@ echo "ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:0:20}..."
 echo "LLM_MODEL: $LLM_MODEL"
 echo ""
 
+# 清除 Redis 队列和任务结果
+echo "清除 Redis 任务队列和结果..."
+BROKER_DB=$(echo "${CELERY_BROKER_URL:-redis://localhost:6379/0}" | grep -oE '[0-9]+$')
+BACKEND_DB=$(echo "${CELERY_RESULT_BACKEND:-redis://localhost:6379/1}" | grep -oE '[0-9]+$')
+BROKER_DB=${BROKER_DB:-0}
+BACKEND_DB=${BACKEND_DB:-1}
+
+FLUSH1=$(redis-cli -n "$BROKER_DB"  FLUSHDB 2>&1); EXIT1=$?
+FLUSH2=$(redis-cli -n "$BACKEND_DB" FLUSHDB 2>&1); EXIT2=$?
+
+if [ $EXIT1 -eq 0 ] && [ $EXIT2 -eq 0 ]; then
+    echo "Redis 已清除 (broker db=$BROKER_DB, result db=$BACKEND_DB)"
+else
+    echo "ERROR: Redis 清除失败！为避免执行残留任务，Worker 不会启动。" >&2
+    echo "  broker flush: exit=$EXIT1 output=$FLUSH1" >&2
+    echo "  result flush: exit=$EXIT2 output=$FLUSH2" >&2
+    echo "请确认 redis-cli 已安装且 Redis 正在运行。" >&2
+    exit 1
+fi
+echo ""
+
 # 创建日志目录
 mkdir -p logs
 

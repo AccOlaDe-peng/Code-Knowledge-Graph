@@ -47,6 +47,26 @@ if defined ANTHROPIC_API_KEY (
 echo LLM_MODEL: %LLM_MODEL%
 echo.
 
+REM 清除 Redis 队列和任务结果
+echo 清除 Redis 任务队列和结果...
+if not defined CELERY_BROKER_URL set CELERY_BROKER_URL=redis://localhost:6379/0
+if not defined CELERY_RESULT_BACKEND set CELERY_RESULT_BACKEND=redis://localhost:6379/1
+
+redis-cli -n 0 FLUSHDB
+if errorlevel 1 (
+    echo ERROR: Redis broker 队列清除失败！为避免执行残留任务，Worker 不会启动。
+    echo 请确认 redis-cli 已安装并在 PATH 中，且 Redis 正在运行。
+    exit /b 1
+)
+redis-cli -n 1 FLUSHDB
+if errorlevel 1 (
+    echo ERROR: Redis result 清除失败！为避免执行残留任务，Worker 不会启动。
+    echo 请确认 redis-cli 已安装并在 PATH 中，且 Redis 正在运行。
+    exit /b 1
+)
+echo Redis 已清除 ^(broker db=0, result db=1^)
+echo.
+
 REM 创建日志目录
 if not exist logs mkdir logs
 

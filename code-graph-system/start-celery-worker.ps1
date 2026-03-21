@@ -67,14 +67,22 @@ $logFile = Join-Path $logsDir "celery-worker-$timestamp.log"
 Write-Host "Clearing Redis task queues and results..." -ForegroundColor Yellow
 $brokerDb  = if ($env:CELERY_BROKER_URL)     { ($env:CELERY_BROKER_URL     -replace '.*/', '') } else { "0" }
 $backendDb = if ($env:CELERY_RESULT_BACKEND) { ($env:CELERY_RESULT_BACKEND -replace '.*/', '') } else { "1" }
-try {
-    # Flush broker db (task queue)
-    redis-cli -n $brokerDb FLUSHDB | Out-Null
-    # Flush result backend db (task results)
-    redis-cli -n $backendDb FLUSHDB | Out-Null
+if (-not $brokerDb)  { $brokerDb  = "0" }
+if (-not $backendDb) { $backendDb = "1" }
+
+$flushResult1 = redis-cli -n $brokerDb  FLUSHDB 2>&1
+$exit1 = $LASTEXITCODE
+$flushResult2 = redis-cli -n $backendDb FLUSHDB 2>&1
+$exit2 = $LASTEXITCODE
+
+if ($exit1 -eq 0 -and $exit2 -eq 0) {
     Write-Host "Redis cleared (broker db=$brokerDb, result db=$backendDb)" -ForegroundColor Green
-} catch {
-    Write-Host "Warning: Failed to clear Redis — $_" -ForegroundColor Yellow
+} else {
+    Write-Host "ERROR: Redis clear failed! Worker will NOT start to prevent stale tasks from running." -ForegroundColor Red
+    Write-Host "  broker flush: exit=$exit1 output=$flushResult1" -ForegroundColor Red
+    Write-Host "  result flush: exit=$exit2 output=$flushResult2" -ForegroundColor Red
+    Write-Host "Please ensure redis-cli is installed and Redis is running." -ForegroundColor Yellow
+    exit 1
 }
 Write-Host ""
 
