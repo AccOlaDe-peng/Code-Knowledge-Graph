@@ -2,8 +2,6 @@ import axios, { type AxiosInstance } from "axios";
 import type {
   GraphListResponse,
   GraphDetailResponse,
-  CallGraphResponse,
-  LineageGraphResponse,
   EventsGraphResponse,
   ServicesGraphResponse,
 } from "../types/api";
@@ -40,9 +38,7 @@ let graphListCache: { at: number; data: GraphListResponse } | null = null;
 
 export const graphApi = {
   /**
-   * GET /graph
-   * No graphId → returns list of analyzed repos.
-   * With graphId → returns full graph (nodes + edges + metrics).
+   * GET /repos — 替代旧 GET /graph（列表模式）
    */
   async listGraphs(): Promise<GraphListResponse> {
     const now = Date.now();
@@ -58,36 +54,27 @@ export const graphApi = {
     }
 
     graphListInFlight = (async () => {
-      const raw: { graphs: Record<string, unknown>[] } =
-        await httpClient.get("/graph");
+      const raw: { repos: Record<string, unknown>[] } =
+        await httpClient.get("/repos");
       const data: GraphListResponse = {
-        graphs: (raw.graphs ?? []).map((g) => ({
-          repoId: g.graph_id as string,
-          graphId: g.graph_id as string,
-          repoName: g.repo_name as string,
-          language: (g.languages ?? g.language ?? []) as string[],
+        graphs: (raw.repos ?? []).map((g) => ({
+          repoId: g.id as string,
+          graphId: (g.graph_id ?? g.id) as string,
+          repoName: g.name as string,
+          language: (g.language ?? []) as string[],
           createdAt: g.created_at as string,
           updatedAt: (g.updated_at ?? g.created_at) as string,
-          nodeCount: g.node_count as number,
-          edgeCount: g.edge_count as number,
-          gitCommit: g.git_commit as string | undefined,
+          nodeCount: (g.node_count ?? 0) as number,
+          edgeCount: (g.edge_count ?? 0) as number,
           sourceMode: (g.source_mode ?? "local") as "local" | "git" | "zip",
-          repoPath: g.repo_path as string | undefined,
-          status:
-            (g.status as string | undefined as
-              | "saved"
-              | "analyzing"
-              | "completed"
-              | "failed"
-              | "canceled"
-              | undefined) ?? "completed",
+          repoPath: g.path as string | undefined,
+          status: (g.status ?? "completed") as string,
           taskId: g.task_id as string | undefined,
           analysisStage: g.stage as string | undefined,
           analysisStep: g.step as number | undefined,
           analysisTotal: g.total as number | undefined,
           analysisMessage: g.message as string | undefined,
           error: g.error as string | undefined,
-          lastAnalyzedAt: g.updated_at as string | undefined,
         })),
       };
       graphListCache = { at: Date.now(), data };
@@ -101,24 +88,85 @@ export const graphApi = {
     }
   },
 
-  getGraph(graphId: string): Promise<GraphDetailResponse> {
-    return httpClient.get("/graph", { params: { graph_id: graphId } });
+  /**
+   * GET /graph/framework?node_types=all — 替代旧 GET /graph?graph_id=
+   */
+  getGraph(repoId: string): Promise<GraphDetailResponse> {
+    return httpClient.get("/graph/framework", {
+      params: { repo_id: repoId, node_types: "all" },
+    });
   },
 
   /**
-   * GET /callgraph
-   * Returns Function/API nodes and their calls edges.
+   * GET /graph/framework — 架构图视图
    */
-  getCallGraph(graphId: string): Promise<CallGraphResponse> {
-    return httpClient.get("/callgraph", { params: { graph_id: graphId } });
+  getFramework(
+    repoId: string,
+    nodeTypes?: string,
+  ): Promise<{
+    repo_id: string;
+    node_count: number;
+    edge_count: number;
+    nodes: RawNode[];
+    edges: RawEdge[];
+  }> {
+    return httpClient.get("/graph/framework", {
+      params: {
+        repo_id: repoId,
+        ...(nodeTypes ? { node_types: nodeTypes } : {}),
+      },
+    });
   },
 
   /**
-   * GET /lineage
-   * Returns nodes connected by depends_on / reads / writes / produces / consumes.
+   * GET /graph/call — 调用图视图
    */
-  getLineageGraph(graphId: string): Promise<LineageGraphResponse> {
-    return httpClient.get("/lineage", { params: { graph_id: graphId } });
+  getCallView(
+    repoId: string,
+    nodeId?: string,
+    depth?: number,
+  ): Promise<{
+    repo_id: string;
+    node_count: number;
+    edge_count: number;
+    nodes: RawNode[];
+    edges: RawEdge[];
+  }> {
+    return httpClient.get("/graph/call", {
+      params: {
+        repo_id: repoId,
+        ...(nodeId ? { node_id: nodeId, depth } : {}),
+      },
+    });
+  },
+
+  /**
+   * GET /graph/lineage — 血缘视图
+   */
+  getLineageView(
+    repoId: string,
+    opts?: { edgeTypes?: string; nodeId?: string; depth?: number },
+  ): Promise<{
+    repo_id: string;
+    edge_types: string[];
+    node_count: number;
+    edge_count: number;
+    nodes: RawNode[];
+    edges: RawEdge[];
+  }> {
+    return httpClient.get("/graph/lineage", {
+      params: {
+        repo_id: repoId,
+        ...(opts
+          ? {
+              ...(opts.edgeTypes ? { edge_types: opts.edgeTypes } : {}),
+              ...(opts.nodeId
+                ? { node_id: opts.nodeId, depth: opts.depth }
+                : {}),
+            }
+          : {}),
+      },
+    });
   },
 
   /**
@@ -135,57 +183,6 @@ export const graphApi = {
    */
   getServicesGraph(graphId: string): Promise<ServicesGraphResponse> {
     return httpClient.get("/services", { params: { graph_id: graphId } });
-  },
-
-  // ─── New GraphPipeline endpoints ──────────────────────────────────────────
-
-  /**
-   * GET /graph/data
-   * Full JSON Graph from GraphStorage (new pipeline format).
-   * Nodes have lowercase types: function, class, module, file, api, database, table
-   */
-  getGraphData(repoId: string): Promise<{
-    repo_id: string;
-    node_count: number;
-    edge_count: number;
-    nodes: RawNode[];
-    edges: RawEdge[];
-  }> {
-    return httpClient.get("/graph/data", { params: { repo_id: repoId } });
-  },
-
-  /**
-   * GET /graph/call
-   * Call subgraph (calls edges + related nodes).
-   */
-  getCallSubgraph(repoId: string): Promise<{
-    repo_id: string;
-    node_count: number;
-    edge_count: number;
-    nodes: RawNode[];
-    edges: RawEdge[];
-  }> {
-    return httpClient.get("/graph/call", { params: { repo_id: repoId } });
-  },
-
-  /**
-   * GET /graph/module
-   * Module structure subgraph (contains/imports edges + related nodes).
-   * edge_type: "contains" | "imports" | "all"
-   */
-  getModuleSubgraph(
-    repoId: string,
-    edgeType: "contains" | "imports" | "all" = "all",
-  ): Promise<{
-    repo_id: string;
-    node_count: number;
-    edge_count: number;
-    nodes: RawNode[];
-    edges: RawEdge[];
-  }> {
-    return httpClient.get("/graph/module", {
-      params: { repo_id: repoId, edge_type: edgeType },
-    });
   },
 };
 
