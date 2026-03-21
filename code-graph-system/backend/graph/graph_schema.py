@@ -129,6 +129,11 @@ ARCHITECTURE_NODE_TYPES: frozenset[str] = frozenset({
     "DataSource", "DataSink", "ExternalAPI",
 })
 
+STRUCTURAL_EDGE_TYPES: frozenset[str] = frozenset({
+    "contains", "depends_on", "imports", "extends",
+    "uses", "implements", "overrides", "belongs_to",
+})
+
 # Expected property keys for each AI-generated node type.
 # Used by validate_graph() to emit targeted warnings.
 # Values are (required_props, recommended_props).

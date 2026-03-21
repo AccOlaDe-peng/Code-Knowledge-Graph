@@ -16,7 +16,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from backend.api.deps import get_graph_repo, get_graph_storage
-from backend.graph.graph_schema import ARCHITECTURE_NODE_TYPES
+from backend.graph.graph_schema import ARCHITECTURE_NODE_TYPES, STRUCTURAL_EDGE_TYPES
 from backend.storage.graph_storage import RepoNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -349,4 +349,15 @@ def get_services(
         "type_counts": type_counts,
         "nodes":       svc_nodes,
         "edges":       svc_edges,
+    }
+
+
+@router.get("/meta/node-types", tags=["元数据"])
+def get_node_types() -> dict[str, Any]:
+    """返回节点类型和边类型的元数据，供前端动态获取替代硬编码。"""
+    return {
+        "architecture_types":    sorted(ARCHITECTURE_NODE_TYPES),
+        "structural_edge_types": sorted(STRUCTURAL_EDGE_TYPES),
+        "call_edge_types":       ["calls"],
+        "version":               "1",
     }

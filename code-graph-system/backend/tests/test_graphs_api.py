@@ -126,3 +126,20 @@ def test_lineage_repo_not_found(client, mock_graph_storage):
     mock_graph_storage.load_graph.side_effect = RepoNotFoundError("missing")
     resp = client.get("/graph/lineage", params={"repo_id": "missing"})
     assert resp.status_code == 404
+
+
+# ─── /meta/node-types ─────────────────────────────────────────────────────────
+
+def test_get_node_types(client):
+    resp = client.get("/meta/node-types")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "architecture_types" in data
+    assert "structural_edge_types" in data
+    assert "call_edge_types" in data
+    assert "version" in data
+    assert "Module" in data["architecture_types"]
+    assert "Service" in data["architecture_types"]
+    assert "contains" in data["structural_edge_types"]
+    assert "calls" in data["call_edge_types"]
+    assert isinstance(data["version"], str)
