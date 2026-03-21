@@ -497,6 +497,7 @@ def analyze_repository(
             built.meta["completed_modules"] = exc.completed_count
             built.meta["total_modules"] = exc.total_count
             graph_repo.save(built, repo_name=repo_name)
+            _write_to_graph_storage(repo_name or path.name, built.nodes, built.edges)
 
         on_progress_callback({
             "status": "completed_partial",

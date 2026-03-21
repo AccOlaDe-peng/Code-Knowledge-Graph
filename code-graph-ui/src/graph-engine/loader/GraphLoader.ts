@@ -289,6 +289,10 @@ export class GraphLoader {
         params: { repo_id: this.graphId, node_types: 'Repository,Module' },
         signal,
       })
+      // 数据中无 Repository/Module 节点（旧流水线产出）时触发 fallback
+      if (raw.nodes.length === 0) {
+        return this.fetchSummaryFallback(signal)
+      }
       // 映射新字段名到 SummaryResponse 结构（保持下游消费者不变）
       return {
         graph_id:          this.graphId,
@@ -306,8 +310,8 @@ export class GraphLoader {
   }
 
   /**
-   * Fallback: GET /graph/framework?repo_id=&node_types=all and filter to Repository+Module nodes.
-   * Used when the filtered endpoint returns 404.
+   * Fallback: 优先使用后端默认架构类型过滤（ARCHITECTURE_NODE_TYPES），
+   * 仍为空时再请求全量并截取前 500 个节点防止卡顿。
    */
   private async fetchSummaryFallback(
     signal?: AbortSignal,
@@ -317,24 +321,34 @@ export class GraphLoader {
       nodes: RawNode[]; edges: RawEdge[]
     }
 
+    // 第一步：不传 node_types，让后端用 ARCHITECTURE_NODE_TYPES 过滤
+    const arch = await apiClient.get<FrameworkRaw>('/graph/framework', {
+      params: { repo_id: this.graphId },
+      signal,
+    })
+
+    if (arch.nodes.length > 0) {
+      return {
+        graph_id:         this.graphId,
+        nodes:            arch.nodes,
+        edges:            arch.edges,
+        total_node_count: arch.node_count,
+        total_edge_count: arch.edge_count,
+      }
+    }
+
+    // 第二步：架构层节点也为空（极端情况），拉全量但截取前 500 节点
     const raw = await apiClient.get<FrameworkRaw>('/graph/framework', {
       params: { repo_id: this.graphId, node_types: 'all' },
       signal,
     })
 
-    const summaryTypes = new Set(['Repository', 'Module'])
-    let summaryNodes = raw.nodes.filter(n => summaryTypes.has(n.type))
-    let summaryEdges: RawEdge[]
-
-    if (summaryNodes.length === 0) {
-      summaryNodes = raw.nodes
-      summaryEdges = raw.edges
-    } else {
-      const summaryNodeIds = new Set(summaryNodes.map(n => n.id))
-      summaryEdges = raw.edges.filter(
-        e => summaryNodeIds.has(e.from) && summaryNodeIds.has(e.to),
-      )
-    }
+    const NODE_LIMIT = 500
+    const summaryNodes = raw.nodes.slice(0, NODE_LIMIT)
+    const summaryNodeIds = new Set(summaryNodes.map(n => n.id))
+    const summaryEdges = raw.edges.filter(
+      e => summaryNodeIds.has(e.from) && summaryNodeIds.has(e.to),
+    )
 
     return {
       graph_id:         this.graphId,

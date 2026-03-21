@@ -19,6 +19,10 @@ build/
 # Runtime data
 data/chroma/
 data/graphs/
+data/git_cache/
+data/pipeline_cache/
+data/ai_analysis/
+graph-storage/
 *.db
 *.sqlite3
 
