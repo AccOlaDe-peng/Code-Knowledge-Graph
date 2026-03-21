@@ -1,25 +1,47 @@
-"""图谱查询 API：/graph/*, /callgraph, /lineage, /events, /services"""
+"""图谱视图 API：三个语义清晰的只读视图接口 + events/services 保留接口。
+
+路由：
+  GET /graph/framework  — 架构图（高层节点，可过滤类型）
+  GET /graph/call       — 调用图（calls 边 + 相关节点，可 BFS 展开）
+  GET /graph/lineage    — 血缘图（depends_on/reads/writes 等边，可 BFS 展开）
+  GET /events           — 事件流图（保留，使用 GraphRepository）
+  GET /services         — 基础设施服务图（保留，使用 GraphRepository）
+"""
 from __future__ import annotations
 
 import logging
+from collections import deque
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
 
 from backend.api.deps import get_graph_repo, get_graph_storage
-from backend.graph.code_graph import CodeGraph
+from backend.graph.graph_schema import ARCHITECTURE_NODE_TYPES
 from backend.storage.graph_storage import RepoNotFoundError
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+_LINEAGE_EDGE_TYPES = frozenset({
+    "depends_on", "reads", "writes", "produces", "consumes", "imports",
+})
 
-# ── Helper Functions ────────────────────────────────────────────────────────
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-def _load_or_404(graph_id: str):
-    """加载 BuiltGraph，不存在时抛出 404。"""
+def _storage_load_or_404(repo_id: str) -> dict[str, Any]:
+    try:
+        return get_graph_storage().load_graph(repo_id)
+    except RepoNotFoundError:
+        raise HTTPException(status_code=404, detail=f"repo not found: {repo_id}")
+    except Exception as exc:
+        logger.exception("GraphStorage 读取失败: %s", repo_id)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+def _load_built_or_404(graph_id: str):
+    """加载 BuiltGraph（用于 /events 和 /services）。"""
     graph_repo = get_graph_repo()
     built = graph_repo.load(graph_id)
     if built is None:
@@ -27,438 +49,202 @@ def _load_or_404(graph_id: str):
     return built
 
 
-def _storage_load_or_404(repo_id: str) -> dict[str, Any]:
-    """从 GraphStorage 加载完整图谱，不存在时抛出 404。"""
-    graph_storage = get_graph_storage()
-    try:
-        return graph_storage.load_graph(repo_id)
-    except RepoNotFoundError:
-        raise HTTPException(status_code=404, detail=f"图谱不存在: {repo_id}")
-    except Exception as exc:
-        logger.exception("GraphStorage 读取失败: %s", repo_id)
-        raise HTTPException(status_code=500, detail=str(exc))
+def _bfs_subgraph(
+    nodes: list[dict],
+    edges: list[dict],
+    root_id: str,
+    edge_types: frozenset[str],
+    depth: int,
+) -> dict[str, Any]:
+    """从 root_id 出发，BFS 展开指定边类型的子图，最多 depth 层。"""
+    node_map = {n["id"]: n for n in nodes if n.get("id")}
+    if root_id not in node_map:
+        raise HTTPException(status_code=404, detail=f"node not found: {root_id}")
+
+    visited: set[str] = {root_id}
+    queue: deque[tuple[str, int]] = deque([(root_id, 0)])
+    result_edges: list[dict] = []
+
+    while queue:
+        current_id, current_depth = queue.popleft()
+        if current_depth >= depth:
+            continue
+        for edge in edges:
+            if edge.get("type") not in edge_types:
+                continue
+            neighbor = None
+            if edge.get("from") == current_id:
+                neighbor = edge.get("to")
+            elif edge.get("to") == current_id:
+                neighbor = edge.get("from")
+            if neighbor and neighbor not in visited:
+                visited.add(neighbor)
+                result_edges.append(edge)
+                queue.append((neighbor, current_depth + 1))
+            elif neighbor and edge not in result_edges:
+                result_edges.append(edge)
+
+    result_nodes = [node_map[nid] for nid in visited if nid in node_map]
+    return {"nodes": result_nodes, "edges": result_edges}
 
 
-# ── Response Models ────────────────────────────────────────────────────────
+def _filter_by_edge_types(
+    nodes: list[dict],
+    edges: list[dict],
+    edge_types: frozenset[str],
+) -> dict[str, Any]:
+    """返回指定边类型的边及其涉及的节点。"""
+    filtered_edges = [e for e in edges if e.get("type") in edge_types]
+    involved_ids: set[str] = set()
+    for e in filtered_edges:
+        if e.get("from"):
+            involved_ids.add(e["from"])
+        if e.get("to"):
+            involved_ids.add(e["to"])
+    node_map = {n["id"]: n for n in nodes if n.get("id")}
+    filtered_nodes = [node_map[nid] for nid in involved_ids if nid in node_map]
+    return {"nodes": filtered_nodes, "edges": filtered_edges}
 
 
-class GraphDataResponse(BaseModel):
-    """GET /graph, /graph/call, /graph/module 统一响应体。"""
-    repo_id:     str
-    node_count:  int
-    edge_count:  int
-    nodes:       list[dict[str, Any]]
-    edges:       list[dict[str, Any]]
+# ── New Endpoints (GraphStorage / repo_id) ────────────────────────────────────
 
 
-# ── Endpoints ────────────────────────────────────────────────────────────────
-
-
-@router.get("/graph", tags=["图谱"])
-def get_graph(
-    graph_id: Optional[str] = Query(default=None, description="图谱 ID；不传则返回所有图谱摘要列表"),
-    node_type: Optional[str] = Query(default=None, description="按节点类型过滤（仅在指定 graph_id 时生效）"),
-    limit: int = Query(default=200, ge=1, le=5000, description="返回节点/边的最大数量"),
-):
+@router.get("/graph/framework", tags=["图谱视图"])
+def get_framework(
+    repo_id: str = Query(description="仓库 ID"),
+    node_types: Optional[str] = Query(
+        default=None,
+        description="逗号分隔的节点类型（PascalCase）；不传使用架构层默认集合；传 'all' 返回全部节点",
+    ),
+) -> dict[str, Any]:
     """
-    获取图谱信息。
+    架构图视图。
 
-    - 不传 `graph_id`：返回所有图谱摘要列表（包含正在分析的仓库）
-    - 传入 `graph_id`：返回该图谱的节点和边（可按 `node_type` 过滤）
-    """
-    if graph_id is None:
-        from backend.store.repo_status_store import get_repo_status_store
+    返回高层架构节点及其连接关系。默认过滤掉 Class/Function 等细粒度节点。
+    edges 只包含两端节点都在结果集内的边。
 
-        # 从状态存储获取所有仓库（包括正在分析的）
-        status_store = get_repo_status_store()
-        all_repos = status_store.list_all()
-
-        # 转换为前端期望的格式
-        graphs = []
-        for repo in all_repos:
-            graph_info = {
-                "graph_id": repo.get("graph_id", "") or repo.get("repo_id", ""),
-                "repo_name": repo.get("repo_name", ""),
-                "node_count": repo.get("node_count", 0),
-                "edge_count": repo.get("edge_count", 0),
-                "created_at": repo.get("created_at", ""),
-                "status": repo.get("status", "completed"),
-                "task_id": repo.get("task_id"),
-                "stage": repo.get("stage", ""),
-                "step": repo.get("step", 0),
-                "total": repo.get("total", 6),
-                "message": repo.get("message", ""),
-                "error": repo.get("error"),
-                "repo_path": repo.get("repo_path", ""),
-                "branch": repo.get("branch"),
-                "source_mode": repo.get("source_mode"),
-                "language": repo.get("language", []),
-                "repo_id": repo.get("repo_id", ""),
-            }
-            graphs.append(graph_info)
-
-        return {"graphs": graphs, "total": len(graphs)}
-
-    built = _load_or_404(graph_id)
-
-    nodes = built.nodes
-    if node_type:
-        nodes = [n for n in nodes if n.type == node_type]
-
-    node_list = []
-    for n in nodes[:limit]:
-        nd = n.model_dump()
-        m = built.metrics.get(n.id)
-        if m:
-            nd["metrics"] = m
-        node_list.append(nd)
-
-    edge_list = [
-        e.model_dump(by_alias=True)
-        for e in built.edges[:limit]
-    ]
-
-    return {
-        "graph_id":   graph_id,
-        "node_count": built.node_count,
-        "edge_count": built.edge_count,
-        "node_types": built.meta.get("node_type_counts", {}),
-        "edge_types": built.meta.get("edge_type_counts", {}),
-        "nodes":      node_list,
-        "edges":      edge_list,
-    }
-
-
-@router.get("/graph/export", tags=["图谱"])
-def export_graph(
-    graph_id: str = Query(description="图谱 ID"),
-):
-    """
-    导出标准 JSON Graph，供前端直接消费。
-
-    使用 ``CodeGraph`` schema，只包含核心节点类型和边类型。
-
-    节点类型：``repository / module / file / class / function / api / database / table``
-
-    边类型：``contains / imports / calls / reads / writes``
-
-    返回格式：
-    ```json
-    {
-      "graph_version": "1.0",
-      "repo": {"name": "...", "path": "...", "language": "...", "commit": "..."},
-      "nodes": [
-        {"id": "...", "type": "...", "name": "...",
-         "file": "...", "line": 1, "module": "...", "language": "..."}
-      ],
-      "edges": [
-        {"from": "...", "to": "...", "type": "..."}
-      ]
-    }
-    ```
-    """
-    built = _load_or_404(graph_id)
-
-    meta      = built.meta or {}
-    repo_name = meta.get("repo_name", graph_id)
-    repo_path = meta.get("repo_path", "")
-    commit    = meta.get("git_commit", "")
-
-    code_graph = CodeGraph.from_built(
-        built,
-        repo_name=repo_name,
-        repo_path=repo_path,
-        commit=commit,
-    )
-    return code_graph.to_dict()
-
-
-@router.get("/graph/data", response_model=GraphDataResponse, tags=["图谱数据"])
-def get_graph_data(
-    repo_id: str = Query(description="仓库 ID（由 POST /analyze/graph 返回的 graph_id）"),
-):
-    """
-    获取完整 JSON Graph 数据。
-
-    从 GraphStorage 读取 ``graph-storage/<repo_id>/graph.json``，
-    返回所有节点和边。
-
-    返回格式：
-    ```json
-    {
-      "repo_id": "my-project",
-      "node_count": 42,
-      "edge_count": 87,
-      "nodes": [{"id 端点：
-    ```json
-    {
-      "repo_id": "my-project",
-      "node_count": 42,
-      "edge_count": 87,
-      "nodes": [{"id": "...", "type": "...", "name": "...", ...}],
-      "edges": [{"from": "...", "to": "...", "type": "..."}]
-    }
-    ```
+    - ``node_types`` 不传：返回 ARCHITECTURE_NODE_TYPES 定义的架构层节点
+    - ``node_types=all``：返回全部节点（替代旧 /graph/data）
+    - ``node_types=Module,File``：只返回指定类型（替代旧 /graph/module）
     """
     graph = _storage_load_or_404(repo_id)
-    nodes: list[dict[str, Any]] = graph.get("nodes", [])
-    edges: list[dict[str, Any]] = graph.get("edges", [])
-    logger.info("GET /graph/data  repo=%s  %d nodes / %d edges", repo_id, len(nodes), len(edges))
-    return GraphDataResponse(
-        repo_id=repo_id,
-        node_count=len(nodes),
-        edge_count=len(edges),
-        nodes=nodes,
-        edges=edges,
-    )
+    all_nodes: list[dict] = graph.get("nodes", [])
+    all_edges: list[dict] = graph.get("edges", [])
 
-
-@router.get("/graph/call", response_model=GraphDataResponse, tags=["图谱数据"])
-def get_graph_call(
-    repo_id: str = Query(description="仓库 ID"),
-):
-    """
-    获取函数调用子图（``calls`` 边及相关节点）。
-
-    从 GraphStorage 读取预生成的 ``call-graph.json``（若不存在则实时过滤）。
-
-    只包含：
-    - 边类型：``calls``
-    - 节点：出现在 ``calls`` 边中的 ``function`` / ``api`` 节点
-
-    返回格式同 ``GET /graph/data``。
-    """
-    graph_storage = get_graph_storage()
-    try:
-        subgraph = graph_storage.get_subgraph(repo_id, "calls")
-    except RepoNotFoundError:
-        raise HTTPException(status_code=404, detail=f"图谱不存在: {repo_id}")
-    except Exception as exc:
-        logger.exception("get_subgraph(calls) 失败: %s", repo_id)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-    nodes: list[dict[str, Any]] = subgraph.get("nodes", [])
-    edges: list[dict[str, Any]] = subgraph.get("edges", [])
-    logger.info("GET /graph/call  repo=%s  %d nodes / %d edges", repo_id, len(nodes), len(edges))
-    return GraphDataResponse(
-        repo_id=repo_id,
-        node_count=len(nodes),
-        edge_count=len(edges),
-        nodes=nodes,
-        edges=edges,
-    )
-
-
-@router.get("/graph/module", response_model=GraphDataResponse, tags=["图谱数据"])
-def get_graph_module(
-    repo_id: str  = Query(description="仓库 ID"),
-    edge_type: str = Query(
-        default="contains",
-        description="边类型过滤：``contains``（默认）、``imports`` 或 ``all``（contains + imports）",
-    ),
-):
-    """
-    获取模块结构子图（``contains`` / ``imports`` 边及相关节点）。
-
-    从 GraphStorage 读取预生成的 ``module-graph.json``（若不存在则实时过滤）。
-
-    - ``edge_type=contains``（默认）：仅返回包含关系（module -> file -> class/function）
-    - ``edge_type=imports``：仅返回导入关系（module -> module）
-    - ``edge_type=all``：返回 contains + imports 全部
-
-    返回格式同 ``GET /graph/data``。
-    """
-    graph_storage = get_graph_storage()
-    # "all" 等价于读取 module-graph.json（contains + imports 共用同一文件）
-    query_type = "contains" if edge_type == "all" else edge_type
-
-    try:
-        subgraph = graph_storage.get_subgraph(repo_id, query_type)
-    except RepoNotFoundError:
-        raise HTTPException(status_code=404, detail=f"图谱不存在: {repo_id}")
-    except Exception as exc:
-        logger.exception("get_subgraph(%s) 失败: %s", edge_type, repo_id)
-        raise HTTPException(status_code=500, detail=str(exc))
-
-    nodes: list[dict[str, Any]] = subgraph.get("nodes", [])
-    edges: list[dict[str, Any]] = subgraph.get("edges", [])
-
-    # edge_type=contains 或 edge_type=imports 时，在内存中二次过滤
-    if edge_type in ("contains", "imports"):
-        edges = [e for e in edges if e.get("type") == edge_type]
-        involved: set[str] = set()
-        for e in edges:
-            if e.get("from"):
-                involved.add(e["from"])
-            if e.get("to"):
-                involved.add(e["to"])
-        nodes = [n for n in nodes if n.get("id") in involved]
-
-    logger.info(
-        "GET /graph/module  repo=%s  edge_type=%s  %d nodes / %d edges",
-        repo_id, edge_type, len(nodes), len(edges),
-    )
-    return GraphDataResponse(
-        repo_id=repo_id,
-        node_count=len(nodes),
-        edge_count=len(edges),
-        nodes=nodes,
-        edges=edges,
-    )
-
-
-@router.get("/graph/summary", tags=["图谱"])
-def get_graph_summary(
-    graph_id: str = Query(description="图谱 ID"),
-):
-    """
-    获取图谱 LOD-0 摘要（仅 Repository + Module 节点）。
-
-    返回顶层 Repository 和 Module 节点及其之间的边，
-    同时附带全图节点/边总数供前端进度条使用。
-    """
-    built = _load_or_404(graph_id)
-
-    summary_types = {"Repository", "Module"}
-    summary_nodes = [n.model_dump() for n in built.nodes if n.type in summary_types]
-
-    # 若图谱中没有 Repository/Module 节点（如纯 Layer/Service 图），退化为返回全图
-    if not summary_nodes:
-        summary_nodes = [n.model_dump() for n in built.nodes]
-        summary_edges = [e.model_dump(by_alias=True) for e in built.edges]
+    if node_types == "all":
+        result_nodes = all_nodes
     else:
-        summary_node_ids = {n["id"] for n in summary_nodes}
-        summary_edges = [
-            e.model_dump(by_alias=True)
-            for e in built.edges
-            if e.from_ in summary_node_ids and e.to in summary_node_ids
-        ]
-
-    return {
-        "graph_id":         graph_id,
-        "nodes":            summary_nodes,
-        "edges":            summary_edges,
-        "total_node_count": built.node_count,
-        "total_edge_count": built.edge_count,
-    }
-
-
-@router.get("/callgraph", tags=["图谱"])
-def get_callgraph(
-    graph_id: str  = Query(description="图谱 ID"),
-    node_id:  Optional[str] = Query(default=None, description="起始函数节点 ID；不传则返回全图调用关系"),
-    depth:    int  = Query(default=1, ge=1, le=5, description="从指定节点 BFS 展开的深度"),
-):
-    """
-    获取函数调用图。
-
-    - 不传 `node_id`：返回图中所有 Function 节点和 `calls` 类型边
-    - 传入 `node_id`：从该函数节点出发做 BFS，返回调用子图
-    """
-    graph_repo = get_graph_repo()
-    built = _load_or_404(graph_id)
-
-    if node_id:
-        subgraph = graph_repo.query_neighbors(
-            graph_id, node_id, depth=depth, edge_types=["calls"]
+        target_types = (
+            {t.strip() for t in node_types.split(",") if t.strip()}
+            if node_types
+            else ARCHITECTURE_NODE_TYPES
         )
-        return {
-            "graph_id": graph_id,
-            "root":     node_id,
-            "depth":    depth,
-            "nodes":    subgraph["nodes"],
-            "edges":    subgraph["edges"],
-        }
+        result_nodes = [n for n in all_nodes if n.get("type") in target_types]
 
-    # 全图调用关系：仅 Function/API 节点 + calls 边
-    # 兼容新格式（小写）和旧格式（PascalCase）
-    call_node_types = {"Function", "API", "function", "api"}
-    func_nodes = [
-        n.model_dump()
-        for n in built.nodes
-        if n.type in call_node_types
+    result_node_ids = {n["id"] for n in result_nodes if n.get("id")}
+    result_edges = [
+        e for e in all_edges
+        if e.get("from") in result_node_ids and e.get("to") in result_node_ids
     ]
-    call_edges = [
-        e.model_dump(by_alias=True)
-        for e in built.edges
-        if e.type == "calls"
-    ]
+
     return {
-        "graph_id":   graph_id,
-        "node_count": len(func_nodes),
-        "edge_count": len(call_edges),
-        "nodes":      func_nodes,
-        "edges":      call_edges,
+        "repo_id": repo_id,
+        "node_count": len(result_nodes),
+        "edge_count": len(result_edges),
+        "nodes": result_nodes,
+        "edges": result_edges,
     }
 
 
-@router.get("/lineage", tags=["图谱"])
+@router.get("/graph/call", tags=["图谱视图"])
+def get_call(
+    repo_id: str = Query(description="仓库 ID"),
+    node_id: Optional[str] = Query(default=None, description="起点节点 ID；指定后 BFS 展开调用子图"),
+    depth: int = Query(default=2, ge=1, le=5, description="BFS 深度（仅 node_id 有效时生效）"),
+) -> dict[str, Any]:
+    """
+    调用图视图。
+
+    - 不传 ``node_id``：返回全图 calls 边及相关节点（读预生成 call-graph.json）
+    - 传入 ``node_id``：从该节点 BFS 展开调用子图
+    """
+    storage = get_graph_storage()
+
+    if node_id is None:
+        try:
+            subgraph = storage.get_subgraph(repo_id, "calls")
+        except RepoNotFoundError:
+            raise HTTPException(status_code=404, detail=f"repo not found: {repo_id}")
+        except Exception as exc:
+            logger.exception("get_subgraph(calls) 失败: %s", repo_id)
+            raise HTTPException(status_code=500, detail=str(exc))
+        nodes = subgraph.get("nodes", [])
+        edges = subgraph.get("edges", [])
+    else:
+        graph = _storage_load_or_404(repo_id)
+        result = _bfs_subgraph(
+            graph.get("nodes", []),
+            graph.get("edges", []),
+            node_id,
+            frozenset({"calls"}),
+            depth,
+        )
+        nodes = result["nodes"]
+        edges = result["edges"]
+
+    return {
+        "repo_id": repo_id,
+        "node_count": len(nodes),
+        "edge_count": len(edges),
+        "nodes": nodes,
+        "edges": edges,
+    }
+
+
+@router.get("/graph/lineage", tags=["图谱视图"])
 def get_lineage(
-    graph_id:  str = Query(description="图谱 ID"),
-    node_id:   Optional[str] = Query(default=None, description="起始节点 ID；不传则返回全图依赖血缘"),
+    repo_id: str = Query(description="仓库 ID"),
     edge_types: Optional[str] = Query(
         default=None,
-        description="逗号分隔的边类型，如 depends_on,reads,writes；不传则使用默认依赖类型",
+        description="逗号分隔的边类型，默认全部血缘边类型",
     ),
-):
+    node_id: Optional[str] = Query(default=None, description="起点节点 ID；指定后 BFS 展开血缘子图"),
+    depth: int = Query(default=2, ge=1, le=5, description="BFS 深度（仅 node_id 有效时生效）"),
+) -> dict[str, Any]:
     """
-    获取依赖血缘图。
+    数据血缘视图。
 
-    默认追踪以下关系：`depends_on`、`reads`、`writes`、`produces`、`consumes`。
+    默认追踪：depends_on / reads / writes / produces / consumes / imports。
 
-    - 不传 `node_id`：返回整图中所有血缘相关节点和边
-    - 传入 `node_id`：从该节点出发 BFS 展开血缘路径
+    - 不传 ``node_id``：返回全图血缘边及相关节点
+    - 传入 ``node_id``：从该节点 BFS 展开血缘路径
     """
-    graph_repo = get_graph_repo()
-    # 兼容新格式（imports 也属于血缘关系）
-    _LINEAGE_EDGE_TYPES = {"depends_on", "reads", "writes", "produces", "consumes", "imports"}
+    target_types = (
+        frozenset(t.strip() for t in edge_types.split(",") if t.strip())
+        if edge_types
+        else _LINEAGE_EDGE_TYPES
+    )
 
-    if edge_types:
-        target_types = {t.strip() for t in edge_types.split(",") if t.strip()}
+    graph = _storage_load_or_404(repo_id)
+    all_nodes = graph.get("nodes", [])
+    all_edges = graph.get("edges", [])
+
+    if node_id is not None:
+        result = _bfs_subgraph(all_nodes, all_edges, node_id, target_types, depth)
     else:
-        target_types = _LINEAGE_EDGE_TYPES
-
-    built = _load_or_404(graph_id)
-
-    if node_id:
-        subgraph = graph_repo.query_neighbors(
-            graph_id, node_id, depth=2, edge_types=list(target_types)
-        )
-        return {
-            "graph_id":   graph_id,
-            "root":       node_id,
-            "edge_types": sorted(target_types),
-            "nodes":      subgraph["nodes"],
-            "edges":      subgraph["edges"],
-        }
-
-    lineage_edges = [
-        e.model_dump(by_alias=True)
-        for e in built.edges
-        if e.type in target_types
-    ]
-    # 只返回出现在血缘边中的节点
-    involved_ids: set[str] = set()
-    for e in built.edges:
-        if e.type in target_types:
-            involved_ids.add(e.from_)
-            involved_ids.add(e.to)
-
-    node_map = {n.id: n for n in built.nodes}
-    lineage_nodes = [
-        node_map[nid].model_dump()
-        for nid in involved_ids
-        if nid in node_map
-    ]
+        result = _filter_by_edge_types(all_nodes, all_edges, target_types)
 
     return {
-        "graph_id":   graph_id,
+        "repo_id":    repo_id,
         "edge_types": sorted(target_types),
-        "node_count": len(lineage_nodes),
-        "edge_count": len(lineage_edges),
-        "nodes":      lineage_nodes,
-        "edges":      lineage_edges,
+        "node_count": len(result["nodes"]),
+        "edge_count": len(result["edges"]),
+        "nodes":      result["nodes"],
+        "edges":      result["edges"],
     }
+
+
+# ── Legacy Endpoints (GraphRepository / graph_id) — preserved ────────────────
 
 
 @router.get("/events", tags=["图谱"])
@@ -475,7 +261,7 @@ def get_events(
     _EVENT_NODE_TYPES = {"Event", "Topic"}
     _EVENT_EDGE_TYPES = {"publishes", "routes_to", "consumes", "produces", "subscribes"}
 
-    built = _load_or_404(graph_id)
+    built = _load_built_or_404(graph_id)
 
     # 收集所有事件相关的边
     event_edges = []
@@ -531,7 +317,7 @@ def get_services(
     _SERVICE_NODE_TYPES = {"Service", "Cluster", "Database"}
     _SERVICE_EDGE_TYPES = {"deployed_on", "uses", "depends_on"}
 
-    built = _load_or_404(graph_id)
+    built = _load_built_or_404(graph_id)
 
     svc_nodes = [
         n.model_dump()
@@ -563,84 +349,4 @@ def get_services(
         "type_counts": type_counts,
         "nodes":       svc_nodes,
         "edges":       svc_edges,
-    }
-
-
-@router.delete("/graph/{graph_id}", tags=["图谱"])
-def delete_graph(graph_id: str):
-    """
-    删除指定图谱。
-
-    删除本地 JSON 文件、索引条目，以及 Neo4j 中的数据（如果已配置）。
-    """
-    logger.info("DELETE /graph/%s", graph_id)
-
-    graph_repo = get_graph_repo()
-
-    # 检查图谱是否存在
-    built = graph_repo.load(graph_id)
-    if built is None:
-        raise HTTPException(status_code=404, detail=f"图谱不存在: {graph_id}")
-
-    # 删除图谱
-    try:
-        deleted = graph_repo.delete(graph_id)
-        if not deleted:
-            raise HTTPException(status_code=404, detail=f"图谱不存在: {graph_id}")
-
-        # 同步删除 repo_status_store 中的记录
-        from backend.store.repo_status_store import get_repo_status_store
-        status_store = get_repo_status_store()
-        # repo_id 可能等于 graph_id，也可能不同，遍历找到匹配的记录
-        for repo in status_store.list_all():
-            if repo.get("graph_id") == graph_id or repo.get("repo_id") == graph_id:
-                status_store.delete(repo["repo_id"])
-                break
-
-        logger.info("图谱已删除: %s", graph_id)
-        return {
-            "success": True,
-            "graph_id": graph_id,
-            "message": "图谱已成功删除"
-        }
-    except Exception as e:
-        logger.exception("删除图谱失败")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.delete("/repo/{repo_id}", tags=["仓库"])
-def delete_repo(repo_id: str):
-    """
-    删除仓库状态记录（用于删除尚未完成分析、没有 graph_id 的仓库）。
-
-    - 若该仓库有关联的 graph_id，同时删除图谱数据。
-    - 若仓库正在分析中，仅删除状态记录（不影响正在运行的 Celery 任务）。
-    """
-    logger.info("DELETE /repo/%s", repo_id)
-
-    from backend.store.repo_status_store import get_repo_status_store
-    from backend.api.deps import get_graph_repo
-
-    status_store = get_repo_status_store()
-    repo = status_store.get_status(repo_id)
-
-    if repo is None:
-        raise HTTPException(status_code=404, detail=f"仓库不存在: {repo_id}")
-
-    # 若有关联 graph_id，一并删除图谱数据
-    graph_id = repo.get("graph_id")
-    if graph_id:
-        try:
-            graph_repo = get_graph_repo()
-            graph_repo.delete(graph_id)
-        except Exception:
-            pass  # 图谱文件可能已不存在，忽略
-
-    status_store.delete(repo_id)
-    logger.info("仓库已删除: %s (graph_id=%s)", repo_id, graph_id)
-    return {
-        "success": True,
-        "repo_id": repo_id,
-        "graph_id": graph_id,
-        "message": "仓库已成功删除",
     }
