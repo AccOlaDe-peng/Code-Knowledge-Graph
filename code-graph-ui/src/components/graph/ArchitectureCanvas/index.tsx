@@ -14,7 +14,9 @@ import dagre from 'cytoscape-dagre'
 import coseBilkent from 'cytoscape-cose-bilkent'
 import { useGraphEngineStore } from '../../../graph-engine/store/graphEngineStore'
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 cytoscape.use(dagre as any)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 cytoscape.use(coseBilkent as any)
 
 interface ArchitectureCanvasProps {
@@ -142,6 +144,7 @@ export const ArchitectureCanvas: React.FC<ArchitectureCanvasProps> = ({
     const cy = cyRef.current
     if (!cy) return
     const { childIds } = (evt as CustomEvent).detail as { nodeId: string; childIds: string[] }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     childIds.forEach(id => (cy.getElementById(id) as any).hide())
   }, [])
 
@@ -150,6 +153,7 @@ export const ArchitectureCanvas: React.FC<ArchitectureCanvasProps> = ({
     const cy = cyRef.current
     if (!cy) return
     const { childIds } = (evt as CustomEvent).detail as { nodeId: string; childIds: string[] }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     childIds.forEach(id => (cy.getElementById(id) as any).show())
   }, [])
 
@@ -187,6 +191,7 @@ export const ArchitectureCanvas: React.FC<ArchitectureCanvasProps> = ({
     for (const { node, score } of scores) {
       if (currentVisible <= target) break
       if (score < 0) continue
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ;(node as any).hide()
       currentVisible--
     }
@@ -196,6 +201,7 @@ export const ArchitectureCanvas: React.FC<ArchitectureCanvasProps> = ({
   const handleRelayout = useCallback(() => {
     const cy = cyRef.current
     if (!cy) return
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     cy.layout({ name: 'cose-bilkent', animate: true } as any).run()
   }, [])
 

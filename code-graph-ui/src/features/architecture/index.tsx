@@ -36,6 +36,7 @@ const ArchitectureExplorer: React.FC = () => {
     const currentRepoId = activeRepo?.repoId
     if (!currentRepoId) return
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const analysisTimestamp = (activeRepo as any)?.latestAnalysis?.lastAnalyzedAt ?? ''
 
     if (loaderRef.current && useGraphEngineStore.getState().repoId === currentRepoId) {
