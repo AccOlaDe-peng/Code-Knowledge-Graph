@@ -47,6 +47,27 @@ from backend.agent.orchestrator import PartialResultError
 logger = get_task_logger(__name__)
 
 _REDIS_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+
+
+def _write_to_graph_storage(repo_name: str, nodes: list, edges: list) -> None:
+    """将 BuiltGraph 节点/边写入 GraphStorage（API serving 层）。
+
+    失败只记录 warning，不中断主流程。
+    """
+    try:
+        from backend.storage.graph_storage import GraphStorage
+        graph_storage = GraphStorage()  # 直接实例化，Celery Worker 中 lifespan 未执行
+        graph_storage.save_graph(
+            repo_id=repo_name,
+            graph={
+                "nodes": [n.model_dump() for n in nodes],
+                "edges": [e.model_dump(by_alias=True) for e in edges],
+            },
+        )
+        logger.info("GraphStorage 写入成功: repo=%s  nodes=%d  edges=%d",
+                    repo_name, len(nodes), len(edges))
+    except Exception as exc:
+        logger.warning("GraphStorage 写入失败（不影响主流程）repo=%s: %s", repo_name, exc)
 _redis_pool = None
 
 
@@ -539,6 +560,10 @@ def analyze_repository(
     git_commit = _get_git_head(path)
     built = result.built
     duration = round(time.time() - t_start, 3)
+
+    # 同时写入 GraphStorage（API serving 层）
+    if built is not None:
+        _write_to_graph_storage(repo_name or path.name, built.nodes, built.edges)
 
     # ── 标记为完成 ───────────────────────────────────────────────
     status_store.set_completed(
