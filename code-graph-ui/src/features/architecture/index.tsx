@@ -55,6 +55,8 @@ const ArchitectureExplorer: React.FC = () => {
         window.dispatchEvent(new CustomEvent('graphloader:merge', {
           detail: { nodes: result.nodes, edges: result.edges },
         }))
+        // 初始加载完成后触发 dagre 层次布局（节点默认堆叠在原点）
+        window.dispatchEvent(new CustomEvent('architecturecanvas:dagre-layout'))
         setLoadingStatus('idle')
       })
       .catch((err: unknown) => {

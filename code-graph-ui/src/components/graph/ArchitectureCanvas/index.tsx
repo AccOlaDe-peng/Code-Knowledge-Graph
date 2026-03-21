@@ -197,6 +197,14 @@ export const ArchitectureCanvas: React.FC<ArchitectureCanvasProps> = ({
     }
   }, [])
 
+  // ── 监听 architecturecanvas:dagre-layout — 初始加载后 dagre 层次布局 ──────
+  const handleDagreLayout = useCallback(() => {
+    const cy = cyRef.current
+    if (!cy) return
+    cy.layout({ name: 'dagre', rankDir: 'TB', animate: false } as any).run()
+    cy.fit(undefined, 40)
+  }, [])
+
   // ── 监听 architecturecanvas:relayout — cose-bilkent 全图重排 ─────────────
   const handleRelayout = useCallback(() => {
     const cy = cyRef.current
@@ -206,19 +214,21 @@ export const ArchitectureCanvas: React.FC<ArchitectureCanvasProps> = ({
   }, [])
 
   useEffect(() => {
-    window.addEventListener('graphloader:merge',      handleMerge)
-    window.addEventListener('graphloader:collapse',   handleCollapse)
-    window.addEventListener('graphloader:uncollapse', handleUncollapse)
-    window.addEventListener('graphloader:prune',      handlePrune)
+    window.addEventListener('graphloader:merge',           handleMerge)
+    window.addEventListener('graphloader:collapse',        handleCollapse)
+    window.addEventListener('graphloader:uncollapse',      handleUncollapse)
+    window.addEventListener('graphloader:prune',           handlePrune)
+    window.addEventListener('architecturecanvas:dagre-layout', handleDagreLayout)
     window.addEventListener('architecturecanvas:relayout', handleRelayout)
     return () => {
-      window.removeEventListener('graphloader:merge',      handleMerge)
-      window.removeEventListener('graphloader:collapse',   handleCollapse)
-      window.removeEventListener('graphloader:uncollapse', handleUncollapse)
-      window.removeEventListener('graphloader:prune',      handlePrune)
+      window.removeEventListener('graphloader:merge',           handleMerge)
+      window.removeEventListener('graphloader:collapse',        handleCollapse)
+      window.removeEventListener('graphloader:uncollapse',      handleUncollapse)
+      window.removeEventListener('graphloader:prune',           handlePrune)
+      window.removeEventListener('architecturecanvas:dagre-layout', handleDagreLayout)
       window.removeEventListener('architecturecanvas:relayout', handleRelayout)
     }
-  }, [handleMerge, handleCollapse, handleUncollapse, handlePrune, handleRelayout])
+  }, [handleMerge, handleCollapse, handleUncollapse, handlePrune, handleDagreLayout, handleRelayout])
 
   // ── Badge 更新 ────────────────────────────────────────────────────────────
   useEffect(() => {
