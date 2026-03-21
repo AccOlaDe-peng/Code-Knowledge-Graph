@@ -497,7 +497,7 @@ def analyze_repository(
             built.meta["completed_modules"] = exc.completed_count
             built.meta["total_modules"] = exc.total_count
             graph_repo.save(built, repo_name=repo_name)
-            _write_to_graph_storage(repo_name or path.name, built.nodes, built.edges)
+            _write_to_graph_storage(result.graph_id, built.nodes, built.edges)
 
         on_progress_callback({
             "status": "completed_partial",
@@ -562,9 +562,10 @@ def analyze_repository(
     built = result.built
     duration = round(time.time() - t_start, 3)
 
-    # 同时写入 GraphStorage（API serving 层）
+    # 同时写入 GraphStorage（API serving 层），使用 result.graph_id 作为键
+    # 与 analysis_store 存储的 graph_id 保持一致，确保前端查询时键匹配
     if built is not None:
-        _write_to_graph_storage(repo_name or path.name, built.nodes, built.edges)
+        _write_to_graph_storage(result.graph_id, built.nodes, built.edges)
 
     # ── 标记为完成 ───────────────────────────────────────────────
     status_store.set_completed(
@@ -857,8 +858,8 @@ def _run_full_and_wrap(
         if built is not None:
             built.meta["git_commit"] = git_commit
             graph_repo.save(built, repo_name=repo_name)
-            # 同时写入 GraphStorage（API serving 层）
-            _write_to_graph_storage(repo_name, built.nodes, built.edges)
+            # 同时写入 GraphStorage（API serving 层），与 analysis_store 的 graph_id 键保持一致
+            _write_to_graph_storage(result.graph_id, built.nodes, built.edges)
 
     logger.info(
         "_run_full_and_wrap DONE  graph=%s  nodes=%d  edges=%d  %.2fs",

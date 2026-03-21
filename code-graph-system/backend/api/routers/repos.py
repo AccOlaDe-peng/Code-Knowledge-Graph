@@ -83,7 +83,9 @@ def list_repos():
     result = []
     for repo in repos:
         latest = analysis_store.get_latest(repo["id"])
-        result.append({**repo, "latest_analysis": latest})
+        # 将 latest_analysis.graph_id 提升到顶层，供前端 graphApi.ts 映射 graphId 用
+        graph_id = (latest or {}).get("graph_id")
+        result.append({**repo, "latest_analysis": latest, "graph_id": graph_id})
 
     return {"repos": result}
 
