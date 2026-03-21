@@ -113,6 +113,8 @@ class EdgeType(str, Enum):
     # ── AI 分析新增关系 ────────────────────────────────────────────────
     ASYNC_CALLS = "async_calls"  # Asynchronous function call
     HANDLES = "handles"          # API endpoint handled by function
+    EXTENDS = "extends"          # Class/interface inheritance
+    OVERRIDES = "overrides"      # Method override relationship
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +129,11 @@ ARCHITECTURE_NODE_TYPES: frozenset[str] = frozenset({
     "Module", "Component", "Service", "API", "APIEndpoint",
     "Database", "Layer", "Domain", "BoundedContext",
     "DataSource", "DataSink", "ExternalAPI",
+})
+
+STRUCTURAL_EDGE_TYPES: frozenset[str] = frozenset({
+    "contains", "depends_on", "imports", "extends",
+    "uses", "implements", "overrides", "belongs_to",
 })
 
 # Expected property keys for each AI-generated node type.

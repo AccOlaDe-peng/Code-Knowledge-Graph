@@ -4,6 +4,7 @@ import { useGraphEngineStore } from '../../graph-engine/store'
 import { createGraphLoader } from '../../graph-engine/loader'
 import type { GraphLoader } from '../../graph-engine/loader'
 import type { EngineGraphNode } from '../../graph-engine/types'
+import { createEngineNode, normalizeBackendEdge } from '../../graph-engine/types'
 import { getNodeTypeColor } from '../../theme'
 import { GraphCanvas } from '../graph/GraphCanvas'
 import type { CyHandle } from '../graph/GraphCanvas'
@@ -72,11 +73,13 @@ export const GraphViewerPro: React.FC<GraphViewerProProps> = ({
     const t0 = performance.now()
 
     // Load initial graph (LOD-0: Repository + Module)
-    loader.loadInitialGraph()
+    loader.loadInitial()
       .then((result) => {
         if (!cyRef.current) return  // unmounted
+        const engineNodes = result.nodes.map(n => createEngineNode({ id: n.id, type: n.type, label: n.name, properties: n.properties }))
+        const engineEdges = result.edges.map(e => normalizeBackendEdge(e))
         cyRef.current.clear()
-        cyRef.current.addElements(result.nodes, result.edges)
+        cyRef.current.addElements(engineNodes, engineEdges)
         return cyRef.current.runLayout('dagre')
       })
       .then(() => {
@@ -89,7 +92,6 @@ export const GraphViewerPro: React.FC<GraphViewerProProps> = ({
       })
 
     return () => {
-      loader.abort()
       loaderRef.current = null
       destroyGraph()
     }
@@ -131,13 +133,17 @@ export const GraphViewerPro: React.FC<GraphViewerProProps> = ({
 
     useGraphEngineStore.getState().setExpandingNode(nodeId)
     try {
-      const { nodes, edges } = await loader.expandNodeRaw(nodeId)
-      cy.addElements(nodes, edges)
+      const result = await loader.expandNode(nodeId)
+      if (!result) return
+      const { nodes: rawNodes, edges: rawEdges } = result
+      const engineNodes = rawNodes.map(n => createEngineNode({ id: n.id, type: n.type, label: n.name, properties: n.properties }))
+      const engineEdges = rawEdges.map(e => normalizeBackendEdge(e))
+      cy.addElements(engineNodes, engineEdges)
       await cy.runLayout('dagre', true)  // incrementalOnly = true
       cy.focusNode(nodeId)
       useGraphEngineStore.getState().markExpanded(nodeId)
-      useGraphEngineStore.getState().mergeNodes(nodes)
-      useGraphEngineStore.getState().mergeEdges(edges)
+      useGraphEngineStore.getState().mergeNodes(engineNodes)
+      useGraphEngineStore.getState().mergeEdges(engineEdges)
     } finally {
       useGraphEngineStore.getState().setExpandingNode(null)
     }

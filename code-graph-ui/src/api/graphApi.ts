@@ -4,6 +4,7 @@ import type {
   GraphDetailResponse,
   EventsGraphResponse,
   ServicesGraphResponse,
+  AnalysisStatus,
 } from "../types/api";
 
 // ─── HTTP Client ──────────────────────────────────────────────────────────────
@@ -68,7 +69,7 @@ export const graphApi = {
           edgeCount: (g.edge_count ?? 0) as number,
           sourceMode: (g.source_mode ?? "local") as "local" | "git" | "zip",
           repoPath: g.path as string | undefined,
-          status: (g.status ?? "completed") as string,
+          status: (g.status ?? "completed") as AnalysisStatus,
           taskId: g.task_id as string | undefined,
           analysisStage: g.stage as string | undefined,
           analysisStep: g.step as number | undefined,

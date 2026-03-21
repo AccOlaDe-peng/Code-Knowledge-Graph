@@ -56,7 +56,7 @@ export type StreamProgress = {
   total:  number
 }
 
-export type LoadingStatus = 'idle' | 'streaming' | 'layout' | 'done' | 'error'
+export type LoadingStatus = 'idle' | 'loading' | 'streaming' | 'layout' | 'done' | 'error'
 
 export type LoadingState = {
   status:      LoadingStatus
@@ -80,8 +80,11 @@ function createDefaultLoadingState(): LoadingState {
 
 export type GraphEngineState = {
   // ── Graph identity ────────────────────────────────────────────────────────
-  /** The graph_id received from the backend. null = no graph loaded. */
-  graphId: string | null
+  /** The repo_id used to identify the graph. null = no graph loaded. */
+  repoId: string | null
+
+  lastExpandedNodeId: string | null
+  collapsedCount:     Map<string, number>
 
   // ── Core data (Map for O(1) access with 100k+ nodes) ─────────────────────
   nodes: Map<string, EngineGraphNode>
@@ -108,8 +111,8 @@ export type GraphEngineState = {
   // ══════════════════════════════════════════════════════════════════════════
 
   // ── Graph lifecycle ───────────────────────────────────────────────────────
-  /** Initialize or reset the engine for a new graphId. */
-  initGraph:    (graphId: string) => void
+  /** Initialize or reset the engine for a new repoId. */
+  initGraph:    (repoId: string) => void
   /** Tear down everything (called on unmount or before loading a new graph). */
   destroyGraph: () => void
 
@@ -190,7 +193,10 @@ export type GraphEngineState = {
   setLoadingError:    (message: string) => void
 
   // ── Selection ─────────────────────────────────────────────────────────────
-  setSelectedNode: (id: string | null) => void
+  setSelectedNode:      (id: string | null) => void
+  setLastExpandedNode:  (nodeId: string | null) => void
+  setCollapsedCount:    (nodeId: string, count: number) => void
+  clearCollapsedCount:  (nodeId: string) => void
 }
 
 // ─── Store Implementation ────────────────────────────────────────────────────
@@ -198,41 +204,47 @@ export type GraphEngineState = {
 export const useGraphEngineStore = create<GraphEngineState>((set, get) => ({
   // ── Initial state ─────────────────────────────────────────────────────────
 
-  graphId:       null,
-  nodes:         new Map(),
-  edges:         new Map(),
-  expandedNodes: new Set(),
-  clusters:      new Map(),
-  filters:       createDefaultFilterState(),
-  viewport:      createDefaultViewport(),
-  lod:           createDefaultLODState(),
-  loading:       createDefaultLoadingState(),
-  selectedNodeId: null,
+  repoId:             null,
+  lastExpandedNodeId: null,
+  collapsedCount:     new Map(),
+  nodes:              new Map(),
+  edges:              new Map(),
+  expandedNodes:      new Set(),
+  clusters:           new Map(),
+  filters:            createDefaultFilterState(),
+  viewport:           createDefaultViewport(),
+  lod:                createDefaultLODState(),
+  loading:            createDefaultLoadingState(),
+  selectedNodeId:     null,
 
   // ── Graph lifecycle ───────────────────────────────────────────────────────
 
-  initGraph: (graphId) => set({
-    graphId,
-    nodes:          new Map(),
-    edges:          new Map(),
-    expandedNodes:  new Set(),
-    clusters:       new Map(),
-    filters:        createDefaultFilterState(),
-    lod:            createDefaultLODState(),
-    loading:        createDefaultLoadingState(),
-    selectedNodeId: null,
+  initGraph: (repoId) => set({
+    repoId,
+    nodes:              new Map(),
+    edges:              new Map(),
+    expandedNodes:      new Set(),
+    clusters:           new Map(),
+    filters:            createDefaultFilterState(),
+    lod:                createDefaultLODState(),
+    loading:            createDefaultLoadingState(),
+    selectedNodeId:     null,
+    lastExpandedNodeId: null,
+    collapsedCount:     new Map(),
   }),
 
   destroyGraph: () => set({
-    graphId:        null,
-    nodes:          new Map(),
-    edges:          new Map(),
-    expandedNodes:  new Set(),
-    clusters:       new Map(),
-    filters:        createDefaultFilterState(),
-    lod:            createDefaultLODState(),
-    loading:        createDefaultLoadingState(),
-    selectedNodeId: null,
+    repoId:             null,
+    nodes:              new Map(),
+    edges:              new Map(),
+    expandedNodes:      new Set(),
+    clusters:           new Map(),
+    filters:            createDefaultFilterState(),
+    lod:                createDefaultLODState(),
+    loading:            createDefaultLoadingState(),
+    selectedNodeId:     null,
+    lastExpandedNodeId: null,
+    collapsedCount:     new Map(),
   }),
 
   // ── Node actions ──────────────────────────────────────────────────────────
@@ -505,6 +517,21 @@ export const useGraphEngineStore = create<GraphEngineState>((set, get) => ({
   // ── Selection ─────────────────────────────────────────────────────────────
 
   setSelectedNode: (id) => set({ selectedNodeId: id }),
+
+  setLastExpandedNode: (nodeId) =>
+    set({ lastExpandedNodeId: nodeId }),
+
+  setCollapsedCount: (nodeId, count) =>
+    set(state => ({
+      collapsedCount: new Map(state.collapsedCount).set(nodeId, count),
+    })),
+
+  clearCollapsedCount: (nodeId) =>
+    set(state => {
+      const next = new Map(state.collapsedCount)
+      next.delete(nodeId)
+      return { collapsedCount: next }
+    }),
 }))
 
 // ─── Selectors ────────────────────────────────────────────────────────────────

@@ -1,479 +1,172 @@
-import { apiClient } from '../../core/api/client'
-import { useGraphEngineStore } from '../store'
-import { createEngineNode, normalizeBackendEdge } from '../types'
-import type { EngineGraphNode, EngineGraphEdge } from '../types'
-import { BatchQueue, buildWorkQueue } from './BatchQueue'
-import type {
-  RawNode,
-  RawEdge,
-  SummaryResponse,
-  ExpandResponse,
-  BatchResponse,
-  LoadInitialResult,
-  ExpandResult,
-  LoadBatchResult,
-  WorkItem,
-  BatchProgress,
-} from './types'
-
-// ─── Normalization ────────────────────────────────────────────────────────────
-
-function normalizeNode(raw: RawNode): EngineGraphNode {
-  return createEngineNode({
-    id:         raw.id,
-    type:       raw.type,
-    // Backend sends `name`; engine uses `label`
-    label:      raw.name,
-    properties: raw.properties,
-    degree:     (raw.metrics?.in_degree ?? 0) + (raw.metrics?.out_degree ?? 0),
-    pageRank:   raw.metrics?.pagerank ?? 0,
-  })
-}
-
-function normalizeEdge(raw: RawEdge): EngineGraphEdge {
-  return normalizeBackendEdge({
-    from:       raw.from,
-    to:         raw.to,
-    type:       raw.type,
-    properties: raw.properties,
-  })
-}
-
-function normalizeNodes(raws: RawNode[]): EngineGraphNode[] {
-  return raws.map(normalizeNode)
-}
-
-function normalizeEdges(raws: RawEdge[]): EngineGraphEdge[] {
-  return raws.map(normalizeEdge)
-}
-
-// ─── GraphLoader ──────────────────────────────────────────────────────────────
-
 /**
- * GraphLoader manages all data-fetching operations for the GraphEngine.
+ * GraphLoader — 框架图数据加载器（重写版）
  *
- * It is a plain class (not a React hook) that:
- *  - Calls backend API endpoints via `apiClient`
- *  - Normalizes raw backend responses into engine types
- *  - Streams results into GraphEngineStore via RAF-based BatchQueue
- *  - Supports AbortController-based cancellation
- *
- * One GraphLoader instance should be created per loaded graph.
- * Call `abort()` before creating a new instance for a different graph.
+ * 与 ArchitectureCanvas 通过 CustomEvent 通信：
+ *   graphloader:merge      — 通知 Canvas 合并新节点/边
+ *   graphloader:collapse   — 通知 Canvas 隐藏节点的展开子节点
+ *   graphloader:uncollapse — 通知 Canvas 恢复显示
+ *   graphloader:prune      — 通知 Canvas 执行 pruneDistantNodes
  */
+import apiClient from '../../core/api/client'
+import type { RawNode, RawEdge, ExpandResponse } from './types'
+import { useGraphEngineStore } from '../store/graphEngineStore'
+import { useMetaStore } from '../../store/metaStore'
+
+const VISIBLE_NODE_LIMIT  = 2000
+const PRUNE_TARGET        = 1800
+const FALLBACK_NODE_LIMIT = 500
+const PRUNE_DEBOUNCE_MS   = 200
+
+type FrameworkRaw = {
+  repo_id:    string
+  node_count: number
+  edge_count: number
+  nodes:      RawNode[]
+  edges:      RawEdge[]
+}
+
+export type LoadResult = {
+  nodes:            RawNode[]
+  edges:            RawEdge[]
+  total_node_count: number
+  total_edge_count: number
+}
+
 export class GraphLoader {
-  private readonly graphId: string
+  private readonly repoId: string
+  private cacheKey:        string
+  private initialCache:    LoadResult | null = null
+  private expandCache      = new Map<string, ExpandResponse>()
+  private noChildrenSet    = new Set<string>()
+  // nodeId → 被 hide 的直接子节点 ID 列表
+  private collapsedNodes   = new Map<string, string[]>()
+  private pruneTimer:      ReturnType<typeof setTimeout> | null = null
 
-  private abortController: AbortController | null = null
-  private activeQueue:     BatchQueue | null = null
-
-  constructor(graphId: string) {
-    this.graphId = graphId
+  constructor(repoId: string, analysisTimestamp = '') {
+    this.repoId   = repoId
+    this.cacheKey = `${repoId}:${analysisTimestamp}`
   }
 
-  // ── Abort ──────────────────────────────────────────────────────────────────
-
-  /**
-   * Cancel any in-progress load or streaming operation.
-   * Safe to call multiple times.
-   */
-  abort(): void {
-    this.abortController?.abort()
-    this.abortController = null
-    this.activeQueue?.cancel()
-    this.activeQueue = null
-
-    const store = useGraphEngineStore.getState()
-    if (store.loading.status === 'streaming' || store.loading.status === 'layout') {
-      store.setLoadingStatus('idle')
-    }
+  /** 仓库重新分析后调用，清除所有缓存 */
+  invalidateCache(newTimestamp = ''): void {
+    const newKey = `${this.repoId}:${newTimestamp}`
+    if (newKey === this.cacheKey) return
+    this.cacheKey     = newKey
+    this.initialCache = null
+    this.expandCache.clear()
+    this.noChildrenSet.clear()
+    this.collapsedNodes.clear()
   }
 
-  // ── 1. Load Initial Graph (LOD: Repository + Module) ──────────────────────
+  // ── 初始加载 ──────────────────────────────────────────────────────────────
 
-  /**
-   * Fetch and stream the initial graph summary (Repository + Module nodes).
-   *
-   * Sequence:
-   *  1. GET /graph/summary?graph_id=  (preferred, backend may not have it yet)
-   *  2. Falls back to GET /graph?graph_id= filtered to ['Repository','Module']
-   *  3. Streams results into store via RAF BatchQueue
-   *
-   * Resolves after ALL batches have been delivered to the store.
-   */
-  async loadInitialGraph(): Promise<LoadInitialResult> {
-    this.abort()
-    this.abortController = new AbortController()
+  async loadInitial(): Promise<LoadResult> {
+    if (this.initialCache) return this.initialCache
 
-    const store = useGraphEngineStore.getState()
-    store.setLoadingStatus('streaming')
-    store.setStreamProgress(0, 0)
+    let raw = await apiClient.get<FrameworkRaw>('/graph/framework', {
+      params: { repo_id: this.repoId },
+    })
 
-    try {
-      const data = await this.fetchSummary()
-      const nodes = normalizeNodes(data.nodes)
-      const edges = normalizeEdges(data.edges)
-
-      // Report full-graph totals immediately for progress-bar planning
-      store.setStreamProgress(0, data.total_node_count)
-
-      await this.streamIntoStore(nodes, edges, data.total_node_count)
-
-      store.setLoadingStatus('done')
-
-      return {
-        nodes,
-        edges,
-        nodeCount:      nodes.length,
-        edgeCount:      edges.length,
-        totalNodeCount: data.total_node_count,
-        totalEdgeCount: data.total_edge_count,
-      }
-    } catch (err) {
-      if ((err as Error).name === 'AbortError') {
-        // Silently swallow — caller triggered abort()
-        return { nodes: [], edges: [], nodeCount: 0, edgeCount: 0, totalNodeCount: 0, totalEdgeCount: 0 }
-      }
-      store.setLoadingError((err as Error).message)
-      throw err
-    }
-  }
-
-  // ── 2. Expand Node (Lazy Load Children) ───────────────────────────────────
-
-  /**
-   * Fetch and merge the direct children of `nodeId`.
-   *
-   * Sequence:
-   *  1. GET /graph/expand?graph_id=&node_id=
-   *  2. Normalize + mergeNodes / mergeEdges into store
-   *  3. Mark node as expanded
-   *
-   * No BatchQueue is used here — child sets are typically small (< 200 nodes).
-   * If `has_more` is true, the caller should call `expandNode` again or
-   * use `loadNextBatch` to page through further descendants.
-   */
-  async expandNode(nodeId: string): Promise<ExpandResult> {
-    const store = useGraphEngineStore.getState()
-    store.setExpandingNode(nodeId)
-
-    try {
-      const data = await this.fetchExpand(nodeId)
-      const nodes = normalizeNodes(data.nodes)
-      const edges = normalizeEdges(data.edges)
-
-      store.mergeNodes(nodes)
-      store.mergeEdges(edges)
-      store.markExpanded(nodeId)
-
-      return {
-        nodeId,
-        nodeCount: nodes.length,
-        edgeCount: edges.length,
-        hasMore:   data.has_more,
-      }
-    } finally {
-      // Always clear the spinner, even on error
-      useGraphEngineStore.getState().setExpandingNode(null)
-    }
-  }
-
-  // ── 3. Expand Node Raw (Return Without Storing) ───────────────────────────
-
-  /**
-   * Fetch the direct children of `nodeId` and return them directly.
-   *
-   * Unlike `expandNode`, this method does NOT write to the store.
-   * The caller is responsible for adding elements to the canvas via CyHandle.
-   *
-   * @returns Normalized nodes/edges, or empty arrays if the request fails.
-   */
-  async expandNodeRaw(nodeId: string): Promise<{
-    nodes: EngineGraphNode[]
-    edges: EngineGraphEdge[]
-    hasMore: boolean
-  }> {
-    try {
-      const data = await this.fetchExpand(nodeId)
-      return {
-        nodes:   normalizeNodes(data.nodes),
-        edges:   normalizeEdges(data.edges),
-        hasMore: data.has_more,
-      }
-    } catch (err) {
-      if ((err as Error).name === 'AbortError') {
-        return { nodes: [], edges: [], hasMore: false }
-      }
-      throw err
-    }
-  }
-
-  // ── 4. Load Next Batch (Pagination) ───────────────────────────────────────
-
-  /**
-   * Fetch the next page of the full graph and stream it into the store.
-   *
-   * Designed for progressive loading beyond the initial LOD snapshot.
-   * Call repeatedly until `hasMore === false`.
-   *
-   * @param offset  Zero-based starting position in the full node list.
-   * @param limit   Number of nodes to fetch per batch (default 500).
-   * @param types   Optional array of NodeType strings to filter (e.g. ['Function']).
-   *
-   * Resolves with the next offset and a `hasMore` flag.
-   */
-  async loadNextBatch(
-    offset: number,
-    limit = 500,
-    types?: string[],
-  ): Promise<LoadBatchResult> {
-    this.abortController = new AbortController()
-
-    const store = useGraphEngineStore.getState()
-    if (store.loading.status !== 'streaming') {
-      store.setLoadingStatus('streaming')
-    }
-
-    try {
-      const data = await this.fetchBatch(offset, limit, types)
-      const nodes = normalizeNodes(data.nodes)
-      const edges = normalizeEdges(data.edges)
-
-      await this.streamIntoStore(nodes, edges, data.total_node_count)
-
-      if (!data.has_more) {
-        store.setLoadingStatus('done')
-      }
-
-      return {
-        nodeCount:      nodes.length,
-        edgeCount:      edges.length,
-        totalNodeCount: data.total_node_count,
-        totalEdgeCount: data.total_edge_count,
-        nextOffset:     offset + data.nodes.length,
-        hasMore:        data.has_more,
-      }
-    } catch (err) {
-      if ((err as Error).name === 'AbortError') {
-        return {
-          nodeCount: 0, edgeCount: 0,
-          totalNodeCount: 0, totalEdgeCount: 0,
-          nextOffset: offset, hasMore: false,
-        }
-      }
-      useGraphEngineStore.getState().setLoadingError((err as Error).message)
-      throw err
-    }
-  }
-
-  // ── Private: API Calls ─────────────────────────────────────────────────────
-
-  /**
-   * Attempt to fetch the LOD-0 summary.
-   * Calls /graph/framework?repo_id=&node_types=Repository,Module
-   * Falls back to full graph with all node types if the framework endpoint returns 404.
-   */
-  private async fetchSummary(): Promise<SummaryResponse> {
-    const signal = this.abortController?.signal
-
-    type FrameworkRaw = {
-      repo_id:    string
-      node_count: number
-      edge_count: number
-      nodes:      RawNode[]
-      edges:      RawEdge[]
-    }
-
-    try {
-      const raw = await apiClient.get<FrameworkRaw>('/graph/framework', {
-        params: { repo_id: this.graphId, node_types: 'Repository,Module' },
-        signal,
+    if (raw.nodes.length === 0) {
+      // 极端情况：无架构层节点，拉全量前 500
+      const allRaw = await apiClient.get<FrameworkRaw>('/graph/framework', {
+        params: { repo_id: this.repoId, node_types: 'all' },
       })
-      // 数据中无 Repository/Module 节点（旧流水线产出）时触发 fallback
-      if (raw.nodes.length === 0) {
-        return this.fetchSummaryFallback(signal)
-      }
-      // 映射新字段名到 SummaryResponse 结构（保持下游消费者不变）
-      return {
-        graph_id:          this.graphId,
-        nodes:             raw.nodes,
-        edges:             raw.edges,
-        total_node_count:  raw.node_count,
-        total_edge_count:  raw.edge_count,
-      }
-    } catch (err) {
-      if (isNotFound(err)) {
-        return this.fetchSummaryFallback(signal)
-      }
-      throw err
-    }
-  }
-
-  /**
-   * Fallback: 优先使用后端默认架构类型过滤（ARCHITECTURE_NODE_TYPES），
-   * 仍为空时再请求全量并截取前 500 个节点防止卡顿。
-   */
-  private async fetchSummaryFallback(
-    signal?: AbortSignal,
-  ): Promise<SummaryResponse> {
-    type FrameworkRaw = {
-      repo_id: string; node_count: number; edge_count: number;
-      nodes: RawNode[]; edges: RawEdge[]
+      const nodes = allRaw.nodes.slice(0, FALLBACK_NODE_LIMIT)
+      console.warn(
+        `[GraphLoader] 无架构层节点，展示全量前 ${FALLBACK_NODE_LIMIT} 个节点 (共 ${allRaw.node_count} 个)`
+      )
+      raw = { ...allRaw, nodes, node_count: nodes.length }
     }
 
-    // 第一步：不传 node_types，让后端用 ARCHITECTURE_NODE_TYPES 过滤
-    const arch = await apiClient.get<FrameworkRaw>('/graph/framework', {
-      params: { repo_id: this.graphId },
-      signal,
-    })
-
-    if (arch.nodes.length > 0) {
-      return {
-        graph_id:         this.graphId,
-        nodes:            arch.nodes,
-        edges:            arch.edges,
-        total_node_count: arch.node_count,
-        total_edge_count: arch.edge_count,
-      }
-    }
-
-    // 第二步：架构层节点也为空（极端情况），拉全量但截取前 500 节点
-    const raw = await apiClient.get<FrameworkRaw>('/graph/framework', {
-      params: { repo_id: this.graphId, node_types: 'all' },
-      signal,
-    })
-
-    const NODE_LIMIT = 500
-    const summaryNodes = raw.nodes.slice(0, NODE_LIMIT)
-    const summaryNodeIds = new Set(summaryNodes.map(n => n.id))
-    const summaryEdges = raw.edges.filter(
-      e => summaryNodeIds.has(e.from) && summaryNodeIds.has(e.to),
-    )
-
-    return {
-      graph_id:         this.graphId,
-      nodes:            summaryNodes,
-      edges:            summaryEdges,
+    const result: LoadResult = {
+      nodes:            raw.nodes,
+      edges:            raw.edges,
       total_node_count: raw.node_count,
       total_edge_count: raw.edge_count,
     }
+    this.initialCache = result
+    return result
   }
 
-  private async fetchExpand(nodeId: string): Promise<ExpandResponse> {
-    return apiClient.get<ExpandResponse>('/graph/expand', {
-      params: { graph_id: this.graphId, node_id: nodeId },
-      signal: this.abortController?.signal,
-    })
-  }
+  // ── 节点展开 ──────────────────────────────────────────────────────────────
 
-  private async fetchBatch(
-    offset: number,
-    limit:  number,
-    types?: string[],
-  ): Promise<BatchResponse> {
-    return apiClient.get<BatchResponse>('/graph', {
+  async expandNode(nodeId: string, depth = 1): Promise<ExpandResponse | null> {
+    if (this.noChildrenSet.has(nodeId)) return null
+
+    if (this.collapsedNodes.has(nodeId)) {
+      // 已折叠 → 通知 Canvas uncollapse，不发请求
+      const childIds = this.collapsedNodes.get(nodeId) ?? []
+      this._dispatch('graphloader:uncollapse', { nodeId, childIds })
+      this.collapsedNodes.delete(nodeId)
+      useGraphEngineStore.getState().clearCollapsedCount(nodeId)
+      return null
+    }
+
+    if (this.expandCache.has(nodeId)) {
+      const cached = this.expandCache.get(nodeId)!
+      this._dispatch('graphloader:merge', { nodes: cached.nodes, edges: cached.edges })
+      useGraphEngineStore.getState().setLastExpandedNode(nodeId)
+      this._schedulePrune(nodeId)
+      return cached
+    }
+
+    const rawEdgeTypes = useMetaStore.getState().structuralEdgeTypes
+    const structuralEdgeTypes = rawEdgeTypes.length > 0
+      ? rawEdgeTypes.join(',')
+      : 'contains,depends_on,imports,extends,uses,implements,overrides,belongs_to'
+    const data = await apiClient.get<ExpandResponse>('/graph/expand', {
       params: {
-        graph_id: this.graphId,
-        limit,
-        offset,
-        ...(types?.length ? { types: types.join(',') } : {}),
+        repo_id:    this.repoId,
+        node_id:    nodeId,
+        depth,
+        edge_types: structuralEdgeTypes,
       },
-      signal: this.abortController?.signal,
     })
+
+    if (data.node_count === 0) {
+      this.noChildrenSet.add(nodeId)
+      useGraphEngineStore.getState().setCollapsedCount(nodeId, 0)
+      return data
+    }
+
+    this.expandCache.set(nodeId, data)
+    this._dispatch('graphloader:merge', { nodes: data.nodes, edges: data.edges })
+    useGraphEngineStore.getState().setLastExpandedNode(nodeId)
+    useGraphEngineStore.getState().markExpanded(nodeId)
+    this._schedulePrune(nodeId)
+    return data
   }
 
-  // ── Private: Streaming ─────────────────────────────────────────────────────
+  // ── 折叠 ─────────────────────────────────────────────────────────────────
 
-  /**
-   * Split `nodes` and `edges` into RAF-sized chunks and deliver them to
-   * GraphEngineStore one chunk per animation frame.
-   *
-   * Progress is reported after each batch via `store.setStreamProgress`.
-   *
-   * @param totalNodeHint  Full-graph node count (for accurate progress fraction).
-   *                       Pass 0 if unknown.
-   */
-  private streamIntoStore(
-    nodes:         EngineGraphNode[],
-    edges:         EngineGraphEdge[],
-    totalNodeHint: number,
-  ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const store    = useGraphEngineStore.getState()
-      const workItems = buildWorkQueue(nodes, edges)
+  collapseNode(nodeId: string): void {
+    const cached = this.expandCache.get(nodeId)
+    if (!cached) return
+    const childIds = cached.nodes.map(n => n.id)
+    this.collapsedNodes.set(nodeId, childIds)
+    this._dispatch('graphloader:collapse', { nodeId, childIds })
+    useGraphEngineStore.getState().setCollapsedCount(nodeId, childIds.length)
+  }
 
-      // Running tally of nodes delivered so far (edges don't count in progress)
-      let deliveredNodes = 0
+  // ── 内部工具 ─────────────────────────────────────────────────────────────
 
-      const queue = new BatchQueue(workItems, {
-        onBatch: (item: WorkItem, _progress: BatchProgress) => {
-          if (item.kind === 'nodes') {
-            store.mergeNodes(item.batch)
-            deliveredNodes += item.batch.length
-            store.setStreamProgress(
-              deliveredNodes,
-              Math.max(totalNodeHint, deliveredNodes),
-            )
-          } else {
-            store.mergeEdges(item.batch)
-          }
-        },
+  private _dispatch(event: string, detail: Record<string, unknown>): void {
+    window.dispatchEvent(new CustomEvent(event, { detail }))
+  }
 
-        onComplete: () => {
-          resolve()
-        },
-
-        onError: (err) => {
-          reject(err instanceof Error ? err : new Error(String(err)))
-        },
+  private _schedulePrune(centerNodeId: string): void {
+    if (this.pruneTimer) clearTimeout(this.pruneTimer)
+    this.pruneTimer = setTimeout(() => {
+      this._dispatch('graphloader:prune', {
+        centerNodeId,
+        limit:  VISIBLE_NODE_LIMIT,
+        target: PRUNE_TARGET,
       })
-
-      this.activeQueue = queue
-      queue.start()
-    })
+    }, PRUNE_DEBOUNCE_MS)
   }
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function isNotFound(err: unknown): boolean {
-  if (err instanceof Error) {
-    // Axios wraps HTTP errors — check common patterns
-    const msg = err.message.toLowerCase()
-    const status = (err as { response?: { status?: number } }).response?.status
-    return (
-      msg.includes('404') ||
-      msg.includes('not found') ||
-      // 405 means the path matched a different-method route (endpoint not implemented)
-      status === 404 ||
-      status === 405
-    )
-  }
-  return false
-}
-
-// ─── Factory ──────────────────────────────────────────────────────────────────
-
-/**
- * Create a GraphLoader bound to a specific graph.
- *
- * @example
- * ```ts
- * const loader = createGraphLoader('my-graph-id')
- * const result = await loader.loadInitialGraph()
- * // → { nodeCount: 42, edgeCount: 67, totalNodeCount: 95000, ... }
- *
- * await loader.expandNode('module::auth')
- *
- * let offset = result.nodeCount
- * let hasMore = true
- * while (hasMore) {
- *   const batch = await loader.loadNextBatch(offset)
- *   hasMore  = batch.hasMore
- *   offset   = batch.nextOffset
- * }
- * ```
- */
-export function createGraphLoader(graphId: string): GraphLoader {
-  return new GraphLoader(graphId)
+export function createGraphLoader(repoId: string, analysisTimestamp = ''): GraphLoader {
+  return new GraphLoader(repoId, analysisTimestamp)
 }

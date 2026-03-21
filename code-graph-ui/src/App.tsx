@@ -1,9 +1,10 @@
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense, lazy, useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { ConfigProvider, Spin } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import MainLayout from './layouts/MainLayout';
 import { antdTheme } from './theme';
+import { useMetaStore } from './store/metaStore';
 
 const Dashboard     = lazy(() => import('./pages/Dashboard'));
 const Repository    = lazy(() => import('./pages/Repository'));
@@ -26,26 +27,38 @@ const wrap = (C: React.ComponentType) => (
   <Suspense fallback={<PageLoader />}><C /></Suspense>
 );
 
-const App: React.FC = () => (
-  <ConfigProvider
-    locale={zhCN}
-    theme={antdTheme}
-  >
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<MainLayout />}>
-          <Route index                  element={wrap(Dashboard)} />
-          <Route path="repository"      element={wrap(Repository)} />
-          <Route path="architecture"    element={wrap(ArchitectureExplorer)} />
-          <Route path="callgraph"       element={wrap(CallGraph)} />
-          <Route path="lineage"         element={wrap(DataLineage)} />
-          <Route path="eventflow"       element={wrap(EventFlow)} />
-          <Route path="query"           element={wrap(GraphQuery)} />
-          <Route path="impact"          element={wrap(ImpactAnalysis)} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
-  </ConfigProvider>
-);
+const App: React.FC = () => {
+  useEffect(() => {
+    const fetchMeta = useMetaStore.getState().fetchNodeTypes
+    void fetchMeta()
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') void fetchMeta()
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [])
+
+  return (
+    <ConfigProvider
+      locale={zhCN}
+      theme={antdTheme}
+    >
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<MainLayout />}>
+            <Route index                  element={wrap(Dashboard)} />
+            <Route path="repository"      element={wrap(Repository)} />
+            <Route path="architecture"    element={wrap(ArchitectureExplorer)} />
+            <Route path="callgraph"       element={wrap(CallGraph)} />
+            <Route path="lineage"         element={wrap(DataLineage)} />
+            <Route path="eventflow"       element={wrap(EventFlow)} />
+            <Route path="query"           element={wrap(GraphQuery)} />
+            <Route path="impact"          element={wrap(ImpactAnalysis)} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </ConfigProvider>
+  )
+};
 
 export default App;
