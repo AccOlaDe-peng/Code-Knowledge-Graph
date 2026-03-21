@@ -22,3 +22,13 @@ def test_analyze_repository_writes_to_graph_storage(tmp_path):
     assert call_kwargs.kwargs["repo_id"] == "my-repo"
     assert "nodes" in call_kwargs.kwargs["graph"]
     assert "edges" in call_kwargs.kwargs["graph"]
+
+
+def test_write_to_graph_storage_handles_failure_gracefully():
+    """GraphStorage 写入失败时不应抛出异常。"""
+    with patch("backend.storage.graph_storage.GraphStorage") as MockStorage:
+        MockStorage.return_value.save_graph.side_effect = RuntimeError("disk full")
+        from backend.scheduler.tasks import _write_to_graph_storage
+        from backend.graph.graph_schema import GraphNode, GraphEdge
+        # 不应抛出异常
+        _write_to_graph_storage("repo", [], [])

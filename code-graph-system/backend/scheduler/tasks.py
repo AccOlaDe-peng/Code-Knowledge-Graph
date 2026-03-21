@@ -856,6 +856,8 @@ def _run_full_and_wrap(
         if built is not None:
             built.meta["git_commit"] = git_commit
             graph_repo.save(built, repo_name=repo_name)
+            # 同时写入 GraphStorage（API serving 层）
+            _write_to_graph_storage(repo_name, built.nodes, built.edges)
 
     logger.info(
         "_run_full_and_wrap DONE  graph=%s  nodes=%d  edges=%d  %.2fs",
