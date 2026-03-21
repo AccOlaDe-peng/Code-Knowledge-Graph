@@ -20,7 +20,6 @@ type GraphStore = {
   selectedNode:  GraphNode | null
 
   // Graph views
-  graph:        AsyncSlice<Graph>
   callGraph:    AsyncSlice<Graph>
   lineageGraph: AsyncSlice<Graph>
   eventGraph:   AsyncSlice<Graph>
@@ -32,7 +31,6 @@ type GraphStore = {
   setSelectedNode:  (node: GraphNode | null) => void
 
   // Actions — async loaders
-  loadGraph:       (repoId: string) => Promise<void>
   loadCallGraph:   (repoId: string) => Promise<void>
   loadLineage:     (repoId: string) => Promise<void>
   loadEvents:      (repoId: string) => Promise<void>
@@ -49,7 +47,6 @@ export const useGraphStore = create<GraphStore>((set) => ({
   activeGraphId: null,
   selectedNode:  null,
 
-  graph:        idle(),
   callGraph:    idle(),
   lineageGraph: idle(),
   eventGraph:   idle(),
@@ -63,20 +60,6 @@ export const useGraphStore = create<GraphStore>((set) => ({
   setSelectedNode: (node) => set({ selectedNode: node }),
 
   // ── Loaders ─────────────────────────────────────────────────────────────────
-
-  loadGraph: async (repoId) => {
-    set({ graph: { data: null, loading: true, error: null } })
-    try {
-      const res = await graphApi.getFramework(repoId, 'all')
-      const data = {
-        nodes: res.nodes.map(rawNodeToGraphNode),
-        edges: res.edges.map(rawEdgeToGraphEdge),
-      }
-      set({ graph: { data, loading: false, error: null } })
-    } catch (e) {
-      set({ graph: { data: null, loading: false, error: String(e) } })
-    }
-  },
 
   // Uses new /graph/call endpoint (GraphStorage-backed, lowercase node types)
   loadCallGraph: async (repoId) => {
@@ -151,7 +134,6 @@ export const useGraphStore = create<GraphStore>((set) => ({
 
   clearGraphs: () =>
     set({
-      graph:        idle(),
       callGraph:    idle(),
       lineageGraph: idle(),
       eventGraph:   idle(),

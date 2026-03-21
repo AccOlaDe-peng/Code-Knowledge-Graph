@@ -128,15 +128,15 @@ const ChartCard: React.FC<ChartCardProps> = ({ title, children }) => (
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate()
-  const { activeGraphId, graph, loadGraph } = useGraphStore()
+  const { activeGraphId, fullGraph, loadFullGraph } = useGraphStore()
   const { repos, loading: reposLoading } = useRepoStore()
 
   useEffect(() => {
-    if (activeGraphId) loadGraph(activeGraphId)
-  }, [activeGraphId, loadGraph])
+    if (activeGraphId) loadFullGraph(activeGraphId)
+  }, [activeGraphId, loadFullGraph])
 
-  const nodes: GraphNode[] = graph.data?.nodes ?? []
-  const edges: GraphEdge[] = graph.data?.edges ?? []
+  const nodes: GraphNode[] = fullGraph.data?.nodes ?? []
+  const edges: GraphEdge[] = fullGraph.data?.edges ?? []
 
   // ── Compute node type counts ──────────────────────────────────────────────
 
@@ -451,7 +451,7 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* ── Empty state for no data ───────────────────────────────────────── */}
-      {activeGraphId && nodes.length === 0 && !graph.loading && (
+      {activeGraphId && nodes.length === 0 && !fullGraph.loading && (
         <div style={{
           background:     'var(--s-raised)',
           border:         '1px solid var(--b-faint)',

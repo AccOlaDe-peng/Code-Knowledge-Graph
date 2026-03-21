@@ -106,7 +106,7 @@ function computeImpact(
 
 const ImpactAnalysis: React.FC = () => {
   const { activeRepo } = useRepoStore();
-  const { graph, loadGraph } = useGraphStore();
+  const { fullGraph, loadFullGraph } = useGraphStore();
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [impactResults, setImpactResults] = useState<ImpactResult[]>([]);
@@ -114,26 +114,26 @@ const ImpactAnalysis: React.FC = () => {
 
   // Load graph on mount
   useEffect(() => {
-    if (activeRepo?.graphId && !graph.data && !graph.loading) {
-      loadGraph(activeRepo.graphId);
+    if (activeRepo?.graphId && !fullGraph.data && !fullGraph.loading) {
+      loadFullGraph(activeRepo.graphId);
     }
-  }, [activeRepo, graph.data, graph.loading, loadGraph]);
+  }, [activeRepo, fullGraph.data, fullGraph.loading, loadFullGraph]);
 
   // Filter nodes by analyzable types
   const analyzableNodes = useMemo(() => {
-    if (!graph.data?.nodes) return [];
-    return graph.data.nodes
+    if (!fullGraph.data?.nodes) return [];
+    return fullGraph.data.nodes
       .filter((n) => ANALYZABLE_TYPES.includes(n.type))
       .sort((a, b) => {
         const labelA = a.label || a.id || "";
         const labelB = b.label || b.id || "";
         return labelA.localeCompare(labelB);
       });
-  }, [graph.data]);
+  }, [fullGraph.data]);
 
   // Compute impact when node is selected
   useEffect(() => {
-    if (!selectedNodeId || !graph.data) {
+    if (!selectedNodeId || !fullGraph.data) {
       setImpactResults([]);
       setImpactStats(null);
       return;
@@ -141,33 +141,33 @@ const ImpactAnalysis: React.FC = () => {
 
     const { results, stats } = computeImpact(
       selectedNodeId,
-      graph.data.nodes,
-      graph.data.edges,
+      fullGraph.data.nodes,
+      fullGraph.data.edges,
     );
 
     setImpactResults(results);
     setImpactStats(stats);
-  }, [selectedNodeId, graph.data]);
+  }, [selectedNodeId, fullGraph.data]);
 
   // Build impact graph (source + impacted nodes + edges)
   const impactGraph = useMemo(() => {
-    if (!selectedNodeId || !graph.data || impactResults.length === 0) {
+    if (!selectedNodeId || !fullGraph.data || impactResults.length === 0) {
       return { nodes: [], edges: [] };
     }
 
-    const sourceNode = graph.data.nodes.find((n) => n.id === selectedNodeId);
+    const sourceNode = fullGraph.data.nodes.find((n) => n.id === selectedNodeId);
     if (!sourceNode) return { nodes: [], edges: [] };
 
     const impactedNodeIds = new Set(impactResults.map((r) => r.node.id));
     impactedNodeIds.add(selectedNodeId);
 
-    const nodes = graph.data.nodes.filter((n) => impactedNodeIds.has(n.id));
-    const edges = graph.data.edges.filter(
+    const nodes = fullGraph.data.nodes.filter((n) => impactedNodeIds.has(n.id));
+    const edges = fullGraph.data.edges.filter(
       (e) => impactedNodeIds.has(e.source) && impactedNodeIds.has(e.target),
     );
 
     return { nodes, edges };
-  }, [selectedNodeId, graph.data, impactResults]);
+  }, [selectedNodeId, fullGraph.data, impactResults]);
 
   // ─── Render ───────────────────────────────────────────────────────────────────
 
@@ -183,7 +183,7 @@ const ImpactAnalysis: React.FC = () => {
     );
   }
 
-  if (graph.loading) {
+  if (fullGraph.loading) {
     return (
       <div
         style={{ padding: 24, display: "flex", alignItems: "center", gap: 12 }}
@@ -211,10 +211,10 @@ const ImpactAnalysis: React.FC = () => {
     );
   }
 
-  if (graph.error) {
+  if (fullGraph.error) {
     return (
       <div style={{ padding: 24 }}>
-        <Alert type="error" message="图谱加载失败" description={graph.error} />
+        <Alert type="error" message="图谱加载失败" description={fullGraph.error} />
       </div>
     );
   }
