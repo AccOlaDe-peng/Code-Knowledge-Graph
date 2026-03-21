@@ -250,20 +250,19 @@ API 分为 4 个 Router，均挂载在 `backend/api/server.py`：
 
 **图谱数据（`routers/graphs.py`）：**
 
-| 方法   | 路径              | 说明                                                    |
-| ------ | ----------------- | ------------------------------------------------------- |
-| GET    | `/graph`          | 无 `graph_id` 返回列表；有则返回节点+边                 |
-| GET    | `/graph/data`     | 通用图谱数据（按 node_types/edge_types 过滤）           |
-| GET    | `/graph/call`     | 调用图（Function/API 节点 + calls 边）                  |
-| GET    | `/graph/module`   | 模块依赖图（Module 节点 + depends_on 边）               |
-| GET    | `/graph/summary`  | 图谱摘要统计                                            |
-| GET    | `/graph/export`   | 导出图谱（JSON/CSV 格式）                               |
-| DELETE | `/graph/{id}`     | 删除图谱 JSON + Neo4j 数据                              |
-| DELETE | `/repo/{repo_id}` | 删除仓库状态记录（无 graph_id 的仓库，如分析失败后）    |
-| GET    | `/callgraph`      | Function/API 节点 + calls 边                            |
-| GET    | `/lineage`        | depends_on / reads / writes / produces / consumes 边    |
-| GET    | `/events`         | Event/Topic 节点 + produces/consumes 边                 |
-| GET    | `/services`       | Service / Cluster / Database 节点                       |
+| 方法 | 路径                | 说明                                                                           |
+| ---- | ------------------- | ------------------------------------------------------------------------------ |
+| GET  | `/graph/framework`  | 架构图视图（`repo_id` + 可选 `node_types`；默认过滤细粒度节点）                |
+| GET  | `/graph/call`       | 调用图视图（`repo_id` + 可选 `node_id`/`depth`；无 `node_id` 返回全图）        |
+| GET  | `/graph/lineage`    | 数据血缘视图（`repo_id` + 可选 `edge_types`/`node_id`/`depth`）                |
+| GET  | `/events`           | 事件流图（`graph_id`；Event/Topic 节点 + produces/consumes 边）                |
+| GET  | `/services`         | 基础设施服务图（`graph_id`；Service/Cluster/Database 节点）                    |
+
+**参数说明：**
+- `/graph/framework`：`node_types=all` 返回全部节点；不传使用 `ARCHITECTURE_NODE_TYPES` 默认集合
+- `/graph/call`：`node_id` 指定后 BFS 展开调用子图，`depth` 控制深度（默认 2，最大 5）
+- `/graph/lineage`：默认追踪 `depends_on`/`reads`/`writes`/`produces`/`consumes`/`imports`
+- `/events` 和 `/services` 仍使用 `graph_id`（GraphRepository 体系），不在本次重构范围
 
 **查询（`routers/query.py`）：**
 
