@@ -28,23 +28,28 @@ echo "ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:0:20}..."
 echo "LLM_MODEL: $LLM_MODEL"
 echo ""
 
-# 清除 Redis 队列和任务结果
+# 清除 Redis 队列和任务结果（使用 Python，无需 redis-cli）
 echo "清除 Redis 任务队列和结果..."
-BROKER_DB=$(echo "${CELERY_BROKER_URL:-redis://localhost:6379/0}" | grep -oE '[0-9]+$')
-BACKEND_DB=$(echo "${CELERY_RESULT_BACKEND:-redis://localhost:6379/1}" | grep -oE '[0-9]+$')
-BROKER_DB=${BROKER_DB:-0}
-BACKEND_DB=${BACKEND_DB:-1}
+BROKER_URL="${CELERY_BROKER_URL:-redis://localhost:6379/0}"
+BACKEND_URL="${CELERY_RESULT_BACKEND:-redis://localhost:6379/1}"
 
-FLUSH1=$(redis-cli -n "$BROKER_DB"  FLUSHDB 2>&1); EXIT1=$?
-FLUSH2=$(redis-cli -n "$BACKEND_DB" FLUSHDB 2>&1); EXIT2=$?
+python - <<EOF
+import sys, redis
+def flush(url, label):
+    try:
+        r = redis.Redis.from_url(url, socket_connect_timeout=3)
+        r.flushdb()
+        print(f'OK: {label} ({url}) cleared')
+    except Exception as e:
+        print(f'ERROR: {label} ({url}) - {e}', file=sys.stderr)
+        sys.exit(1)
+flush('${BROKER_URL}',  'broker')
+flush('${BACKEND_URL}', 'result')
+EOF
 
-if [ $EXIT1 -eq 0 ] && [ $EXIT2 -eq 0 ]; then
-    echo "Redis 已清除 (broker db=$BROKER_DB, result db=$BACKEND_DB)"
-else
+if [ $? -ne 0 ]; then
     echo "ERROR: Redis 清除失败！为避免执行残留任务，Worker 不会启动。" >&2
-    echo "  broker flush: exit=$EXIT1 output=$FLUSH1" >&2
-    echo "  result flush: exit=$EXIT2 output=$FLUSH2" >&2
-    echo "请确认 redis-cli 已安装且 Redis 正在运行。" >&2
+    echo "请确认 Redis 正在运行: $BROKER_URL" >&2
     exit 1
 fi
 echo ""
