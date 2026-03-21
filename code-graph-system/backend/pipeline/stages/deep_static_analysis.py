@@ -120,6 +120,12 @@ class DeepStaticAnalysisStage(StageBase):
             file_skeletons, import_graph
         )
 
+        # Step 5: 提取调用图边（calls 类型）
+        call_edges = self._extract_call_edges(repo_path, files_to_parse, file_skeletons, structural_nodes)
+        structural_edges.extend(call_edges)
+        if call_edges:
+            logger.info("调用图提取: %d calls 边", len(call_edges))
+
         elapsed_ms = int((time.time() - start_time) * 1000)
 
         # 发送完成事件
@@ -360,6 +366,65 @@ class DeepStaticAnalysisStage(StageBase):
                 pass  # TODO: 在后续迭代中实现完整的导入图边生成
 
         return nodes, edges, low_confidence_edges
+
+    def _extract_call_edges(
+        self,
+        repo_path: Path,
+        files: dict[str, FileInfo],
+        skeletons: dict[str, FileSkeleton],
+        structural_nodes: list,
+    ) -> list[GraphEdge]:
+        """从源文件中静态提取 calls 类型边。
+
+        只处理 Java 和 Python 文件（其他语言暂无 AST 支持）。
+        callee 必须已在 structural_nodes 中（即 public 方法节点），否则忽略。
+        """
+        from backend.pipeline.stages.call_graph_extractor import extract_file_calls
+
+        # 构建已知函数节点 ID 集合（仅 function 节点）
+        node_ids: set[str] = {
+            n.id for n in structural_nodes if n.type == "Function"
+        }
+        if not node_ids:
+            return []
+
+        # 构建类名 -> 文件路径映射（用于跨文件调用解析）
+        class_to_file: dict[str, str] = {}
+        for rel_path, skeleton in skeletons.items():
+            for cls in skeleton.classes:
+                class_to_file[cls.name] = rel_path
+
+        call_edges: list[GraphEdge] = []
+
+        for rel_path, file_info in files.items():
+            lang = file_info.language.lower() if file_info.language else ""
+            if lang not in ("java", "python"):
+                continue
+
+            skeleton = skeletons.get(rel_path)
+            if not skeleton or not skeleton.classes:
+                continue  # 跳过无类定义的文件（减少无效解析）
+
+            try:
+                source = (repo_path / rel_path).read_text(
+                    encoding="utf-8", errors="replace"
+                )
+            except OSError as exc:
+                logger.debug("无法读取文件: %s — %s", rel_path, exc)
+                continue
+
+            raw_calls = extract_file_calls(
+                source, rel_path, lang, node_ids, class_to_file
+            )
+            for caller_id, callee_id, confidence in raw_calls:
+                call_edges.append(GraphEdge(
+                    from_=caller_id,
+                    to=callee_id,
+                    type=EdgeType.CALLS.value,
+                    properties={"source": "static", "confidence": confidence},
+                ))
+
+        return call_edges
 
     def _infer_node_type(self, cls: ClassInfo) -> str:
         """根据类注解推断节点类型。"""
