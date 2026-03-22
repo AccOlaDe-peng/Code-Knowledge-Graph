@@ -11,6 +11,7 @@ import {
 } from '../../../graph-engine/store'
 import type { GraphEngineState } from '../../../graph-engine/store'
 import type { EngineGraphNode, EngineGraphEdge } from '../../../graph-engine/types'
+import { GraphMinimap } from '../../../graph-engine/components/GraphMinimap'
 
 import { buildCyStylesheet, buildCyNode, buildCyEdge } from './cyStyles'
 
@@ -56,6 +57,8 @@ export type GraphCanvasProps = {
   showStats?:         boolean
   /** Show zoom in/out/fit controls. Default: true. */
   showControls?:      boolean
+  /** Show minimap navigation. Default: true. */
+  showMinimap?:       boolean
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -130,6 +133,7 @@ export const GraphCanvas = React.forwardRef<CyHandle, GraphCanvasProps>(function
   onBackgroundClick,
   showStats    = true,
   showControls = true,
+  showMinimap  = true,
 }, ref) {
   const containerRef = useRef<HTMLDivElement>(null)
   const cyRef        = useRef<Core | null>(null)
@@ -140,6 +144,7 @@ export const GraphCanvas = React.forwardRef<CyHandle, GraphCanvasProps>(function
   const loadProgress    = useGraphEngineStore(s => s.loading.progress)
   const zoom            = useGraphEngineStore(selectZoom)
   const totalCount      = useGraphEngineStore(selectNodeCount)
+  const isDragging      = useGraphEngineStore(s => s.isDragging)
 
   // ── Zoom controls ─────────────────────────────────────────────────────────
 
@@ -269,6 +274,8 @@ export const GraphCanvas = React.forwardRef<CyHandle, GraphCanvasProps>(function
       // Blend previous frame with current during motion for a smoother feel.
       motionBlur:           true,
       motionBlurOpacity:    0.08,
+      // Hide edges during viewport pan/zoom for better performance.
+      hideEdgesOnViewport:  true,
       // Slow down mouse wheel zoom — default (1.0) is too aggressive.
       wheelSensitivity:     0.2,
       // Disable box selection: not needed and adds per-frame rect-hit tests.
@@ -300,6 +307,15 @@ export const GraphCanvas = React.forwardRef<CyHandle, GraphCanvasProps>(function
             inst.$id(id).addClass('highlighted')
           })
           inst.endBatch()
+        }
+
+        // Drag state: hide/show edges during node drag for performance
+        if (state.isDragging !== prev.isDragging) {
+          if (state.isDragging) {
+            inst.edges().addClass('hidden-during-drag')
+          } else {
+            inst.edges().removeClass('hidden-during-drag')
+          }
         }
       },
     )
@@ -361,8 +377,36 @@ export const GraphCanvas = React.forwardRef<CyHandle, GraphCanvasProps>(function
       useGraphEngineStore.getState().updateViewport(cy.pan(), cy.zoom())
     })
 
+    // ── Drag: hide edges during drag for performance ──────────────────────────
+    cy.on('grab', 'node', () => {
+      useGraphEngineStore.getState().setDragging(true)
+    })
+    cy.on('free', 'node', () => {
+      useGraphEngineStore.getState().setDragging(false)
+    })
+
+    // ── Minimap navigation ─────────────────────────────────────────────────────
+    const handleMinimapNavigate = (e: CustomEvent<{ x: number; y: number }>) => {
+      const { x, y } = e.detail
+      // Calculate pan to center on the target position
+      const container = containerRef.current
+      if (!container) return
+      const zoom = cy.zoom()
+      const newPan = {
+        x: (container.clientWidth / 2) - (x * zoom),
+        y: (container.clientHeight / 2) - (y * zoom),
+      }
+      cy.animate({
+        pan: newPan,
+        duration: 300,
+        easing: 'ease-in-out-cubic',
+      })
+    }
+    window.addEventListener('minimap:pan-to', handleMinimapNavigate as EventListener)
+
     // ── Cleanup ───────────────────────────────────────────────────────────────
     return () => {
+      window.removeEventListener('minimap:pan-to', handleMinimapNavigate as EventListener)
       unsubscribeStore()
       cy.destroy()
       cyRef.current = null
@@ -385,9 +429,24 @@ export const GraphCanvas = React.forwardRef<CyHandle, GraphCanvasProps>(function
       {/* ── Cytoscape canvas mount point ─────────────────────────────────── */}
       <div
         ref={containerRef}
-        style={{ width: '100%', height: '100%' }}
+        style={{
+          width: '100%',
+          height: '100%',
+          // Hide edges during drag for performance
+          opacity: isDragging ? 0.85 : 1,
+        }}
         aria-label="Graph canvas"
+        className={isDragging ? 'graph-canvas-dragging' : undefined}
       />
+
+      {/* ── Drag indicator (optional visual feedback) ─────────────────────── */}
+      {isDragging && (
+        <style>{`
+          .graph-canvas-dragging canvas {
+            cursor: grabbing !important;
+          }
+        `}</style>
+      )}
 
       {/* ── Loading overlay ───────────────────────────────────────────────── */}
       {isLoading && (
@@ -450,6 +509,11 @@ export const GraphCanvas = React.forwardRef<CyHandle, GraphCanvasProps>(function
       {/* ── Empty state ───────────────────────────────────────────────────── */}
       {totalCount === 0 && !isLoading && (
         <EmptyState />
+      )}
+
+      {/* ── Minimap ────────────────────────────────────────────────────────── */}
+      {showMinimap && totalCount > 0 && !isLoading && (
+        <GraphMinimap width={160} height={100} />
       )}
     </div>
   )

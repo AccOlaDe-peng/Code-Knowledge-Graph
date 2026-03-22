@@ -196,6 +196,14 @@ export function buildCyStylesheet(): StylesheetStyle[] {
       },
     },
 
+    // ── Edge: hidden during node drag (performance optimization) ─────────────
+    {
+      selector: 'edge.hidden-during-drag',
+      style: {
+        'display': 'none',
+      },
+    },
+
     // ── Labels: hide at very low zoom (managed by LOD, but as fallback) ──────
     {
       selector: 'node[zoom < 0.3]',

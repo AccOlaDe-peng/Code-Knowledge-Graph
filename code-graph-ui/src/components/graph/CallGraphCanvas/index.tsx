@@ -1,9 +1,10 @@
 // src/components/graph/CallGraphCanvas/index.tsx
 
-import React, { useEffect, useRef, useImperativeHandle, forwardRef } from 'react'
+import { useEffect, useRef, useImperativeHandle, forwardRef } from 'react'
 import cytoscape from 'cytoscape'
 import cydagre from 'cytoscape-dagre'
-import type { Core } from 'cytoscape'
+import cyCoseBilkent from 'cytoscape-cose-bilkent'
+import type { Core, Position } from 'cytoscape'
 import type { GraphNode, GraphEdge } from '../../../types/graph'
 import {
   buildCyNode,
@@ -12,10 +13,9 @@ import {
   edgeId,
 } from './callGraphStyles'
 
-// Register dagre layout plugin — guard against double-registration
-// (GraphCanvas, GraphViewer, and other components also call cytoscape.use at
-//  module scope; Cytoscape throws if the same plugin is registered twice)
+// Register layout plugins — guard against double-registration
 try { cytoscape.use(cydagre) } catch (_) { /* already registered */ }
+try { cytoscape.use(cyCoseBilkent) } catch (_) { /* already registered */ }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -28,6 +28,12 @@ export interface CallGraphCanvasProps {
   /** Edge IDs in format `${src}-[${type}]->${tgt}` */
   focusEdgeIds?: Set<string>
   onNodeClick?: (nodeId: string) => void
+  /** Show minimap navigation */
+  showMinimap?: boolean
+  /** Layout algorithm: LR (left-right), TB (top-bottom), or force (cose-bilkent) */
+  layoutAlgo?: 'LR' | 'TB' | 'force'
+  /** Unique key for viewport persistence. If provided, viewport state is saved to localStorage. */
+  storageKey?: string
 }
 
 export interface CallGraphCanvasHandle {
@@ -38,15 +44,24 @@ export interface CallGraphCanvasHandle {
 
 // ─── Layout config ────────────────────────────────────────────────────────────
 
-const LAYOUT_OPTIONS = {
-  name: 'dagre',
-  rankDir: 'LR',
-  nodeSep: 44,
-  rankSep: 90,
-  marginx: 24,
-  marginy: 24,
-  animate: false,
-} as const
+function getLayoutOptions(algo: 'LR' | 'TB' | 'force') {
+  if (algo === 'force') {
+    return {
+      name: 'cose-bilkent',
+      animate: false,
+      randomize: true,
+    }
+  }
+  return {
+    name: 'dagre',
+    rankDir: algo,
+    nodeSep: 44,
+    rankSep: 90,
+    marginx: 24,
+    marginy: 24,
+    animate: false,
+  }
+}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -60,14 +75,42 @@ const CallGraphCanvas = forwardRef<CallGraphCanvasHandle, CallGraphCanvasProps>(
       dimmedIds = new Set(),
       focusEdgeIds = new Set(),
       onNodeClick,
+      showMinimap = true,
+      layoutAlgo = 'LR',
+      storageKey,
     },
     ref,
   ) => {
     const containerRef = useRef<HTMLDivElement>(null)
+    const minimapContainerRef = useRef<HTMLDivElement>(null)
     const cyRef = useRef<Core | null>(null)
+    const minimapCyRef = useRef<Core | null>(null)
+    const saveViewportTimerRef = useRef<number | null>(null)
     // Keep latest callback in a ref to avoid stale closure in Cytoscape listener
     const onNodeClickRef = useRef(onNodeClick)
     useEffect(() => { onNodeClickRef.current = onNodeClick }, [onNodeClick])
+
+    // ── Helper: Save/Load viewport ────────────────────────────────────────────
+    const saveViewport = (cy: Core) => {
+      if (!storageKey) return
+      const state = { pan: cy.pan(), zoom: cy.zoom() }
+      try {
+        localStorage.setItem(`cg-viewport:${storageKey}`, JSON.stringify(state))
+      } catch { /* ignore */ }
+    }
+
+    const loadViewport = (cy: Core): boolean => {
+      if (!storageKey) return false
+      try {
+        const saved = localStorage.getItem(`cg-viewport:${storageKey}`)
+        if (saved) {
+          const { pan, zoom } = JSON.parse(saved)
+          cy.viewport({ zoom, pan })
+          return true
+        }
+      } catch { /* ignore */ }
+      return false
+    }
 
     // ── Initialise Cytoscape once ──────────────────────────────────────────────
     useEffect(() => {
@@ -92,9 +135,70 @@ const CallGraphCanvas = forwardRef<CallGraphCanvasHandle, CallGraphCanvasProps>(
         onNodeClickRef.current?.(evt.target.id())
       })
 
+      // ── Drag performance: hide edges during node drag ──────────────────────
+      cy.on('grab', 'node', () => {
+        cy.edges().addClass('hidden-during-drag')
+      })
+      cy.on('free', 'node', () => {
+        cy.edges().removeClass('hidden-during-drag')
+      })
+
+      // ── Viewport persistence: save to localStorage on pan/zoom ─────────────
+      cy.on('pan zoom', () => {
+        if (saveViewportTimerRef.current) {
+          clearTimeout(saveViewportTimerRef.current)
+        }
+        saveViewportTimerRef.current = window.setTimeout(() => {
+          saveViewport(cy)
+        }, 500) // Debounce 500ms
+      })
+
       cyRef.current = cy
-      return () => { cy.destroy(); cyRef.current = null }
-    }, []) // run once
+
+      // ── Initialize minimap if enabled ───────────────────────────────────────
+      if (showMinimap && minimapContainerRef.current) {
+        const minimapCy = cytoscape({
+          container: minimapContainerRef.current,
+          elements: [],
+          style: [
+            { selector: 'node', style: { width: 3, height: 3, 'background-color': '#3a5a6a', opacity: 0.6 } },
+            { selector: 'edge', style: { display: 'none' } },
+          ],
+          zoomingEnabled: false,
+          panningEnabled: false,
+          boxSelectionEnabled: false,
+          minZoom: 1,
+          maxZoom: 1,
+          zoom: 1,
+        })
+        minimapCyRef.current = minimapCy
+
+        // Click to navigate
+        minimapCy.on('tap', (evt) => {
+          if (evt.target === minimapCy && evt.position) {
+            const pos = evt.position
+            const container = containerRef.current
+            if (!container) return
+            const zoom = cy.zoom()
+            const newPan = {
+              x: (container.clientWidth / 2) - (pos.x * zoom),
+              y: (container.clientHeight / 2) - (pos.y * zoom),
+            }
+            cy.animate({ pan: newPan, duration: 300, easing: 'ease-in-out-cubic' })
+          }
+        })
+      }
+
+      return () => {
+        if (saveViewportTimerRef.current) {
+          clearTimeout(saveViewportTimerRef.current)
+        }
+        minimapCyRef.current?.destroy()
+        minimapCyRef.current = null
+        cy.destroy()
+        cyRef.current = null
+      }
+    }, [showMinimap, storageKey]) // run once
 
     // ── Expose imperative handle ───────────────────────────────────────────────
     useImperativeHandle(ref, () => ({
@@ -117,7 +221,7 @@ const CallGraphCanvas = forwardRef<CallGraphCanvasHandle, CallGraphCanvasProps>(
         return new Promise((resolve) => {
           const cy = cyRef.current
           if (!cy || !cy.nodes().length) { resolve(); return }
-          const layout = cy.layout(LAYOUT_OPTIONS as Parameters<Core['layout']>[0])
+          const layout = cy.layout(getLayoutOptions(layoutAlgo) as Parameters<Core['layout']>[0])
           layout.one('layoutstop', () => resolve())
           layout.run()
         })
@@ -148,15 +252,58 @@ const CallGraphCanvas = forwardRef<CallGraphCanvasHandle, CallGraphCanvasProps>(
         edgesToAdd.forEach((e) => cy.add(buildCyEdge(e)))
       })
 
-      if (!changed) return
+      // Always run layout when nodes change or layoutAlgo changes
+      if (!changed && cy.nodes().length === 0) return
 
-      // Re-run layout then fit
-      const layout = cy.layout(LAYOUT_OPTIONS as Parameters<Core['layout']>[0])
+      // Re-run layout then fit or restore viewport
+      const layout = cy.layout(getLayoutOptions(layoutAlgo) as Parameters<Core['layout']>[0])
       layout.one('layoutstop', () => {
-        cy.fit(undefined, 40)
+        // Try to restore saved viewport, otherwise fit
+        const restored = loadViewport(cy)
+        if (!restored) {
+          cy.fit(undefined, 40)
+        }
+        // Sync positions to minimap after layout
+        const minimapCy = minimapCyRef.current
+        if (minimapCy && showMinimap) {
+          minimapCy.elements().remove()
+          const positions: { data: { id: string }; position: Position }[] = []
+          cy.nodes().forEach((n) => {
+            positions.push({ data: { id: n.id() }, position: n.position() })
+          })
+          if (positions.length > 0) {
+            minimapCy.add(positions)
+            minimapCy.fit(undefined, 10)
+          }
+        }
       })
       layout.run()
-    }, [nodes, edges, nodeDegrees])
+    }, [nodes, edges, nodeDegrees, showMinimap, storageKey])
+
+    // ── Re-run layout when layoutAlgo changes ───────────────────────────────────
+    useEffect(() => {
+      const cy = cyRef.current
+      if (!cy || cy.nodes().length === 0) return
+
+      const layout = cy.layout(getLayoutOptions(layoutAlgo) as Parameters<Core['layout']>[0])
+      layout.one('layoutstop', () => {
+        cy.fit(undefined, 40)
+        // Sync positions to minimap
+        const minimapCy = minimapCyRef.current
+        if (minimapCy && showMinimap) {
+          minimapCy.elements().remove()
+          const positions: { data: { id: string }; position: Position }[] = []
+          cy.nodes().forEach((n) => {
+            positions.push({ data: { id: n.id() }, position: n.position() })
+          })
+          if (positions.length > 0) {
+            minimapCy.add(positions)
+            minimapCy.fit(undefined, 10)
+          }
+        }
+      })
+      layout.run()
+    }, [layoutAlgo, showMinimap])
 
     // ── Sync highlight / dim / focal-edge classes ──────────────────────────────
     useEffect(() => {
@@ -172,10 +319,48 @@ const CallGraphCanvas = forwardRef<CallGraphCanvasHandle, CallGraphCanvasProps>(
 
     // ── Render ────────────────────────────────────────────────────────────────
     return (
-      <div
-        ref={containerRef}
-        style={{ width: '100%', height: '100%', background: '#07090d' }}
-      />
+      <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+        <div
+          ref={containerRef}
+          style={{ width: '100%', height: '100%', background: '#07090d' }}
+        />
+        {/* Minimap */}
+        {showMinimap && nodes.length > 0 && (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: 12,
+              right: 12,
+              width: 140,
+              height: 90,
+              background: 'rgba(7,9,13,0.9)',
+              borderRadius: 4,
+              border: '1px solid rgba(255,255,255,0.06)',
+              overflow: 'hidden',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+              zIndex: 10,
+            }}
+          >
+            <div
+              ref={minimapContainerRef}
+              style={{ width: '100%', height: '100%', cursor: 'crosshair' }}
+            />
+            <div style={{
+              position: 'absolute',
+              top: 4,
+              left: 6,
+              fontFamily: '"IBM Plex Mono", monospace',
+              fontSize: 7,
+              color: 'rgba(58,90,106,0.8)',
+              letterSpacing: '0.1em',
+              textTransform: 'uppercase',
+              pointerEvents: 'none',
+            }}>
+              MINIMAP
+            </div>
+          </div>
+        )}
+      </div>
     )
   },
 )

@@ -174,5 +174,13 @@ export function buildCallGraphStylesheet(): StylesheetStyle[] {
         'opacity': 0.1,
       },
     },
+
+    // ── Edge: hidden during node drag (performance optimization) ───────────────
+    {
+      selector: 'edge.hidden-during-drag',
+      style: {
+        'display': 'none',
+      },
+    },
   ]
 }

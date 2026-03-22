@@ -1,8 +1,8 @@
 // src/pages/CallGraph/index.tsx
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Input, Slider, Button, Tooltip, Spin } from 'antd'
-import { SearchOutlined, ReloadOutlined, AimOutlined } from '@ant-design/icons'
+import { Input, Slider, Button, Tooltip, Spin, Select } from 'antd'
+import { SearchOutlined, ReloadOutlined, AimOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
 import { useGraphStore } from '../../store/graphStore'
 import { useRepoStore } from '../../store/repoStore'
 import NodeDetailPanel from '../../components/NodeDetailPanel'
@@ -73,6 +73,8 @@ const CallGraph: React.FC = () => {
   const [focusNodeId, setFocusNodeId]     = useState<string | null>(null)
   const [panelNode, setPanelNode]         = useState<GraphNode | null>(null)
   const [largeGraphHint, setLargeGraphHint] = useState(false)
+  const [layoutAlgo, setLayoutAlgo]       = useState<'LR' | 'TB' | 'force'>('LR')
+  const [searchIndex, setSearchIndex]     = useState(0)
 
   // Load data when repo changes
   useEffect(() => {
@@ -160,19 +162,46 @@ const CallGraph: React.FC = () => {
   }, [rawData, visibleIds])
 
   // Search highlight sets
-  const { highlightedIds, dimmedIds } = useMemo(() => {
-    if (!searchQuery || !rawData) return { highlightedIds: new Set<string>(), dimmedIds: new Set<string>() }
+  const { highlightedIds, dimmedIds, searchResults } = useMemo(() => {
+    if (!searchQuery || !rawData) return { highlightedIds: new Set<string>(), dimmedIds: new Set<string>(), searchResults: [] as string[] }
     const q = searchQuery.toLowerCase()
-    const matched = new Set(
-      rawData.nodes
-        .filter((n) => (n.label ?? '').toLowerCase().includes(q))
-        .map((n) => n.id),
-    )
+    const results = rawData.nodes
+      .filter((n) => (n.label ?? '').toLowerCase().includes(q))
+      .map((n) => n.id)
+    const matched = new Set(results)
     const dimmed = matched.size > 0
       ? new Set(rawData.nodes.filter((n) => !matched.has(n.id)).map((n) => n.id))
       : new Set<string>()
-    return { highlightedIds: matched, dimmedIds: dimmed }
+    return { highlightedIds: matched, dimmedIds: dimmed, searchResults: results }
   }, [searchQuery, rawData])
+
+  // Reset search index when search query changes
+  useEffect(() => {
+    setSearchIndex(0)
+  }, [searchQuery])
+
+  // Auto-focus first search result
+  useEffect(() => {
+    if (searchResults.length > 0 && searchIndex < searchResults.length) {
+      const targetId = searchResults[searchIndex]
+      canvasRef.current?.focusNode(targetId)
+    }
+  }, [searchResults, searchIndex])
+
+  // Search navigation handlers
+  const handleSearchPrev = () => {
+    if (searchResults.length === 0) return
+    const newIndex = searchIndex > 0 ? searchIndex - 1 : searchResults.length - 1
+    setSearchIndex(newIndex)
+    canvasRef.current?.focusNode(searchResults[newIndex])
+  }
+
+  const handleSearchNext = () => {
+    if (searchResults.length === 0) return
+    const newIndex = searchIndex < searchResults.length - 1 ? searchIndex + 1 : 0
+    setSearchIndex(newIndex)
+    canvasRef.current?.focusNode(searchResults[newIndex])
+  }
 
   // Focal edges for focused node
   const focusEdgeIds = useMemo(() => {
@@ -286,17 +315,47 @@ const CallGraph: React.FC = () => {
           ))}
         </div>
 
-        {/* Search */}
-        <Input
-          prefix={<SearchOutlined style={{ color: '#2a4a5a', fontSize: 11 }} />}
-          placeholder="搜索函数 / 类..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          style={{
-            width: 200, background: '#080e16', border: '1px solid #1a2535',
-            borderRadius: 3, color: '#8ab4c8', fontFamily: "'IBM Plex Mono'", fontSize: 11,
-          }}
-          allowClear
+        {/* Search with navigation */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <Input
+            prefix={<SearchOutlined style={{ color: '#2a4a5a', fontSize: 11 }} />}
+            placeholder="搜索函数 / 类..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              width: 180, background: '#080e16', border: '1px solid #1a2535',
+              borderRadius: 3, color: '#8ab4c8', fontFamily: "'IBM Plex Mono'", fontSize: 11,
+            }}
+            allowClear
+          />
+          {searchResults.length > 0 && (
+            <>
+              <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 9, color: '#3a5a6a', minWidth: 40 }}>
+                {searchIndex + 1}/{searchResults.length}
+              </span>
+              <Button
+                icon={<LeftOutlined />} size="small" onClick={handleSearchPrev}
+                style={{ background: '#080e16', border: '1px solid #1a2535', color: '#3a5a6a', padding: '0 6px' }}
+              />
+              <Button
+                icon={<RightOutlined />} size="small" onClick={handleSearchNext}
+                style={{ background: '#080e16', border: '1px solid #1a2535', color: '#3a5a6a', padding: '0 6px' }}
+              />
+            </>
+          )}
+        </div>
+
+        {/* Layout selector */}
+        <Select
+          value={layoutAlgo}
+          onChange={setLayoutAlgo}
+          size="small"
+          style={{ width: 80 }}
+          options={[
+            { value: 'LR', label: 'LR' },
+            { value: 'TB', label: 'TB' },
+            { value: 'force', label: 'Force' },
+          ]}
         />
 
         {/* Depth */}
@@ -364,6 +423,8 @@ const CallGraph: React.FC = () => {
             dimmedIds={dimmedIds}
             focusEdgeIds={focusEdgeIds}
             onNodeClick={handleNodeClick}
+            layoutAlgo={layoutAlgo}
+            storageKey={activeRepo.graphId}
           />
         )}
 

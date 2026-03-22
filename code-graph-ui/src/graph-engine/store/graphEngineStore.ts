@@ -106,6 +106,18 @@ export type GraphEngineState = {
   // ── Selection ─────────────────────────────────────────────────────────────
   selectedNodeId: string | null
 
+  // ── Drag state ────────────────────────────────────────────────────────────
+  /** True while the user is dragging nodes. Used to hide edges during drag. */
+  isDragging: boolean
+
+  // ── Call graph specific state ─────────────────────────────────────────────
+  /** Node ID to focus BFS visibility filtering around. Null = show all. */
+  focusNodeId: string | null
+  /** Depth for BFS visibility from focus node. Default: 2. */
+  focusDepth: number
+  /** Precomputed visible node IDs from BFS (null = all visible). */
+  visibleNodeIds: Set<string> | null
+
   // ══════════════════════════════════════════════════════════════════════════
   // ACTIONS
   // ══════════════════════════════════════════════════════════════════════════
@@ -197,6 +209,18 @@ export type GraphEngineState = {
   setLastExpandedNode:  (nodeId: string | null) => void
   setCollapsedCount:    (nodeId: string, count: number) => void
   clearCollapsedCount:  (nodeId: string) => void
+
+  // ── Drag actions ──────────────────────────────────────────────────────────
+  /** Set the drag state. Called by GraphCanvas on grab/free events. */
+  setDragging: (isDragging: boolean) => void
+
+  // ── Call graph focus actions ───────────────────────────────────────────────
+  /** Set the focus node for BFS visibility filtering. Null to show all. */
+  setFocusNode: (nodeId: string | null) => void
+  /** Set the BFS depth from focus node. */
+  setFocusDepth: (depth: number) => void
+  /** Recompute visibleNodeIds based on focusNodeId and focusDepth. */
+  computeVisibleNodes: () => void
 }
 
 // ─── Store Implementation ────────────────────────────────────────────────────
@@ -216,6 +240,10 @@ export const useGraphEngineStore = create<GraphEngineState>((set, get) => ({
   lod:                createDefaultLODState(),
   loading:            createDefaultLoadingState(),
   selectedNodeId:     null,
+  isDragging:         false,
+  focusNodeId:        null,
+  focusDepth:         2,
+  visibleNodeIds:     null,
 
   // ── Graph lifecycle ───────────────────────────────────────────────────────
 
@@ -532,6 +560,71 @@ export const useGraphEngineStore = create<GraphEngineState>((set, get) => ({
       next.delete(nodeId)
       return { collapsedCount: next }
     }),
+
+  // ── Drag actions ──────────────────────────────────────────────────────────
+
+  setDragging: (isDragging) => set({ isDragging }),
+
+  // ── Call graph focus actions ───────────────────────────────────────────────
+
+  setFocusNode: (nodeId) => {
+    set({ focusNodeId: nodeId })
+    // Recompute visible nodes after setting focus
+    const state = get()
+    if (!nodeId) {
+      set({ visibleNodeIds: null })
+      return
+    }
+    // BFS from focus node
+    const { edges, focusDepth } = state
+    const visited = new Set<string>([nodeId])
+    const queue: [string, number][] = [[nodeId, 0]]
+
+    // Build adjacency maps
+    const outAdj = new Map<string, string[]>()
+    const inAdj = new Map<string, string[]>()
+    edges.forEach((edge) => {
+      if (!outAdj.has(edge.source)) outAdj.set(edge.source, [])
+      if (!inAdj.has(edge.target)) inAdj.set(edge.target, [])
+      outAdj.get(edge.source)!.push(edge.target)
+      inAdj.get(edge.target)!.push(edge.source)
+    })
+
+    while (queue.length) {
+      const [id, d] = queue.shift()!
+      if (d < focusDepth) {
+        outAdj.get(id)?.forEach((nid) => {
+          if (!visited.has(nid)) {
+            visited.add(nid)
+            queue.push([nid, d + 1])
+          }
+        })
+        inAdj.get(id)?.forEach((nid) => {
+          if (!visited.has(nid)) {
+            visited.add(nid)
+            queue.push([nid, d + 1])
+          }
+        })
+      }
+    }
+    set({ visibleNodeIds: visited })
+  },
+
+  setFocusDepth: (depth) => {
+    set({ focusDepth: depth })
+    // Recompute visible nodes with new depth
+    const { focusNodeId } = get()
+    if (focusNodeId) {
+      get().setFocusNode(focusNodeId) // This will recompute with new depth
+    }
+  },
+
+  computeVisibleNodes: () => {
+    const { focusNodeId } = get()
+    if (focusNodeId) {
+      get().setFocusNode(focusNodeId)
+    }
+  },
 }))
 
 // ─── Selectors ────────────────────────────────────────────────────────────────
