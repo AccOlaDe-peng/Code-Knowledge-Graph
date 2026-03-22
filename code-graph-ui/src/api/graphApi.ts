@@ -210,16 +210,19 @@ export function rawNodeToGraphNode(
   n: RawNode,
 ): import("../types/graph").GraphNode {
   const label = n.name || n.id.split(":").pop()?.split(".").pop() || n.id;
+
+  // Build properties object, excluding undefined values
+  const properties: Record<string, unknown> = {};
+  if (n.file !== undefined) properties.file = n.file;
+  if (n.line !== undefined) properties.line = n.line;
+  if (n.module !== undefined) properties.module = n.module;
+  if (n.language !== undefined) properties.language = n.language;
+
   return {
     id: n.id,
     type: n.type,
     label,
-    properties: {
-      file: n.file,
-      line: n.line,
-      module: n.module,
-      language: n.language,
-    },
+    properties,
   };
 }
 

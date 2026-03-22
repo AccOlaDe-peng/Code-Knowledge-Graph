@@ -1,6 +1,6 @@
 // src/components/graph/CallGraphCanvas/index.tsx
 
-import { useEffect, useRef, useImperativeHandle, forwardRef } from 'react'
+import { useEffect, useRef, useImperativeHandle, forwardRef, useCallback } from 'react'
 import cytoscape from 'cytoscape'
 import cydagre from 'cytoscape-dagre'
 import cyCoseBilkent from 'cytoscape-cose-bilkent'
@@ -112,6 +112,26 @@ const CallGraphCanvas = forwardRef<CallGraphCanvasHandle, CallGraphCanvasProps>(
       return false
     }
 
+    // ── Helper: Sync minimap from main graph ────────────────────────────────────
+    const syncMinimap = useCallback(() => {
+      const cy = cyRef.current
+      const minimapCy = minimapCyRef.current
+      if (!cy || !minimapCy || cy.nodes().length === 0) return
+
+      minimapCy.elements().remove()
+      const positions: { data: { id: string }; position: Position }[] = []
+      cy.nodes().forEach((n) => {
+        const pos = n.position()
+        if (pos.x !== undefined && pos.y !== undefined) {
+          positions.push({ data: { id: n.id() }, position: pos })
+        }
+      })
+      if (positions.length > 0) {
+        minimapCy.add(positions)
+        minimapCy.fit(undefined, 10)
+      }
+    }, [])
+
     // ── Initialise Cytoscape once ──────────────────────────────────────────────
     useEffect(() => {
       if (!containerRef.current) return
@@ -125,14 +145,26 @@ const CallGraphCanvas = forwardRef<CallGraphCanvasHandle, CallGraphCanvasProps>(
         motionBlurOpacity: 0.08,
         hideEdgesOnViewport: true,
         boxSelectionEnabled: false,
-        wheelSensitivity: 0.2,
-        minZoom: 0.05,
-        maxZoom: 8,
+        // Zoom settings - faster response, higher max zoom
+        wheelSensitivity: 0.5,
+        minZoom: 0.02,
+        maxZoom: 20,
         pixelRatio: 'auto' as unknown as number,
       })
 
       cy.on('tap', 'node', (evt) => {
         onNodeClickRef.current?.(evt.target.id())
+      })
+
+      // ── Double-click to zoom into node ───────────────────────────────────────
+      cy.on('dblclick', 'node', (evt) => {
+        const node = evt.target
+        cy.animate({
+          center: { eles: node },
+          zoom: 2.5,
+          duration: 300,
+          easing: 'ease-in-out-cubic',
+        })
       })
 
       // ── Drag performance: hide edges during node drag ──────────────────────
@@ -155,8 +187,34 @@ const CallGraphCanvas = forwardRef<CallGraphCanvasHandle, CallGraphCanvasProps>(
 
       cyRef.current = cy
 
-      // ── Initialize minimap if enabled ───────────────────────────────────────
-      if (showMinimap && minimapContainerRef.current) {
+      return () => {
+        if (saveViewportTimerRef.current) {
+          clearTimeout(saveViewportTimerRef.current)
+        }
+        cy.destroy()
+        cyRef.current = null
+      }
+    }, [storageKey]) // run once
+
+    // ── Initialize minimap separately ───────────────────────────────────────────
+    useEffect(() => {
+      // Only initialize when showMinimap is true AND we have nodes (container is rendered)
+      if (!showMinimap || nodes.length === 0) {
+        // Destroy minimap if it exists but should be hidden
+        if (minimapCyRef.current) {
+          minimapCyRef.current.destroy()
+          minimapCyRef.current = null
+        }
+        return
+      }
+
+      // Wait for container to be rendered
+      const timer = setTimeout(() => {
+        if (!minimapContainerRef.current) {
+          // Container not ready yet, retry
+          return
+        }
+
         const minimapCy = cytoscape({
           container: minimapContainerRef.current,
           elements: [],
@@ -175,6 +233,8 @@ const CallGraphCanvas = forwardRef<CallGraphCanvasHandle, CallGraphCanvasProps>(
 
         // Click to navigate
         minimapCy.on('tap', (evt) => {
+          const cy = cyRef.current
+          if (!cy) return
           if (evt.target === minimapCy && evt.position) {
             const pos = evt.position
             const container = containerRef.current
@@ -187,18 +247,17 @@ const CallGraphCanvas = forwardRef<CallGraphCanvasHandle, CallGraphCanvasProps>(
             cy.animate({ pan: newPan, duration: 300, easing: 'ease-in-out-cubic' })
           }
         })
-      }
+
+        // Sync nodes after minimap is initialized
+        syncMinimap()
+      }, 100)
 
       return () => {
-        if (saveViewportTimerRef.current) {
-          clearTimeout(saveViewportTimerRef.current)
-        }
+        clearTimeout(timer)
         minimapCyRef.current?.destroy()
         minimapCyRef.current = null
-        cy.destroy()
-        cyRef.current = null
       }
-    }, [showMinimap, storageKey]) // run once
+    }, [showMinimap, nodes.length, syncMinimap])
 
     // ── Expose imperative handle ───────────────────────────────────────────────
     useImperativeHandle(ref, () => ({
@@ -264,21 +323,10 @@ const CallGraphCanvas = forwardRef<CallGraphCanvasHandle, CallGraphCanvasProps>(
           cy.fit(undefined, 40)
         }
         // Sync positions to minimap after layout
-        const minimapCy = minimapCyRef.current
-        if (minimapCy && showMinimap) {
-          minimapCy.elements().remove()
-          const positions: { data: { id: string }; position: Position }[] = []
-          cy.nodes().forEach((n) => {
-            positions.push({ data: { id: n.id() }, position: n.position() })
-          })
-          if (positions.length > 0) {
-            minimapCy.add(positions)
-            minimapCy.fit(undefined, 10)
-          }
-        }
+        syncMinimap()
       })
       layout.run()
-    }, [nodes, edges, nodeDegrees, showMinimap, storageKey])
+    }, [nodes, edges, nodeDegrees, storageKey, syncMinimap])
 
     // ── Re-run layout when layoutAlgo changes ───────────────────────────────────
     useEffect(() => {
@@ -289,21 +337,10 @@ const CallGraphCanvas = forwardRef<CallGraphCanvasHandle, CallGraphCanvasProps>(
       layout.one('layoutstop', () => {
         cy.fit(undefined, 40)
         // Sync positions to minimap
-        const minimapCy = minimapCyRef.current
-        if (minimapCy && showMinimap) {
-          minimapCy.elements().remove()
-          const positions: { data: { id: string }; position: Position }[] = []
-          cy.nodes().forEach((n) => {
-            positions.push({ data: { id: n.id() }, position: n.position() })
-          })
-          if (positions.length > 0) {
-            minimapCy.add(positions)
-            minimapCy.fit(undefined, 10)
-          }
-        }
+        syncMinimap()
       })
       layout.run()
-    }, [layoutAlgo, showMinimap])
+    }, [layoutAlgo, syncMinimap])
 
     // ── Sync highlight / dim / focal-edge classes ──────────────────────────────
     useEffect(() => {
@@ -317,13 +354,111 @@ const CallGraphCanvas = forwardRef<CallGraphCanvasHandle, CallGraphCanvasProps>(
       })
     }, [highlightedIds, dimmedIds, focusEdgeIds])
 
-    // ── Render ────────────────────────────────────────────────────────────────
+    // ── Render ────────────────────────────────────────────────────────
     return (
       <div style={{ position: 'relative', width: '100%', height: '100%' }}>
         <div
           ref={containerRef}
           style={{ width: '100%', height: '100%', background: '#07090d' }}
         />
+
+        {/* Zoom controls */}
+        <div style={{
+          position: 'absolute',
+          top: 12,
+          right: 12,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 4,
+          zIndex: 15,
+        }}>
+          <button
+            onClick={() => {
+              const cy = cyRef.current
+              if (!cy) return
+              const container = containerRef.current
+              const newZoom = Math.min(cy.zoom() * 1.5, 20)
+              if (container) {
+                cy.zoom({
+                  level: newZoom,
+                  renderedPosition: { x: container.clientWidth / 2, y: container.clientHeight / 2 },
+                })
+              } else {
+                cy.zoom(newZoom)
+              }
+            }}
+            title="放大 (滚轮或双击节点)"
+            style={{
+              width: 32,
+              height: 32,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'rgba(10,13,19,0.9)',
+              backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 4,
+              color: '#8ab4c8',
+              fontFamily: '"IBM Plex Mono", monospace',
+              fontSize: 18,
+              cursor: 'pointer',
+            }}
+          >+</button>
+          <button
+            onClick={() => {
+              const cy = cyRef.current
+              if (!cy) return
+              const container = containerRef.current
+              const newZoom = Math.max(cy.zoom() / 1.5, 0.02)
+              if (container) {
+                cy.zoom({
+                  level: newZoom,
+                  renderedPosition: { x: container.clientWidth / 2, y: container.clientHeight / 2 },
+                })
+              } else {
+                cy.zoom(newZoom)
+              }
+            }}
+            title="缩小"
+            style={{
+              width: 32,
+              height: 32,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'rgba(10,13,19,0.9)',
+              backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 4,
+              color: '#8ab4c8',
+              fontFamily: '"IBM Plex Mono", monospace',
+              fontSize: 18,
+              cursor: 'pointer',
+            }}
+          >−</button>
+          <button
+            onClick={() => {
+              cyRef.current?.fit(undefined, 40)
+            }}
+            title="适应视图"
+            style={{
+              width: 32,
+              height: 32,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'rgba(10,13,19,0.9)',
+              backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 4,
+              color: '#8ab4c8',
+              fontFamily: '"IBM Plex Mono", monospace',
+              fontSize: 12,
+              cursor: 'pointer',
+            }}
+          >⊡</button>
+        </div>
+
         {/* Minimap */}
         {showMinimap && nodes.length > 0 && (
           <div
