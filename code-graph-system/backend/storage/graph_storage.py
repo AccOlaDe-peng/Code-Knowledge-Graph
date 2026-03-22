@@ -7,10 +7,11 @@ GraphStorage — 图谱持久化存储模块。
 
     graph-storage/
     ├── <repo-id>/
-    │   ├── graph.json          — 完整图谱（所有节点 + 所有边）
-    │   ├── call-graph.json     — 子图：calls 边 + 相关节点
-    │   └── module-graph.json   — 子图：contains / imports 边 + 相关节点
-    └── index.json              — 所有仓库的摘要索引
+    │   ├── graph.json              — 完整图谱（所有节点 + 所有边）
+    │   ├── call-graph.json         — 子图：calls 边 + 相关节点（含度数 + meta）
+    │   ├── call-graph-core.json    — [大图谱] 预生成的核心子图
+    │   └── module-graph.json       — 子图：contains / imports 边 + 相关节点
+    └── index.json                  — 所有仓库的摘要索引
 
 主要接口
 --------
@@ -72,14 +73,18 @@ graph 格式（输入/输出统一）
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 import json
 import logging
 import re
 import shutil
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+
+from backend.config import DEFAULT_FOCUS_DEPTH, LARGE_GRAPH_THRESHOLD
 
 logger = logging.getLogger(__name__)
 
@@ -460,12 +465,88 @@ class GraphStorage:
             fn = _edge_type_to_filename(et)
             files_to_generate.setdefault(fn, set()).add(et)
 
-        # 为未知边类型也生成子图（动态文件名）
         written: list[str] = []
         node_map: dict[str, dict[str, Any]] = {
             n.get("id", ""): n for n in nodes if n.get("id")
         }
 
+        # ── 特殊处理：call-graph.json（计算度数 + 推荐入口 + 预生成核心子图）──
+        if "call-graph.json" in files_to_generate:
+            call_edges = [e for e in edges if e.get("type") == "calls"]
+
+            if call_edges:
+                # 1. 计算度数
+                degrees: dict[str, dict[str, int]] = {}
+                for e in call_edges:
+                    src, tgt = e.get("from"), e.get("to")
+                    if src:
+                        degrees.setdefault(src, {"in": 0, "out": 0})["out"] += 1
+                    if tgt:
+                        degrees.setdefault(tgt, {"in": 0, "out": 0})["in"] += 1
+
+                # 2. 找最高度数节点作为推荐入口
+                entry_node_id = None
+                max_total = -1
+                for nid, deg in degrees.items():
+                    total = deg["in"] + deg["out"]
+                    if total > max_total:
+                        max_total = total
+                        entry_node_id = nid
+
+                # 3. 收集 call-graph 的节点 ID
+                call_node_ids: set[str] = set()
+                for e in call_edges:
+                    if e.get("from"):
+                        call_node_ids.add(e["from"])
+                    if e.get("to"):
+                        call_node_ids.add(e["to"])
+
+                # 4. 深拷贝节点并添加度数
+                call_nodes = []
+                for n in nodes:
+                    nid = n.get("id")
+                    if nid in call_node_ids:
+                        node_copy = copy.deepcopy(n)
+                        if nid in degrees:
+                            node_copy.setdefault("properties", {})["degrees"] = degrees[nid]
+                        call_nodes.append(node_copy)
+
+                # 5. 写入 call-graph.json（含 meta）
+                call_subgraph = {
+                    "meta": {
+                        "entry_node_id": entry_node_id,
+                        "node_count": len(call_nodes),
+                        "edge_count": len(call_edges),
+                    },
+                    "nodes": call_nodes,
+                    "edges": call_edges,
+                }
+                path = repo_dir / "call-graph.json"
+                _write_json(path, call_subgraph)
+                written.append("call-graph.json")
+                logger.debug(
+                    "  派生子图: call-graph.json  %d nodes / %d edges  entry=%s",
+                    len(call_nodes), len(call_edges), entry_node_id,
+                )
+
+                # 6. 大图谱：预生成核心子图
+                if len(call_nodes) > LARGE_GRAPH_THRESHOLD and entry_node_id:
+                    core_subgraph = _generate_core_subgraph(
+                        nodes, edges, entry_node_id, DEFAULT_FOCUS_DEPTH,
+                        degrees, len(call_nodes), len(call_edges),
+                    )
+                    core_path = repo_dir / "call-graph-core.json"
+                    _write_json(core_path, core_subgraph)
+                    written.append("call-graph-core.json")
+                    logger.debug(
+                        "  预生成核心子图: call-graph-core.json  %d nodes / %d edges",
+                        len(core_subgraph["nodes"]), len(core_subgraph["edges"]),
+                    )
+
+                # 已处理，从待生成列表中移除
+                del files_to_generate["call-graph.json"]
+
+        # ── 处理其他子图（module-graph, data-graph 等）──
         for filename, edge_types in files_to_generate.items():
             subgraph = _filter_subgraph_multi(nodes, edges, edge_types, node_map)
             if subgraph["edges"]:
@@ -572,6 +653,79 @@ def _filter_subgraph_multi(
     return {
         "nodes": filtered_nodes,
         "edges": filtered_edges,
+    }
+
+
+def _generate_core_subgraph(
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+    entry_node_id: str,
+    depth: int,
+    degrees: dict[str, dict[str, int]],
+    total_nodes: int,
+    total_edges: int,
+) -> dict[str, Any]:
+    """生成核心子图（entry_node_id + depth 层 BFS）。
+
+    Args:
+        nodes:          完整节点列表。
+        edges:          完整边列表。
+        entry_node_id:  入口节点 ID。
+        depth:          BFS 深度。
+        degrees:        节点度数映射。
+        total_nodes:    完整图谱节点总数（用于 meta）。
+        total_edges:    完整图谱边总数（用于 meta）。
+
+    Returns:
+        包含 meta/nodes/edges 的核心子图字典。
+    """
+    node_map = {n.get("id"): n for n in nodes if n.get("id")}
+
+    # BFS 遍历
+    visited: set[str] = set()
+    edge_set: list[dict[str, Any]] = []
+    queue: deque[tuple[str, int]] = deque([(entry_node_id, 0)])
+
+    while queue:
+        current_id, current_depth = queue.popleft()
+        if current_id in visited:
+            continue
+        visited.add(current_id)
+
+        if current_depth < depth:
+            for e in edges:
+                if e.get("type") != "calls":
+                    continue
+                neighbor = None
+                if e.get("from") == current_id:
+                    neighbor = e.get("to")
+                elif e.get("to") == current_id:
+                    neighbor = e.get("from")
+                if neighbor and neighbor not in visited:
+                    edge_set.append(e)
+                    queue.append((neighbor, current_depth + 1))
+                elif neighbor and e not in edge_set:
+                    edge_set.append(e)
+
+    # 构建节点（含度数）
+    core_nodes = []
+    for nid in visited:
+        if nid in node_map:
+            node_copy = copy.deepcopy(node_map[nid])
+            if nid in degrees:
+                node_copy.setdefault("properties", {})["degrees"] = degrees[nid]
+            core_nodes.append(node_copy)
+
+    return {
+        "meta": {
+            "auto_focus": True,
+            "focus_node_id": entry_node_id,
+            "focus_depth": depth,
+            "total_nodes": total_nodes,
+            "total_edges": total_edges,
+        },
+        "nodes": core_nodes,
+        "edges": edge_set,
     }
 
 

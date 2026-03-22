@@ -9,13 +9,16 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 from collections import deque
+from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
 from backend.api.deps import get_graph_repo, get_graph_storage
+from backend.config import DEFAULT_FOCUS_DEPTH, LARGE_GRAPH_THRESHOLD
 from backend.graph.graph_schema import ARCHITECTURE_NODE_TYPES, STRUCTURAL_EDGE_TYPES
 from backend.storage.graph_storage import RepoNotFoundError
 
@@ -165,22 +168,15 @@ def get_call(
     """
     调用图视图。
 
-    - 不传 ``node_id``：返回全图 calls 边及相关节点（读预生成 call-graph.json）
+    - 不传 ``node_id``：
+      - 大图谱：返回预生成的核心子图（最高度数节点 + 2 层 BFS）
+      - 小图谱：返回全量 call-graph.json
     - 传入 ``node_id``：从该节点 BFS 展开调用子图
     """
     storage = get_graph_storage()
 
-    if node_id is None:
-        try:
-            subgraph = storage.get_subgraph(repo_id, "calls")
-        except RepoNotFoundError:
-            raise HTTPException(status_code=404, detail=f"repo not found: {repo_id}")
-        except Exception as exc:
-            logger.exception("get_subgraph(calls) 失败: %s", repo_id)
-            raise HTTPException(status_code=500, detail=str(exc))
-        nodes = subgraph.get("nodes", [])
-        edges = subgraph.get("edges", [])
-    else:
+    # 用户指定起点：运行时 BFS
+    if node_id is not None:
         graph = _storage_load_or_404(repo_id)
         result = _bfs_subgraph(
             graph.get("nodes", []),
@@ -189,16 +185,83 @@ def get_call(
             frozenset({"calls"}),
             depth,
         )
-        nodes = result["nodes"]
-        edges = result["edges"]
+        return {
+            "repo_id": repo_id,
+            "node_count": len(result["nodes"]),
+            "edge_count": len(result["edges"]),
+            "nodes": result["nodes"],
+            "edges": result["edges"],
+        }
 
-    return {
-        "repo_id": repo_id,
-        "node_count": len(nodes),
-        "edge_count": len(edges),
-        "nodes": nodes,
-        "edges": edges,
-    }
+    # 无指定起点：智能加载
+    try:
+        # 获取仓库目录路径
+        repo_dir = storage._repo_dir(storage._safe_id(repo_id))
+        core_path = repo_dir / "call-graph-core.json"
+
+        # 优先返回核心子图（最快路径）
+        if core_path.exists():
+            try:
+                with open(core_path, encoding="utf-8") as f:
+                    core_data = json.load(f)
+                return {
+                    "repo_id": repo_id,
+                    "node_count": len(core_data.get("nodes", [])),
+                    "edge_count": len(core_data.get("edges", [])),
+                    "nodes": core_data.get("nodes", []),
+                    "edges": core_data.get("edges", []),
+                    "meta": core_data.get("meta", {}),
+                }
+            except Exception as exc:
+                logger.warning("读取 call-graph-core.json 失败，降级: %s", exc)
+
+        # 回退：读取 call-graph.json
+        subgraph = storage.get_subgraph(repo_id, "calls")
+        nodes = subgraph.get("nodes", [])
+        edges = subgraph.get("edges", [])
+        meta = subgraph.get("meta", {})
+
+        # 大图谱但无 core 文件：运行时 BFS（兼容旧数据）
+        if len(nodes) > LARGE_GRAPH_THRESHOLD:
+            entry_node_id = meta.get("entry_node_id")
+            if entry_node_id:
+                graph = _storage_load_or_404(repo_id)
+                result = _bfs_subgraph(
+                    graph.get("nodes", []),
+                    graph.get("edges", []),
+                    entry_node_id,
+                    frozenset({"calls"}),
+                    DEFAULT_FOCUS_DEPTH,
+                )
+                return {
+                    "repo_id": repo_id,
+                    "node_count": len(result["nodes"]),
+                    "edge_count": len(result["edges"]),
+                    "nodes": result["nodes"],
+                    "edges": result["edges"],
+                    "meta": {
+                        "auto_focus": True,
+                        "focus_node_id": entry_node_id,
+                        "focus_depth": DEFAULT_FOCUS_DEPTH,
+                        "total_nodes": len(nodes),
+                        "total_edges": len(edges),
+                    },
+                }
+
+        # 小图谱或无入口：返回全量
+        return {
+            "repo_id": repo_id,
+            "node_count": len(nodes),
+            "edge_count": len(edges),
+            "nodes": nodes,
+            "edges": edges,
+        }
+
+    except RepoNotFoundError:
+        raise HTTPException(status_code=404, detail=f"repo not found: {repo_id}")
+    except Exception as exc:
+        logger.exception("get_call 失败: %s", repo_id)
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.get("/graph/lineage", tags=["图谱视图"])
