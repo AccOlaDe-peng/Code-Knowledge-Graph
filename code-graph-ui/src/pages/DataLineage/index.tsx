@@ -623,22 +623,29 @@ const DataLineageInner: React.FC = () => {
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: Node<LineageNodeData>) => {
       const orig = node.data.originalNode;
-      if (focusNodeId === orig.id) {
-        setFocusNodeId(null);
-        setPanelNode(null);
-        setSelectedNode(null);
-      } else {
-        setFocusNodeId(orig.id);
-        setPanelNode(orig);
-        setSelectedNode(orig);
 
-        // Auto-run impact analysis for Service nodes
-        if (viewMode === "lineage" && ["Service", "service"].includes(orig.type)) {
-          runImpactAnalysis(orig.id);
-        }
+      // 在子图模式下点击不同节点，切换到新节点的子图
+      setFocusNodeId(orig.id);
+      setPanelNode(orig);
+      setSelectedNode(orig);
+
+      // Auto-run impact analysis for Service nodes
+      if (viewMode === "lineage" && ["Service", "service"].includes(orig.type)) {
+        runImpactAnalysis(orig.id);
       }
     },
-    [focusNodeId, viewMode, runImpactAnalysis],
+    [viewMode, runImpactAnalysis],
+  );
+
+  // 双击节点回到主图
+  const onNodeDoubleClick = useCallback(
+    () => {
+      setFocusNodeId(null);
+      setPanelNode(null);
+      setSelectedNode(null);
+      setImpactData(null);
+    },
+    [],
   );
 
   const handleReset = () => {
@@ -773,19 +780,21 @@ const DataLineageInner: React.FC = () => {
 
         {/* Node selector for lineage trace */}
         {viewMode === "lineage" && (
-          <Select
-            placeholder="选择起点节点..."
-            value={focusNodeId}
-            onChange={(val) => setFocusNodeId(val)}
-            options={nodeOptions}
-            showSearch
-            allowClear
-            style={{ width: 220 }}
-            size="small"
-            filterOption={(input, option) =>
-              (option?.label ?? "").toLowerCase().includes(input.toLowerCase())
-            }
-          />
+          <Tooltip title={focusNodeId ? "双击节点返回全图" : "选择节点查看血缘子图"}>
+            <Select
+              placeholder="选择起点节点..."
+              value={focusNodeId}
+              onChange={(val) => setFocusNodeId(val)}
+              options={nodeOptions}
+              showSearch
+              allowClear
+              style={{ width: 220 }}
+              size="small"
+              filterOption={(input, option) =>
+                (option?.label ?? "").toLowerCase().includes(input.toLowerCase())
+              }
+            />
+          </Tooltip>
         )}
 
         {/* Stats */}
@@ -939,6 +948,7 @@ const DataLineageInner: React.FC = () => {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onNodeClick={onNodeClick}
+            onNodeDoubleClick={onNodeDoubleClick}
             nodeTypes={nodeTypes}
             fitView
             minZoom={0.06}

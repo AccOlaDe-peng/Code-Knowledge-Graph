@@ -184,6 +184,148 @@ def _filter_by_edge_types(
     return {"nodes": filtered_nodes, "edges": filtered_edges}
 
 
+def _infer_lineage_from_graph(
+    nodes: list[dict],
+    edges: list[dict],
+) -> dict[str, Any]:
+    """动态推断数据血缘关系（当图谱中没有预计算的血缘边时）。
+
+    策略：
+    1. 识别 Service 节点，从 calls 边推断 Service → Service flow_to
+    2. 识别 Repository 节点，推断 Repository → Database reads/writes
+    3. 识别 Class 节点的命名模式（XxxService, XxxRepository）
+    """
+    import re
+
+    inferred_nodes: list[dict] = []
+    inferred_edges: list[dict] = []
+
+    # 构建 ID → node 映射
+    node_map = {n["id"]: n for n in nodes if n.get("id")}
+
+    def extract_class_id(node_id: str) -> str | None:
+        """从 Function ID 提取所属 Class ID。"""
+        # function:path/to/File.java:ClassName.methodName -> class:path/to/File.java:ClassName
+        if node_id.startswith("function:"):
+            parts = node_id[len("function:"):].rsplit(".", 1)
+            if len(parts) == 2:
+                return f"class:{parts[0]}"
+        return None
+
+    def is_service_class(node_id: str) -> bool:
+        """判断 Class ID 是否是 Service。"""
+        node = node_map.get(node_id)
+        if not node:
+            return False
+        if node.get("type") == "Service":
+            return True
+        name = node.get("name", "")
+        return bool(re.match(r".*Service(?:Impl)?$", name))
+
+    def is_repository_class(node_id: str) -> bool:
+        """判断 Class ID 是否是 Repository。"""
+        node = node_map.get(node_id)
+        if not node:
+            return False
+        name = node.get("name", "")
+        return bool(re.match(r".*(?:Repository|Repo|DAO|Dao|Mapper)$", name))
+
+    # 识别 Service 和 Repository 节点
+    service_nodes = []
+    repository_nodes = []
+
+    for node in nodes:
+        node_type = node.get("type", "")
+        node_id = node.get("id", "")
+        name = node.get("name", "")
+
+        # Service 识别
+        if node_type == "Service":
+            service_nodes.append(node)
+        elif node_type == "Class":
+            if re.match(r".*Service(?:Impl)?$", name):
+                service_nodes.append(node)
+            elif re.match(r".*(?:Repository|Repo|DAO|Dao|Mapper)$", name):
+                repository_nodes.append(node)
+
+    # 从 Function 级 calls 边推断 Class 级 Service → Service flow_to
+    service_ids = {n["id"] for n in service_nodes}
+    class_flow_edges: set[tuple[str, str]] = set()  # (from_class, to_class)
+
+    for edge in edges:
+        if edge.get("type") != "calls":
+            continue
+        from_id = edge.get("from", "")
+        to_id = edge.get("to", "")
+
+        # 提取 Class ID
+        from_class = extract_class_id(from_id)
+        to_class = extract_class_id(to_id)
+
+        if not from_class or not to_class:
+            continue
+
+        # 检查是否是 Service -> Service
+        if from_class in service_ids and to_class in service_ids:
+            if from_class != to_class:  # 排除自引用
+                class_flow_edges.add((from_class, to_class))
+
+    # 生成 flow_to 边
+    for from_class, to_class in class_flow_edges:
+        inferred_edges.append({
+            "from": from_class,
+            "to": to_class,
+            "type": "flow_to",
+            "properties": {
+                "source": "dynamic_inference",
+                "confidence": 0.7,
+                "inferred_from": "function_calls",
+            },
+        })
+
+    # 推断 Repository → Database
+    if repository_nodes:
+        # 创建默认 Database 节点
+        db_node = {
+            "id": "datasource:primary",
+            "type": "Database",
+            "name": "PrimaryDB",
+            "properties": {"inferred": True, "source": "dynamic_inference"},
+        }
+        inferred_nodes.append(db_node)
+
+        for repo_node in repository_nodes:
+            # reads 边
+            inferred_edges.append({
+                "from": repo_node["id"],
+                "to": db_node["id"],
+                "type": "reads",
+                "properties": {"source": "dynamic_inference", "confidence": 0.8},
+            })
+            # writes 边
+            inferred_edges.append({
+                "from": repo_node["id"],
+                "to": db_node["id"],
+                "type": "writes",
+                "properties": {"source": "dynamic_inference", "confidence": 0.8},
+            })
+
+    # 收集涉及的原始节点
+    involved_ids: set[str] = set()
+    for e in inferred_edges:
+        involved_ids.add(e["from"])
+        involved_ids.add(e["to"])
+
+    # 添加涉及的原始节点（排除动态创建的 Database 节点）
+    result_nodes = [node_map[nid] for nid in involved_ids if nid in node_map]
+    # 添加动态创建的节点
+    for node in inferred_nodes:
+        if node["id"] not in {n["id"] for n in result_nodes}:
+            result_nodes.append(node)
+
+    return {"nodes": result_nodes, "edges": inferred_edges, "inferred": True}
+
+
 # ── New Endpoints (GraphStorage / repo_id) ────────────────────────────────────
 
 
@@ -388,13 +530,39 @@ def get_lineage(
     all_nodes = graph.get("nodes", [])
     all_edges = graph.get("edges", [])
 
+    # 检查图谱中是否有预计算的血缘边
+    has_lineage_edges = any(
+        e.get("type") in target_types for e in all_edges
+    )
+
+    inferred = False
+    effective_edges = all_edges
+
+    # 如果没有预计算血缘边，动态推断
+    if not has_lineage_edges:
+        logger.info("[lineage] 无预计算血缘边，尝试动态推断: repo_id=%s", repo_id)
+        inferred_result = _infer_lineage_from_graph(all_nodes, all_edges)
+        if inferred_result["edges"]:
+            # 合并推断的边和原始边（保留原始边用于其他类型）
+            effective_edges = list(all_edges) + inferred_result["edges"]
+            # 添加推断的节点
+            inferred_node_ids = {n["id"] for n in all_nodes}
+            additional_nodes = [n for n in inferred_result["nodes"] if n["id"] not in inferred_node_ids]
+            all_nodes = list(all_nodes) + additional_nodes
+            inferred = True
+            logger.info(
+                "[lineage] 动态推断完成: %d 新节点, %d 新边",
+                len(additional_nodes),
+                len(inferred_result["edges"]),
+            )
+
+    # 在有效边上执行 BFS 或过滤
     if node_id is not None:
-        # 使用方向感知的 BFS
         result = _bfs_lineage_subgraph(
-            all_nodes, all_edges, node_id, target_types, depth, direction
+            all_nodes, effective_edges, node_id, target_types, depth, direction
         )
     else:
-        result = _filter_by_edge_types(all_nodes, all_edges, target_types)
+        result = _filter_by_edge_types(all_nodes, effective_edges, target_types)
 
     return {
         "repo_id":    repo_id,
@@ -404,6 +572,7 @@ def get_lineage(
         "edge_count": len(result["edges"]),
         "nodes":      result["nodes"],
         "edges":      result["edges"],
+        "inferred":   inferred,
     }
 
 
@@ -678,6 +847,18 @@ def analyze_impact(request: ImpactAnalysisRequest) -> dict[str, Any]:
     all_nodes = graph.get("nodes", [])
     all_edges = graph.get("edges", [])
 
+    # 检查是否需要动态推断血缘
+    has_lineage_edges = any(
+        e.get("type") in _LINEAGE_EDGE_TYPES for e in all_edges
+    )
+    if not has_lineage_edges:
+        inferred_result = _infer_lineage_from_graph(all_nodes, all_edges)
+        if inferred_result["edges"]:
+            all_edges = list(all_edges) + inferred_result["edges"]
+            inferred_node_ids = {n["id"] for n in all_nodes}
+            additional_nodes = [n for n in inferred_result["nodes"] if n["id"] not in inferred_node_ids]
+            all_nodes = list(all_nodes) + additional_nodes
+
     # 查找下游影响（沿 from → to 方向）
     try:
         result = _bfs_lineage_subgraph(
@@ -827,6 +1008,18 @@ def trace_lineage(request: TraceLineageRequest) -> dict[str, Any]:
     graph = _storage_load_or_404(request.repo_id)
     all_nodes = graph.get("nodes", [])
     all_edges = graph.get("edges", [])
+
+    # 检查是否需要动态推断血缘
+    has_lineage_edges = any(
+        e.get("type") in _LINEAGE_EDGE_TYPES for e in all_edges
+    )
+    if not has_lineage_edges:
+        inferred_result = _infer_lineage_from_graph(all_nodes, all_edges)
+        if inferred_result["edges"]:
+            all_edges = list(all_edges) + inferred_result["edges"]
+            inferred_node_ids = {n["id"] for n in all_nodes}
+            additional_nodes = [n for n in inferred_result["nodes"] if n["id"] not in inferred_node_ids]
+            all_nodes = list(all_nodes) + additional_nodes
 
     # 查找上游来源（沿 to → from 方向，反向追溯）
     try:
