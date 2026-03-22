@@ -462,13 +462,23 @@ const DataLineageInner: React.FC = () => {
   // Future feature: trace lineage
   // const [traceData, setTraceData] = useState<TraceLineageResponse | null>(null);
 
-  // Load lineage data with direction
+  // Load module graph once when repo changes
   useEffect(() => {
     if (!activeRepo?.repoId) return;
     loadModuleGraph(activeRepo.repoId);
+  }, [activeRepo?.repoId]);
 
-    // Load lineage with direction if focusNodeId is set
-    if (viewMode === "lineage" && focusNodeId) {
+  // Load lineage data based on focusNodeId
+  useEffect(() => {
+    if (!activeRepo?.repoId || viewMode !== "lineage") return;
+
+    // Set loading state
+    useGraphStore.setState({
+      lineageGraph: { data: null, loading: true, error: null },
+    });
+
+    if (focusNodeId) {
+      // Load subgraph for specific node
       graphApi.getLineageView(activeRepo.repoId, {
         nodeId: focusNodeId,
         depth: 3,
@@ -487,12 +497,16 @@ const DataLineageInner: React.FC = () => {
             type: e.type,
           })),
         };
-        // Update lineage graph in store
         useGraphStore.setState({
           lineageGraph: { data: graph, loading: false, error: null },
         });
+      }).catch((err) => {
+        useGraphStore.setState({
+          lineageGraph: { data: null, loading: false, error: String(err) },
+        });
       });
     } else {
+      // Load full lineage graph
       loadLineage(activeRepo.repoId);
     }
   }, [activeRepo?.repoId, viewMode, focusNodeId, direction]);
@@ -621,7 +635,10 @@ const DataLineageInner: React.FC = () => {
   // }, [activeRepo?.repoId]);
 
   const onNodeClick = useCallback(
-    (_: React.MouseEvent, node: Node<LineageNodeData>) => {
+    (evt: React.MouseEvent, node: Node<LineageNodeData>) => {
+      // 忽略双击时的单击事件（detail > 1 表示双击或多击）
+      if (evt.detail > 1) return;
+
       const orig = node.data.originalNode;
 
       // 在子图模式下点击不同节点，切换到新节点的子图
