@@ -20,7 +20,7 @@ from fastapi import APIRouter, HTTPException, Query
 from backend.api.deps import get_graph_repo, get_graph_storage
 from backend.config import DEFAULT_FOCUS_DEPTH, LARGE_GRAPH_THRESHOLD
 from backend.graph.graph_schema import ARCHITECTURE_NODE_TYPES, STRUCTURAL_EDGE_TYPES
-from backend.storage.graph_storage import RepoNotFoundError
+from backend.storage.graph_storage import RepoNotFoundError, _safe_repo_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -196,7 +196,7 @@ def get_call(
     # 无指定起点：智能加载
     try:
         # 获取仓库目录路径
-        repo_dir = storage._repo_dir(storage._safe_id(repo_id))
+        repo_dir = storage._repo_dir(_safe_repo_id(repo_id))
         core_path = repo_dir / "call-graph-core.json"
 
         # 优先返回核心子图（最快路径）
