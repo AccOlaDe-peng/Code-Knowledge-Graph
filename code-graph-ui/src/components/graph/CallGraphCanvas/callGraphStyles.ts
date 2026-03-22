@@ -82,19 +82,11 @@ export function buildCallGraphStylesheet(): StylesheetStyle[] {
         'height': NODE_H,
         'shape':  'round-rectangle',
 
-        // Background: left-side accent simulated via gradient
-        // Cytoscape does not support per-side border color;
-        // we use a 3px gradient stripe on the left as the closest approximation.
-        'background-color':     '#0a0f16',
-        'background-fill':      'linear-gradient',
-        'background-gradient-stop-colors': 'data(accent) data(accent) #0a0f16',
-        'background-gradient-stop-positions': '0% 1.5% 1.5%',
-        'background-gradient-direction': 'to-right',
-
-        // Border (uniform, type-coloured as fallback if gradient not supported)
-        'border-width':   1,
-        'border-color':   '#1a2535',
-        'border-opacity': 1,
+        // Background & border
+        'background-color': '#0a0f16',
+        'border-width':     1,
+        'border-color':     'data(accent)',  // Use accent color as border
+        'border-opacity':   1,
 
         // Label (multi-line: name + degrees)
         'label':           'data(label)',
@@ -107,7 +99,6 @@ export function buildCallGraphStylesheet(): StylesheetStyle[] {
         'text-wrap':       'wrap',
         'text-max-width':  `${NODE_W - 20}px`,
         'text-overflow-wrap': 'whitespace',
-        'white-space-wrap': 'pre',
 
         // Perf
         'overlay-opacity': 0,
