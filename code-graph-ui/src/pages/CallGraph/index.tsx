@@ -66,6 +66,7 @@ const CallGraph: React.FC = () => {
   const { callGraph, loadCallGraph, setSelectedNode } = useGraphStore()
   const { activeRepo } = useRepoStore()
   const canvasRef = useRef<CallGraphCanvasHandle>(null)
+  const initialFocusSetRef = useRef(false)  // Track if we've set initial focus
 
   const [searchQuery, setSearchQuery]     = useState('')
   const [depth, setDepth]                 = useState(2)
@@ -76,20 +77,12 @@ const CallGraph: React.FC = () => {
   // Load data when repo changes
   useEffect(() => {
     if (activeRepo?.graphId) {
+      initialFocusSetRef.current = false  // Reset for new repo
       loadCallGraph(activeRepo.graphId)
     }
   }, [activeRepo?.graphId])
 
   const rawData = callGraph.data
-
-  // Auto-reduce depth for large graphs (runs once after data loads)
-  useEffect(() => {
-    if (!rawData) return
-    if (rawData.nodes.length > LARGE_GRAPH_THRESHOLD) {
-      setDepth(LARGE_GRAPH_DEFAULT_DEPTH)
-      setLargeGraphHint(true)
-    }
-  }, [rawData])
 
   // Degree map
   const degreeMap = useMemo(() => {
@@ -104,6 +97,31 @@ const CallGraph: React.FC = () => {
     })
     return map
   }, [rawData])
+
+  // For large graphs, auto-select highest-degree node as focus
+  useEffect(() => {
+    if (!rawData || !degreeMap.size) return
+    if (rawData.nodes.length <= LARGE_GRAPH_THRESHOLD) return
+    if (initialFocusSetRef.current) return  // already set
+
+    // Find node with highest total degree (in + out)
+    let maxDegree = 0
+    let maxNodeId: string | null = null
+    degreeMap.forEach((deg, id) => {
+      const total = deg.in + deg.out
+      if (total > maxDegree) {
+        maxDegree = total
+        maxNodeId = id
+      }
+    })
+
+    if (maxNodeId) {
+      initialFocusSetRef.current = true
+      setDepth(LARGE_GRAPH_DEFAULT_DEPTH)
+      setFocusNodeId(maxNodeId)
+      setLargeGraphHint(true)
+    }
+  }, [rawData, degreeMap])
 
   // BFS reachability from focused node
   const visibleIds = useMemo(() => {
@@ -380,10 +398,10 @@ const CallGraph: React.FC = () => {
       )}
 
       {/* ── Large graph hint ─────────────────────────────────────────────────── */}
-      {largeGraphHint && (
+      {largeGraphHint && focusNodeId && (
         <div
           style={{
-            position: 'absolute', bottom: focusNodeId ? 52 : 20, left: '50%',
+            position: 'absolute', bottom: 52, left: '50%',
             transform: 'translateX(-50%)',
             background: 'rgba(255,193,69,0.08)', border: '1px solid rgba(255,193,69,0.2)',
             borderRadius: 3, padding: '5px 14px', fontFamily: "'IBM Plex Mono'",
@@ -391,7 +409,7 @@ const CallGraph: React.FC = () => {
             letterSpacing: '0.06em', backdropFilter: 'blur(8px)',
           }}
         >
-          当前图谱包含 {nodeCount.toLocaleString()} 个节点，已自动限制深度为 {LARGE_GRAPH_DEFAULT_DEPTH}。可通过滑块手动调整。
+          大图谱（{nodeCount.toLocaleString()} 节点），已自动聚焦核心节点，显示 {depth} 层调用链。
         </div>
       )}
     </div>
