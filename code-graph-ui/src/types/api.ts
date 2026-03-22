@@ -173,3 +173,53 @@ export type ApiError = {
   detail: string;
   status?: number;
 };
+
+// ─── Lineage Impact & Trace APIs ─────────────────────────────────────────────
+
+export type ImpactAnalysisRequest = {
+  repo_id: string;
+  node_id: string;
+  change_type: "modify" | "delete" | "rename";
+};
+
+export type ImpactAnalysisResponse = {
+  repo_id: string;
+  changed_node_id: string;
+  change_type: string;
+  risk_level: "low" | "medium" | "high";
+  impact_summary: {
+    total_affected: number;
+    services: number;
+    api_endpoints: number;
+    databases: number;
+    topics: number;
+    change_type: string;
+  };
+  affected_nodes: GraphNode[];
+  affected_edges: GraphEdge[];
+  affected_apis: Array<{ id: string; name: string; path: string }>;
+  affected_databases: Array<{ id: string; name: string }>;
+  recommendations: string[];
+};
+
+export type TraceLineageRequest = {
+  repo_id: string;
+  node_id: string;
+  trace_type: "source" | "transformation" | "full";
+};
+
+export type TraceLineageResponse = {
+  repo_id: string;
+  target_node_id: string;
+  trace_type: string;
+  source_nodes?: Array<{ id: string; name: string; type: string }>;
+  transformation_chain?: Array<{
+    id: string;
+    name: string;
+    type: string;
+    depth: number;
+  }>;
+  upstream_nodes?: GraphNode[];
+  upstream_edges?: GraphEdge[];
+  confidence: number;
+};

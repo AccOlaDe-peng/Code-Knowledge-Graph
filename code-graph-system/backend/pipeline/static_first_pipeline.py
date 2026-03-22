@@ -7,12 +7,14 @@ Stage 编排：
 4a. SpringDIEventStaticStage — Spring 静态解析（零 LLM）|| 并行
 3b. AISemanticEnhanceStage — AI 语义增强（并行模块处理）
 4b. SpringDIEventAIStage — AI 解析歧义
-5. GraphMergeStage — 合并 + 质量评分
+5. DataLineageExtractionStage — 数据血缘提取（零 LLM）
+6. GraphMergeStage — 合并 + 质量评分
 
 特点：
 - Stage 3 (DirectoryCluster) 和 Stage 4a (SpringDIEventStatic) 并行执行
 - Stage 3b 在 Stage 3 完成后执行
 - Stage 4b 在 Stage 4a 完成后执行，接收歧义列表
+- Stage 5 提取数据血缘关系（Repository→Database, Service→Service flow）
 """
 from __future__ import annotations
 
@@ -40,6 +42,7 @@ from backend.pipeline.stages.graph_merge_with_quality import (
 )
 from backend.pipeline.stages.spring_di_event_ai import SpringDIEventAIStage
 from backend.pipeline.stages.spring_di_event_static import SpringDIEventStaticStage
+from backend.pipeline.stages.data_lineage_extraction import DataLineageExtractionStage
 from backend.rag.graph_rag_engine import GraphRAGEngine
 from backend.rag.vector_store import VectorStore
 
@@ -296,7 +299,41 @@ class StaticFirstPipeline:
         else:
             logger.info("[spring_di_event_ai] 跳过: 无歧义")
 
-        # ── Stage 5: GraphMerge + QualityReport ───────────────────────────────
+        # ── Stage 5: DataLineageExtraction ───────────────────────────────────
+        if on_progress:
+            on_progress(
+                {"step": "data_lineage_extraction", "status": "start", "message": "提取数据血缘..."}
+            )
+
+        lineage_stage = DataLineageExtractionStage()
+        lineage_result = lineage_stage.run(
+            structural_nodes=static_result.structural_nodes,
+            structural_edges=static_result.structural_edges,
+            di_edges=all_di_event_edges,
+            framework_patterns=static_result.framework_patterns,
+            observer=observer,
+            on_progress=on_progress,
+        )
+
+        if on_progress:
+            on_progress(
+                {
+                    "step": "data_lineage_extraction",
+                    "status": "complete",
+                    "message": f"数据血缘提取完成: {len(lineage_result.lineage_nodes)} 节点, {len(lineage_result.lineage_edges)} 边",
+                    "lineage_nodes": len(lineage_result.lineage_nodes),
+                    "lineage_edges": len(lineage_result.lineage_edges),
+                }
+            )
+
+        logger.info(
+            "[data_lineage_extraction] 完成: %d 节点, %d 边 | %s",
+            len(lineage_result.lineage_nodes),
+            len(lineage_result.lineage_edges),
+            lineage_result.stats,
+        )
+
+        # ── Stage 6: GraphMerge + QualityReport ───────────────────────────────
         merge_stage = GraphMergeWithQualityStage()
         built, quality_report = merge_stage.run(
             structural_nodes=static_result.structural_nodes,
@@ -305,6 +342,8 @@ class StaticFirstPipeline:
             ai_enhanced_edges=ai_edges,
             di_event_edges=all_di_event_edges,
             failed_modules=failed_modules,
+            lineage_nodes=lineage_result.lineage_nodes,
+            lineage_edges=lineage_result.lineage_edges,
             observer=observer,
             on_progress=on_progress,
         )

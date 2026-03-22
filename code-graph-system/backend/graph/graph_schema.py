@@ -116,6 +116,10 @@ class EdgeType(str, Enum):
     EXTENDS = "extends"          # Class/interface inheritance
     OVERRIDES = "overrides"      # Method override relationship
 
+    # ── 数据血缘关系 ────────────────────────────────────────────────────
+    QUERIES = "queries"          # Service queries Repository for data
+    FLOW_TO = "flow_to"          # Data flows from one service to another
+
 
 # ---------------------------------------------------------------------------
 # Core Data Models
@@ -134,6 +138,30 @@ ARCHITECTURE_NODE_TYPES: frozenset[str] = frozenset({
 STRUCTURAL_EDGE_TYPES: frozenset[str] = frozenset({
     "contains", "depends_on", "imports", "extends",
     "uses", "implements", "overrides", "belongs_to",
+})
+
+# ── 数据血缘常量 ────────────────────────────────────────────────────────
+
+# 数据血缘边类型（用于 /graph/lineage 端点筛选）
+LINEAGE_EDGE_TYPES: frozenset[str] = frozenset({
+    "reads", "writes", "produces", "consumes",
+    "queries", "flow_to", "transforms",
+    "depends_on", "imports",
+})
+
+# 数据源节点类型
+DATA_SOURCE_TYPES: frozenset[str] = frozenset({
+    "Database", "ExternalAPI", "MessageQueue", "DataSource",
+})
+
+# 数据处理节点类型
+DATA_PROCESSOR_TYPES: frozenset[str] = frozenset({
+    "Service", "Repository", "Component",
+})
+
+# 数据输出节点类型
+DATA_SINK_TYPES: frozenset[str] = frozenset({
+    "APIEndpoint", "Topic", "DataSink",
 })
 
 # Expected property keys for each AI-generated node type.

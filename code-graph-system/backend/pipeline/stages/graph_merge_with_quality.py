@@ -1,7 +1,7 @@
-"""Stage 5: 图谱合并与质量评分。
+"""Stage 6: 图谱合并与质量评分。
 
 负责：
-1. 合并静态节点/边 + AI 增强节点/边 + DI/Event 边
+1. 合并静态节点/边 + AI 增强节点/边 + DI/Event 边 + 血缘节点/边
 2. 字段级合并（保留静态置信度）
 3. 生成质量报告
 4. 发送完成事件
@@ -30,11 +30,11 @@ logger = logging.getLogger(__name__)
 
 
 class GraphMergeWithQualityStage(StageBase):
-    """Stage 5: 图谱合并与质量评分。
+    """Stage 6: 图谱合并与质量评分。
 
     特点：
-    1. 节点先写（structural + AI 补充，字段级合并）
-    2. 边后写（structural + AI 验证 + DI/Event）
+    1. 节点先写（structural + AI 补充 + 血缘节点，字段级合并）
+    2. 边后写（structural + AI 验证 + DI/Event + 血缘）
     3. 更新 module_id（AI 修正文件归属）
     4. 生成质量报告
     """
@@ -49,6 +49,8 @@ class GraphMergeWithQualityStage(StageBase):
         ai_enhanced_edges: list[GraphEdge],
         di_event_edges: list[GraphEdge],
         failed_modules: list[str],
+        lineage_nodes: list[GraphNode] | None = None,
+        lineage_edges: list[GraphEdge] | None = None,
         observer: AnalysisObserver | None = None,
         on_progress: Callable[[dict], None] | None = None,
     ) -> tuple[BuiltGraph, QualityReport]:
@@ -61,6 +63,8 @@ class GraphMergeWithQualityStage(StageBase):
             ai_enhanced_edges: AI 发现的新边
             di_event_edges: DI/Event 解析边
             failed_modules: 分析失败的模块列表
+            lineage_nodes: 数据血缘节点（Database/APIEndpoint/Topic）
+            lineage_edges: 数据血缘边（reads/writes/flow_to/produces/consumes）
             observer: 事件观察器
             on_progress: 进度回调
 
@@ -69,11 +73,15 @@ class GraphMergeWithQualityStage(StageBase):
         """
         start_time = time.time()
 
+        # 默认值处理
+        lineage_nodes = lineage_nodes or []
+        lineage_edges = lineage_edges or []
+
         # 发送开始事件
         if observer:
             observer.emit(StageStarted.create(
                 "graph_merge_with_quality",
-                file_count=len(structural_nodes) + len(ai_enhanced_nodes),
+                file_count=len(structural_nodes) + len(ai_enhanced_nodes) + len(lineage_nodes),
             ))
 
         if on_progress:
@@ -92,6 +100,10 @@ class GraphMergeWithQualityStage(StageBase):
         for node in ai_enhanced_nodes:
             builder.merge_node_properties(node, merge_strategy="field_level")
 
+        # Step 3b: 添加血缘节点（Database/APIEndpoint/Topic）
+        for node in lineage_nodes:
+            builder.add_node(node)
+
         # Step 4: 添加静态边
         for edge in structural_edges:
             builder.add_edge(edge)
@@ -102,6 +114,10 @@ class GraphMergeWithQualityStage(StageBase):
 
         # Step 6: 添加 DI/Event 边
         for edge in di_event_edges:
+            builder.add_edge(edge)
+
+        # Step 6b: 添加血缘边（reads/writes/flow_to/produces/consumes）
+        for edge in lineage_edges:
             builder.add_edge(edge)
 
         # Step 7: 构建图谱
@@ -135,7 +151,7 @@ class GraphMergeWithQualityStage(StageBase):
             )
 
         logger.info(
-            "Stage 5 完成: %d 节点, %d 边, 静态节点 %.1f%%, 低置信度边 %.1f%%",
+            "Stage 6 完成: %d 节点, %d 边, 静态节点 %.1f%%, 低置信度边 %.1f%%",
             built.node_count,
             built.edge_count,
             quality_report.static_node_ratio * 100,

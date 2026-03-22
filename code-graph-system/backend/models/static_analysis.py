@@ -271,3 +271,47 @@ class ConfidenceLevel:
     # AI 增强
     AI_VALIDATED = 0.75  # AI 验证通过（原低置信）
     AI_DISCOVERED = 0.70  # AI 新发现
+
+    # 数据血缘
+    LINEAGE_REPOSITORY = 0.88  # Repository → Database 推断
+    LINEAGE_SERVICE_FLOW = 0.82  # Service → Service 数据流
+    LINEAGE_API_ENDPOINT = 0.90  # Controller → APIEndpoint
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 6: 数据血缘提取
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class LineageExtractionResult:
+    """Stage 6 输出：数据血缘提取结果。
+
+    从静态分析产出的节点和边中提取数据血缘关系：
+    - Repository → Database (reads/writes)
+    - Service → Repository (queries)
+    - Service → Service (flow_to)
+    - Controller → APIEndpoint (produces)
+    - Service → Topic (produces/consumes)
+    """
+
+    # 血缘节点（新增的 DataSource/APIEndpoint/Topic 等）
+    lineage_nodes: list[GraphNode] = field(default_factory=list)
+
+    # 血缘边
+    lineage_edges: list[GraphEdge] = field(default_factory=list)
+
+    # 统计信息
+    stats: dict[str, Any] = field(default_factory=dict)
+
+    # 示例 stats:
+    # {
+    #     "database_count": 2,
+    #     "api_endpoint_count": 15,
+    #     "topic_count": 3,
+    #     "reads_edges": 10,
+    #     "writes_edges": 5,
+    #     "flow_to_edges": 20,
+    #     "produces_edges": 15,
+    #     "consumes_edges": 8,
+    # }

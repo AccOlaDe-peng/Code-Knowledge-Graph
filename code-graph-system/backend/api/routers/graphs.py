@@ -16,18 +16,22 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from backend.api.deps import get_graph_repo, get_graph_storage
 from backend.config import DEFAULT_FOCUS_DEPTH, LARGE_GRAPH_THRESHOLD
-from backend.graph.graph_schema import ARCHITECTURE_NODE_TYPES, STRUCTURAL_EDGE_TYPES
+from backend.graph.graph_schema import (
+    ARCHITECTURE_NODE_TYPES,
+    STRUCTURAL_EDGE_TYPES,
+    LINEAGE_EDGE_TYPES,
+)
 from backend.storage.graph_storage import RepoNotFoundError, _safe_repo_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-_LINEAGE_EDGE_TYPES = frozenset({
-    "depends_on", "reads", "writes", "produces", "consumes", "imports",
-})
+# 使用 graph_schema 中定义的血缘边类型
+_LINEAGE_EDGE_TYPES = LINEAGE_EDGE_TYPES
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -80,6 +84,77 @@ def _bfs_subgraph(
                 neighbor = edge.get("to")
             elif edge.get("to") == current_id:
                 neighbor = edge.get("from")
+            if neighbor and neighbor not in visited:
+                visited.add(neighbor)
+                result_edges.append(edge)
+                queue.append((neighbor, current_depth + 1))
+            elif neighbor and edge not in result_edges:
+                result_edges.append(edge)
+
+    result_nodes = [node_map[nid] for nid in visited if nid in node_map]
+    return {"nodes": result_nodes, "edges": result_edges}
+
+
+def _bfs_lineage_subgraph(
+    nodes: list[dict],
+    edges: list[dict],
+    root_id: str,
+    edge_types: frozenset[str],
+    depth: int,
+    direction: str = "downstream",
+) -> dict[str, Any]:
+    """从 root_id 出发，方向感知的 BFS 展开血缘子图。
+
+    Args:
+        nodes: 所有节点
+        edges: 所有边
+        root_id: 起始节点 ID
+        edge_types: 边类型过滤
+        depth: 最大深度
+        direction: 追踪方向
+            - "downstream": 追踪下游影响（数据去向），沿 from → to 方向
+            - "upstream": 追溯上游来源（数据来源），沿 to → from 方向
+            - "both": 双向展开
+
+    Returns:
+        {"nodes": [...], "edges": [...]}
+    """
+    node_map = {n["id"]: n for n in nodes if n.get("id")}
+    if root_id not in node_map:
+        raise HTTPException(status_code=404, detail=f"node not found: {root_id}")
+
+    visited: set[str] = {root_id}
+    queue: deque[tuple[str, int]] = deque([(root_id, 0)])
+    result_edges: list[dict] = []
+
+    while queue:
+        current_id, current_depth = queue.popleft()
+        if current_depth >= depth:
+            continue
+
+        for edge in edges:
+            if edge.get("type") not in edge_types:
+                continue
+
+            neighbor = None
+            edge_from = edge.get("from")
+            edge_to = edge.get("to")
+
+            if direction == "downstream":
+                # 追踪下游：沿 from → to 方向
+                if edge_from == current_id and edge_to:
+                    neighbor = edge_to
+            elif direction == "upstream":
+                # 追溯上游：沿 to → from 方向（反向）
+                if edge_to == current_id and edge_from:
+                    neighbor = edge_from
+            else:
+                # 双向展开
+                if edge_from == current_id and edge_to:
+                    neighbor = edge_to
+                elif edge_to == current_id and edge_from:
+                    neighbor = edge_from
+
             if neighbor and neighbor not in visited:
                 visited.add(neighbor)
                 result_edges.append(edge)
@@ -272,16 +347,37 @@ def get_lineage(
         description="逗号分隔的边类型，默认全部血缘边类型",
     ),
     node_id: Optional[str] = Query(default=None, description="起点节点 ID；指定后 BFS 展开血缘子图"),
-    depth: int = Query(default=2, ge=1, le=5, description="BFS 深度（仅 node_id 有效时生效）"),
+    depth: int = Query(default=3, ge=1, le=5, description="BFS 深度（仅 node_id 有效时生效）"),
+    direction: str = Query(
+        default="downstream",
+        description="追踪方向: downstream(下游影响) | upstream(上游来源) | both(双向)",
+    ),
 ) -> dict[str, Any]:
     """
     数据血缘视图。
 
-    默认追踪：depends_on / reads / writes / produces / consumes / imports。
+    追踪血缘边类型：reads / writes / produces / consumes / queries / flow_to / transforms / depends_on / imports。
 
-    - 不传 ``node_id``：返回全图血缘边及相关节点
-    - 传入 ``node_id``：从该节点 BFS 展开血缘路径
+    Args:
+        repo_id: 仓库 ID
+        edge_types: 边类型过滤，默认全部血缘边类型
+        node_id: 起点节点 ID
+        depth: BFS 深度（1-5）
+        direction: 追踪方向
+            - downstream: 追踪下游影响（数据去向）
+            - upstream: 追溯上游来源（数据来源）
+            - both: 双向展开
+
+    Returns:
+        血缘图数据（nodes + edges）
     """
+    # 验证 direction 参数
+    if direction not in ("downstream", "upstream", "both"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"无效的 direction 参数: {direction}，可选值: downstream, upstream, both",
+        )
+
     target_types = (
         frozenset(t.strip() for t in edge_types.split(",") if t.strip())
         if edge_types
@@ -293,13 +389,17 @@ def get_lineage(
     all_edges = graph.get("edges", [])
 
     if node_id is not None:
-        result = _bfs_subgraph(all_nodes, all_edges, node_id, target_types, depth)
+        # 使用方向感知的 BFS
+        result = _bfs_lineage_subgraph(
+            all_nodes, all_edges, node_id, target_types, depth, direction
+        )
     else:
         result = _filter_by_edge_types(all_nodes, all_edges, target_types)
 
     return {
         "repo_id":    repo_id,
         "edge_types": sorted(target_types),
+        "direction":  direction,
         "node_count": len(result["nodes"]),
         "edge_count": len(result["edges"]),
         "nodes":      result["nodes"],
@@ -482,5 +582,420 @@ def get_node_types() -> dict[str, Any]:
         "architecture_types":    sorted(ARCHITECTURE_NODE_TYPES),
         "structural_edge_types": sorted(STRUCTURAL_EDGE_TYPES),
         "call_edge_types":       ["calls"],
-        "version":               "1",
+        "lineage_edge_types":    sorted(LINEAGE_EDGE_TYPES),
+        "version":               "2",
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 数据血缘分析 API（P1）
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class ImpactAnalysisRequest(BaseModel):
+    """变更影响评估请求。"""
+
+    repo_id: str = Field(description="仓库 ID")
+    node_id: str = Field(description="变更的节点 ID")
+    change_type: str = Field(
+        default="modify",
+        description="变更类型: modify(修改) | delete(删除) | rename(重命名)",
+    )
+
+
+class TraceLineageRequest(BaseModel):
+    """根因追溯请求。"""
+
+    repo_id: str = Field(description="仓库 ID")
+    node_id: str = Field(description="问题节点 ID")
+    trace_type: str = Field(
+        default="source",
+        description="追溯类型: source(仅数据源) | transformation(转换链) | full(完整链路)",
+    )
+
+
+def _calculate_risk_level(
+    affected_count: int,
+    has_api_impact: bool,
+    has_database_impact: bool,
+) -> str:
+    """计算风险等级。"""
+    score = 0
+
+    # 节点数量影响
+    if affected_count > 20:
+        score += 3
+    elif affected_count > 10:
+        score += 2
+    elif affected_count > 5:
+        score += 1
+
+    # API 影响加成
+    if has_api_impact:
+        score += 2
+
+    # 数据库影响加成
+    if has_database_impact:
+        score += 2
+
+    if score >= 6:
+        return "high"
+    elif score >= 3:
+        return "medium"
+    else:
+        return "low"
+
+
+@router.post("/lineage/impact", tags=["数据血缘"])
+def analyze_impact(request: ImpactAnalysisRequest) -> dict[str, Any]:
+    """
+    变更影响评估。
+
+    分析修改/删除指定节点后的下游影响范围，返回：
+    - affected_nodes: 受影响的下游节点列表
+    - affected_apis: 受影响的 API 端点
+    - affected_databases: 涉及的数据库
+    - risk_level: 风险等级（low/medium/high）
+    - impact_summary: 影响统计摘要
+
+    Example:
+        POST /lineage/impact
+        {
+            "repo_id": "my-service",
+            "node_id": "service:UserService",
+            "change_type": "modify"
+        }
+    """
+    # 验证 change_type
+    if request.change_type not in ("modify", "delete", "rename"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"无效的 change_type: {request.change_type}，可选值: modify, delete, rename",
+        )
+
+    # 加载图谱
+    graph = _storage_load_or_404(request.repo_id)
+    all_nodes = graph.get("nodes", [])
+    all_edges = graph.get("edges", [])
+
+    # 查找下游影响（沿 from → to 方向）
+    try:
+        result = _bfs_lineage_subgraph(
+            all_nodes,
+            all_edges,
+            request.node_id,
+            _LINEAGE_EDGE_TYPES,
+            depth=5,  # 最大深度
+            direction="downstream",
+        )
+    except HTTPException as e:
+        if "node not found" in str(e.detail):
+            raise HTTPException(
+                status_code=404,
+                detail=f"节点不存在: {request.node_id}",
+            )
+        raise
+
+    affected_nodes = result["nodes"]
+    affected_edges = result["edges"]
+
+    # 分类统计
+    affected_apis = [
+        n for n in affected_nodes
+        if n.get("type") == "APIEndpoint"
+    ]
+    affected_databases = [
+        n for n in affected_nodes
+        if n.get("type") in ("Database", "DataSource")
+    ]
+    affected_services = [
+        n for n in affected_nodes
+        if n.get("type") == "Service"
+    ]
+    affected_topics = [
+        n for n in affected_nodes
+        if n.get("type") == "Topic"
+    ]
+
+    # 计算风险等级
+    risk_level = _calculate_risk_level(
+        affected_count=len(affected_nodes),
+        has_api_impact=len(affected_apis) > 0,
+        has_database_impact=len(affected_databases) > 0,
+    )
+
+    # 构建影响摘要
+    impact_summary = {
+        "total_affected": len(affected_nodes),
+        "services": len(affected_services),
+        "api_endpoints": len(affected_apis),
+        "databases": len(affected_databases),
+        "topics": len(affected_topics),
+        "change_type": request.change_type,
+    }
+
+    # 删除操作风险升级
+    if request.change_type == "delete":
+        if risk_level == "low":
+            risk_level = "medium"
+        elif risk_level == "medium":
+            risk_level = "high"
+
+    return {
+        "repo_id": request.repo_id,
+        "changed_node_id": request.node_id,
+        "change_type": request.change_type,
+        "risk_level": risk_level,
+        "impact_summary": impact_summary,
+        "affected_nodes": affected_nodes,
+        "affected_edges": affected_edges,
+        "affected_apis": [
+            {"id": n["id"], "name": n.get("name", ""), "path": n.get("properties", {}).get("path", "")}
+            for n in affected_apis
+        ],
+        "affected_databases": [
+            {"id": n["id"], "name": n.get("name", "")}
+            for n in affected_databases
+        ],
+        "recommendations": _generate_recommendations(
+            request.change_type,
+            risk_level,
+            impact_summary,
+        ),
+    }
+
+
+def _generate_recommendations(
+    change_type: str,
+    risk_level: str,
+    summary: dict,
+) -> list[str]:
+    """生成变更建议。"""
+    recommendations = []
+
+    if risk_level == "high":
+        recommendations.append("⚠️ 高风险变更，建议先在测试环境验证")
+
+    if summary["api_endpoints"] > 0:
+        recommendations.append(
+            f"影响 {summary['api_endpoints']} 个 API 端点，建议通知相关前端/调用方"
+        )
+
+    if summary["databases"] > 0:
+        recommendations.append(
+            f"涉及 {summary['databases']} 个数据库，建议检查数据迁移脚本"
+        )
+
+    if change_type == "delete":
+        recommendations.append("删除操作不可逆，建议确认无依赖后再执行")
+
+    if change_type == "rename":
+        recommendations.append("重命名后需更新所有引用，建议使用 IDE 重构功能")
+
+    if not recommendations:
+        recommendations.append("✅ 低风险变更，可按计划执行")
+
+    return recommendations
+
+
+@router.post("/lineage/trace", tags=["数据血缘"])
+def trace_lineage(request: TraceLineageRequest) -> dict[str, Any]:
+    """
+    根因追溯。
+
+    追溯数据问题的源头，返回：
+    - source_nodes: 数据源头节点列表
+    - transformation_chain: 数据转换链路
+    - confidence: 追溯置信度
+
+    Example:
+        POST /lineage/trace
+        {
+            "repo_id": "my-service",
+            "node_id": "service:ReportService",
+            "trace_type": "full"
+        }
+    """
+    # 验证 trace_type
+    if request.trace_type not in ("source", "transformation", "full"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"无效的 trace_type: {request.trace_type}，可选值: source, transformation, full",
+        )
+
+    # 加载图谱
+    graph = _storage_load_or_404(request.repo_id)
+    all_nodes = graph.get("nodes", [])
+    all_edges = graph.get("edges", [])
+
+    # 查找上游来源（沿 to → from 方向，反向追溯）
+    try:
+        result = _bfs_lineage_subgraph(
+            all_nodes,
+            all_edges,
+            request.node_id,
+            _LINEAGE_EDGE_TYPES,
+            depth=5,  # 最大深度
+            direction="upstream",
+        )
+    except HTTPException as e:
+        if "node not found" in str(e.detail):
+            raise HTTPException(
+                status_code=404,
+                detail=f"节点不存在: {request.node_id}",
+            )
+        raise
+
+    upstream_nodes = result["nodes"]
+    upstream_edges = result["edges"]
+
+    # 识别数据源头
+    source_nodes = [
+        n for n in upstream_nodes
+        if n.get("type") in ("Database", "DataSource", "ExternalAPI", "MessageQueue")
+    ]
+
+    # 构建转换链路
+    transformation_chain = _build_transformation_chain(
+        request.node_id,
+        upstream_nodes,
+        upstream_edges,
+    )
+
+    # 计算置信度
+    confidence = _calculate_trace_confidence(upstream_nodes, upstream_edges)
+
+    # 根据 trace_type 过滤返回内容
+    if request.trace_type == "source":
+        # 仅返回数据源
+        return {
+            "repo_id": request.repo_id,
+            "target_node_id": request.node_id,
+            "trace_type": request.trace_type,
+            "source_nodes": [
+                {"id": n["id"], "name": n.get("name", ""), "type": n.get("type", "")}
+                for n in source_nodes
+            ],
+            "confidence": confidence,
+        }
+
+    elif request.trace_type == "transformation":
+        # 仅返回转换链
+        return {
+            "repo_id": request.repo_id,
+            "target_node_id": request.node_id,
+            "trace_type": request.trace_type,
+            "transformation_chain": transformation_chain,
+            "confidence": confidence,
+        }
+
+    else:
+        # full: 返回完整链路
+        return {
+            "repo_id": request.repo_id,
+            "target_node_id": request.node_id,
+            "trace_type": request.trace_type,
+            "source_nodes": [
+                {"id": n["id"], "name": n.get("name", ""), "type": n.get("type", "")}
+                for n in source_nodes
+            ],
+            "transformation_chain": transformation_chain,
+            "upstream_nodes": upstream_nodes,
+            "upstream_edges": upstream_edges,
+            "confidence": confidence,
+        }
+
+
+def _build_transformation_chain(
+    target_node_id: str,
+    nodes: list[dict],
+    edges: list[dict],
+) -> list[dict]:
+    """构建数据转换链路。
+
+    从目标节点回溯到源头，按顺序列出中间转换节点。
+    """
+    node_map = {n["id"]: n for n in nodes}
+
+    # 找到目标节点
+    target_node = node_map.get(target_node_id)
+    if not target_node:
+        return []
+
+    # BFS 回溯构建链路
+    chain: list[dict] = []
+    visited: set[str] = {target_node_id}
+    queue: deque[tuple[str, int]] = deque([(target_node_id, 0)])
+
+    # 构建反向边映射（to -> [from]）
+    reverse_edges: dict[str, list[tuple[dict, str]]] = {}
+    for edge in edges:
+        edge_to = edge.get("to")
+        edge_from = edge.get("from")
+        if edge_to and edge_from:
+            if edge_to not in reverse_edges:
+                reverse_edges[edge_to] = []
+            reverse_edges[edge_to].append((edge, edge_from))
+
+    while queue:
+        current_id, depth = queue.popleft()
+        current_node = node_map.get(current_id)
+        if not current_node:
+            continue
+
+        # 记录转换节点
+        if current_node.get("type") in ("Service", "Repository", "Component"):
+            chain.append({
+                "id": current_id,
+                "name": current_node.get("name", ""),
+                "type": current_node.get("type", ""),
+                "depth": depth,
+            })
+
+        # 继续回溯
+        for edge, from_id in reverse_edges.get(current_id, []):
+            if from_id not in visited:
+                visited.add(from_id)
+                queue.append((from_id, depth + 1))
+
+    # 按深度排序（从源头到目标）
+    chain.sort(key=lambda x: x["depth"], reverse=True)
+
+    return chain
+
+
+def _calculate_trace_confidence(
+    nodes: list[dict],
+    edges: list[dict],
+) -> float:
+    """计算追溯置信度。
+
+    基于以下因素：
+    - 边的平均置信度
+    - 是否找到明确的数据源
+    - 链路完整性
+    """
+    if not edges:
+        return 0.5
+
+    # 边置信度平均值
+    edge_confidences = [
+        e.get("properties", {}).get("confidence", 0.8)
+        for e in edges
+    ]
+    avg_confidence = sum(edge_confidences) / len(edge_confidences) if edge_confidences else 0.8
+
+    # 是否找到数据源
+    has_source = any(
+        n.get("type") in ("Database", "DataSource", "ExternalAPI", "MessageQueue")
+        for n in nodes
+    )
+    if has_source:
+        avg_confidence = min(1.0, avg_confidence + 0.1)
+
+    # 链路完整性（节点数/边数比例）
+    node_edge_ratio = len(nodes) / (len(edges) + 1)
+    if node_edge_ratio > 1.5:
+        avg_confidence = min(1.0, avg_confidence + 0.05)
+
+    return round(avg_confidence, 2)

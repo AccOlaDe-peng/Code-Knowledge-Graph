@@ -146,10 +146,11 @@ export const graphApi = {
    */
   getLineageView(
     repoId: string,
-    opts?: { edgeTypes?: string; nodeId?: string; depth?: number },
+    opts?: { edgeTypes?: string; nodeId?: string; depth?: number; direction?: string },
   ): Promise<{
     repo_id: string;
     edge_types: string[];
+    direction?: string;
     node_count: number;
     edge_count: number;
     nodes: RawNode[];
@@ -162,12 +163,26 @@ export const graphApi = {
           ? {
               ...(opts.edgeTypes ? { edge_types: opts.edgeTypes } : {}),
               ...(opts.nodeId
-                ? { node_id: opts.nodeId, depth: opts.depth }
+                ? { node_id: opts.nodeId, depth: opts.depth, direction: opts.direction }
                 : {}),
             }
           : {}),
       },
     });
+  },
+
+  /**
+   * POST /lineage/impact — 变更影响评估
+   */
+  analyzeImpact(data: import("../types/api").ImpactAnalysisRequest): Promise<import("../types/api").ImpactAnalysisResponse> {
+    return httpClient.post("/lineage/impact", data);
+  },
+
+  /**
+   * POST /lineage/trace — 根因追溯
+   */
+  traceLineage(data: import("../types/api").TraceLineageRequest): Promise<import("../types/api").TraceLineageResponse> {
+    return httpClient.post("/lineage/trace", data);
   },
 
   /**
@@ -193,10 +208,12 @@ export type RawNode = {
   id: string;
   type: string; // lowercase: function, class, module, file, api, database, table, repository
   name?: string;
-  file?: string;
-  line?: number;
-  module?: string;
-  language?: string;
+  properties?: Record<string, unknown>; // Backend provides rich properties
+  metrics?: {
+    in_degree?: number;
+    out_degree?: number;
+    pagerank?: number;
+  };
 };
 
 export type RawEdge = {
@@ -211,18 +228,11 @@ export function rawNodeToGraphNode(
 ): import("../types/graph").GraphNode {
   const label = n.name || n.id.split(":").pop()?.split(".").pop() || n.id;
 
-  // Build properties object, excluding undefined values
-  const properties: Record<string, unknown> = {};
-  if (n.file !== undefined) properties.file = n.file;
-  if (n.line !== undefined) properties.line = n.line;
-  if (n.module !== undefined) properties.module = n.module;
-  if (n.language !== undefined) properties.language = n.language;
-
   return {
     id: n.id,
     type: n.type,
     label,
-    properties,
+    properties: n.properties ?? {},
   };
 }
 

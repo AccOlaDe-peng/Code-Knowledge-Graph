@@ -321,6 +321,12 @@ const CallGraphCanvas = forwardRef<CallGraphCanvasHandle, CallGraphCanvasProps>(
         const restored = loadViewport(cy)
         if (!restored) {
           cy.fit(undefined, 40)
+          // Ensure minimum zoom level for better initial view
+          const minZoom = 0.35
+          if (cy.zoom() < minZoom) {
+            cy.zoom(minZoom)
+            cy.center()
+          }
         }
         // Sync positions to minimap after layout
         syncMinimap()
@@ -336,6 +342,12 @@ const CallGraphCanvas = forwardRef<CallGraphCanvasHandle, CallGraphCanvasProps>(
       const layout = cy.layout(getLayoutOptions(layoutAlgo) as Parameters<Core['layout']>[0])
       layout.one('layoutstop', () => {
         cy.fit(undefined, 40)
+        // Ensure minimum zoom level for better initial view
+        const minZoom = 0.35
+        if (cy.zoom() < minZoom) {
+          cy.zoom(minZoom)
+          cy.center()
+        }
         // Sync positions to minimap
         syncMinimap()
       })

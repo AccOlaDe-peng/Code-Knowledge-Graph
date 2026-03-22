@@ -17,17 +17,27 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import dagre from "dagre";
-import { Input, Button, Tooltip, Spin, Radio } from "antd";
-import { SearchOutlined, ReloadOutlined } from "@ant-design/icons";
+import { Input, Button, Tooltip, Spin, Radio, Select, Drawer, Tag, Alert } from "antd";
+import {
+  SearchOutlined,
+  ReloadOutlined,
+  ArrowDownOutlined,
+  ArrowUpOutlined,
+  WarningOutlined,
+  CheckCircleOutlined,
+} from "@ant-design/icons";
 import { useGraphStore } from "../../store/graphStore";
 import { useRepoStore } from "../../store/repoStore";
 import NodeDetailPanel from "../../components/NodeDetailPanel";
 import RepoSelector from "../../components/ui/RepoSelector";
+import { graphApi } from "../../api/graphApi";
 import type { GraphNode } from "../../types/graph";
+import type { ImpactAnalysisResponse } from "../../types/api";
 
-// ─── View modes ───────────────────────────────────────────────────────────────
+// ─── View modes & Direction ───────────────────────────────────────────────────
 
 type ViewMode = "module" | "lineage";
+type LineageDirection = "downstream" | "upstream" | "both";
 
 // ─── Node / edge styling ──────────────────────────────────────────────────────
 
@@ -53,13 +63,16 @@ const NODE_COLORS: Record<
     text: "#ff6b6b",
   },
   api: { bg: "rgba(0,212,255,0.08)", border: "#00d4ff44", text: "#00d4ff" },
+  apiendpoint: { bg: "rgba(0,212,255,0.12)", border: "#00d4ff88", text: "#00d4ff" },
   database: {
     bg: "rgba(176,142,255,0.1)",
     border: "#b08eff55",
     text: "#b08eff",
   },
+  datasource: { bg: "rgba(176,142,255,0.12)", border: "#b08eff88", text: "#b08eff" },
   table: { bg: "rgba(176,142,255,0.07)", border: "#b08eff33", text: "#b08eff" },
   service: { bg: "rgba(0,240,132,0.08)", border: "#00f08444", text: "#00f084" },
+  topic: { bg: "rgba(255,107,107,0.1)", border: "#ff6b6b55", text: "#ff6b6b" },
   _default: { bg: "rgba(30,45,61,0.5)", border: "#1e2d3d", text: "#6b8aaa" },
 };
 
@@ -72,6 +85,9 @@ const EDGE_COLORS: Record<string, string> = {
   depends_on: "#b08eff55",
   produces: "#00f08455",
   consumes: "#ff6b6b55",
+  flow_to: "#00d4ff77",
+  queries: "#b08eff77",
+  transforms: "#ffc14577",
 };
 
 function getNodeStyle(type: string) {
@@ -87,7 +103,9 @@ function getNodeDims(type: string): { w: number; h: number } {
   if (t === "module") return { w: 160, h: 44 };
   if (t === "file") return { w: 170, h: 40 };
   if (t === "class") return { w: 155, h: 40 };
-  if (t === "database") return { w: 150, h: 48 };
+  if (t === "database" || t === "datasource") return { w: 150, h: 48 };
+  if (t === "apiendpoint") return { w: 180, h: 44 };
+  if (t === "topic") return { w: 140, h: 40 };
   return { w: 160, h: 40 };
 }
 
@@ -96,7 +114,7 @@ function getNodeDims(type: string): { w: number; h: number } {
 function applyDagreLayout(
   nodes: Node[],
   edges: Edge[],
-  direction: "TB" | "LR" = "TB",
+  direction: "TB" | "LR" | "BT" = "TB",
 ): Node[] {
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
@@ -138,6 +156,7 @@ const LineageNode: React.FC<{ data: LineageNodeData }> = ({ data }) => {
   const dims = getNodeDims(data.nodeType);
   const isRepo = data.nodeType.toLowerCase() === "repository";
   const isModule = data.nodeType.toLowerCase() === "module";
+  const isDataSource = ["database", "datasource", "topic"].includes(data.nodeType.toLowerCase());
 
   return (
     <div
@@ -151,14 +170,14 @@ const LineageNode: React.FC<{ data: LineageNodeData }> = ({ data }) => {
             : "rgba(10,15,22,0.88)",
         border: `1px solid ${
           data.isSelected
-            ? style.border.replace("44", "aa").replace("33", "88")
+            ? style.border.replace("44", "aa").replace("33", "88").replace("55", "aa")
             : data.isHighlighted
               ? style.border
               : data.isDimmed
                 ? "#0d1520"
                 : "#1a2535"
         }`,
-        borderRadius: isRepo ? 6 : isModule ? 4 : 3,
+        borderRadius: isRepo ? 6 : isModule ? 4 : isDataSource ? 8 : 3,
         display: "flex",
         alignItems: "center",
         padding: "0 10px",
@@ -265,15 +284,158 @@ const LineageNode: React.FC<{ data: LineageNodeData }> = ({ data }) => {
 
 const nodeTypes: NodeTypes = { lineage: LineageNode };
 
-// ─── Edge type legend ─────────────────────────────────────────────────────────
+// ─── Impact Panel Component ──────────────────────────────────────────────────
 
-const LEGEND_ITEMS: { type: string; label: string }[] = [
-  { type: "contains", label: "包含" },
-  { type: "imports", label: "导入" },
-  { type: "reads", label: "读取" },
-  { type: "writes", label: "写入" },
-  { type: "calls", label: "调用" },
-];
+type ImpactPanelProps = {
+  impactData: ImpactAnalysisResponse | null;
+  onClose: () => void;
+  onNodeClick: (nodeId: string) => void;
+};
+
+const ImpactPanel: React.FC<ImpactPanelProps> = ({ impactData, onClose, onNodeClick }) => {
+  if (!impactData) return null;
+
+  const riskConfig = {
+    low: { color: "#00f084", bg: "rgba(0,240,132,0.1)", icon: <CheckCircleOutlined /> },
+    medium: { color: "#ffc145", bg: "rgba(255,193,69,0.1)", icon: <WarningOutlined /> },
+    high: { color: "#ff6b6b", bg: "rgba(255,107,107,0.1)", icon: <WarningOutlined /> },
+  };
+
+  const config = riskConfig[impactData.risk_level];
+
+  return (
+    <Drawer
+      title={
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ color: config.color }}>{config.icon}</span>
+          <span>变更影响评估</span>
+        </div>
+      }
+      placement="right"
+      width={420}
+      onClose={onClose}
+      open={!!impactData}
+      styles={{
+        header: { background: "#0d1520", borderBottom: "1px solid #1a2535" },
+        body: { background: "#07090d", padding: 16 },
+      }}
+    >
+      {/* Risk Level */}
+      <div
+        style={{
+          background: config.bg,
+          border: `1px solid ${config.color}44`,
+          borderRadius: 6,
+          padding: 12,
+          marginBottom: 16,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ color: "#8ab4c8", fontFamily: "'IBM Plex Mono'", fontSize: 11 }}>
+            风险等级
+          </span>
+          <Tag
+            color={impactData.risk_level === "high" ? "error" : impactData.risk_level === "medium" ? "warning" : "success"}
+            style={{ fontFamily: "'IBM Plex Mono'", fontWeight: 600 }}
+          >
+            {impactData.risk_level.toUpperCase()}
+          </Tag>
+        </div>
+        <div style={{ color: config.color, fontFamily: "'Syne'", fontSize: 18, fontWeight: 700, marginTop: 4 }}>
+          {impactData.changed_node_id.split(":").pop()}
+        </div>
+        <div style={{ color: "#6b8aaa", fontFamily: "'IBM Plex Mono'", fontSize: 10, marginTop: 2 }}>
+          变更类型: {impactData.change_type}
+        </div>
+      </div>
+
+      {/* Impact Summary */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ color: "#8ab4c8", fontFamily: "'IBM Plex Mono'", fontSize: 10, marginBottom: 8, letterSpacing: "0.1em" }}>
+          影响统计
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          {[
+            { label: "受影响节点", value: impactData.impact_summary.total_affected, color: "#b08eff" },
+            { label: "服务", value: impactData.impact_summary.services, color: "#00f084" },
+            { label: "API 端点", value: impactData.impact_summary.api_endpoints, color: "#00d4ff" },
+            { label: "数据库", value: impactData.impact_summary.databases, color: "#ffc145" },
+          ].map((item) => (
+            <div
+              key={item.label}
+              style={{
+                background: "rgba(10,15,22,0.6)",
+                border: "1px solid #1a2535",
+                borderRadius: 4,
+                padding: 8,
+              }}
+            >
+              <div style={{ color: item.color, fontFamily: "'IBM Plex Mono'", fontSize: 18, fontWeight: 700 }}>
+                {item.value}
+              </div>
+              <div style={{ color: "#6b8aaa", fontFamily: "'IBM Plex Mono'", fontSize: 9 }}>{item.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Affected APIs */}
+      {impactData.affected_apis.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ color: "#8ab4c8", fontFamily: "'IBM Plex Mono'", fontSize: 10, marginBottom: 8, letterSpacing: "0.1em" }}>
+            受影响的 API
+          </div>
+          {impactData.affected_apis.slice(0, 5).map((api) => (
+            <div
+              key={api.id}
+              onClick={() => onNodeClick(api.id)}
+              style={{
+                background: "rgba(0,212,255,0.05)",
+                border: "1px solid #00d4ff33",
+                borderRadius: 4,
+                padding: "6px 10px",
+                marginBottom: 6,
+                cursor: "pointer",
+              }}
+            >
+              <div style={{ color: "#00d4ff", fontFamily: "'IBM Plex Mono'", fontSize: 10 }}>
+                {api.name}
+              </div>
+              <div style={{ color: "#6b8aaa", fontFamily: "'IBM Plex Mono'", fontSize: 9 }}>
+                {api.path}
+              </div>
+            </div>
+          ))}
+          {impactData.affected_apis.length > 5 && (
+            <div style={{ color: "#6b8aaa", fontFamily: "'IBM Plex Mono'", fontSize: 9, textAlign: "center" }}>
+              还有 {impactData.affected_apis.length - 5} 个...
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Recommendations */}
+      <div>
+        <div style={{ color: "#8ab4c8", fontFamily: "'IBM Plex Mono'", fontSize: 10, marginBottom: 8, letterSpacing: "0.1em" }}>
+          建议
+        </div>
+        {impactData.recommendations.map((rec, i) => (
+          <Alert
+            key={i}
+            message={rec}
+            type={rec.startsWith("⚠️") ? "warning" : rec.startsWith("✅") ? "success" : "info"}
+            showIcon
+            style={{
+              marginBottom: 8,
+              background: "rgba(10,15,22,0.6)",
+              border: "1px solid #1a2535",
+            }}
+          />
+        ))}
+      </div>
+    </Drawer>
+  );
+};
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
@@ -291,15 +453,49 @@ const DataLineageInner: React.FC = () => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [viewMode, setViewMode] = useState<ViewMode>("module");
+  const [viewMode, setViewMode] = useState<ViewMode>("lineage");
+  const [direction, setDirection] = useState<LineageDirection>("downstream");
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const [panelNode, setPanelNode] = useState<GraphNode | null>(null);
+  const [impactData, setImpactData] = useState<ImpactAnalysisResponse | null>(null);
+  const [impactLoading, setImpactLoading] = useState(false);
+  // Future feature: trace lineage
+  // const [traceData, setTraceData] = useState<TraceLineageResponse | null>(null);
 
+  // Load lineage data with direction
   useEffect(() => {
-    if (!activeRepo?.graphId) return;
-    loadModuleGraph(activeRepo.graphId);
-    loadLineage(activeRepo.graphId);
-  }, [activeRepo?.graphId]);
+    if (!activeRepo?.repoId) return;
+    loadModuleGraph(activeRepo.repoId);
+
+    // Load lineage with direction if focusNodeId is set
+    if (viewMode === "lineage" && focusNodeId) {
+      graphApi.getLineageView(activeRepo.repoId, {
+        nodeId: focusNodeId,
+        depth: 3,
+        direction: direction,
+      }).then((res) => {
+        const graph = {
+          nodes: res.nodes.map((n) => ({
+            id: n.id,
+            type: n.type,
+            label: n.name || n.id.split(":").pop() || n.id,
+            properties: n.properties || {},
+          })),
+          edges: res.edges.map((e) => ({
+            source: e.from,
+            target: e.to,
+            type: e.type,
+          })),
+        };
+        // Update lineage graph in store
+        useGraphStore.setState({
+          lineageGraph: { data: graph, loading: false, error: null },
+        });
+      });
+    } else {
+      loadLineage(activeRepo.repoId);
+    }
+  }, [activeRepo?.repoId, viewMode, focusNodeId, direction]);
 
   // Pick data source based on view mode
   const activeSlice = viewMode === "module" ? moduleGraph : lineageGraph;
@@ -346,15 +542,16 @@ const DataLineageInner: React.FC = () => {
           source: e.source,
           target: e.target,
           type: "smoothstep",
-          animated: e.type === "imports" && !!isFocused,
-          label: e.type !== "contains" ? e.type : undefined,
+          animated: e.type === "flow_to" && !!isFocused,
+          label: !["contains", "depends_on"].includes(e.type) ? e.type : undefined,
           labelStyle: {
             fontFamily: "'IBM Plex Mono'",
             fontSize: 8,
             fill: color
               .replace("66", "cc")
               .replace("55", "cc")
-              .replace("44", "cc"),
+              .replace("44", "cc")
+              .replace("77", "cc"),
           },
           labelBgStyle: { fill: "#07090d", fillOpacity: 0.85 },
           style: {
@@ -363,6 +560,7 @@ const DataLineageInner: React.FC = () => {
                   .replace("66", "cc")
                   .replace("55", "cc")
                   .replace("44", "cc")
+                  .replace("77", "cc")
               : color,
             strokeWidth: isFocused ? 2 : e.type === "contains" ? 1 : 1.5,
             strokeDasharray: e.type === "imports" ? "4 3" : undefined,
@@ -373,19 +571,54 @@ const DataLineageInner: React.FC = () => {
             color: color
               .replace("66", "cc")
               .replace("55", "cc")
-              .replace("44", "cc"),
+              .replace("44", "cc")
+              .replace("77", "cc"),
             width: 8,
             height: 8,
           },
         };
       });
 
-    const direction = viewMode === "module" ? "TB" : "LR";
-    const laid = applyDagreLayout(rfNodes, rfEdges, direction);
+    const layoutDirection = viewMode === "lineage" && direction === "upstream" ? "BT" : "LR";
+    const dagreDirection = viewMode === "module" ? "TB" : layoutDirection;
+    const laid = applyDagreLayout(rfNodes, rfEdges, dagreDirection);
     setNodes(laid);
     setEdges(rfEdges);
     setTimeout(() => fitView({ padding: 0.1, duration: 450 }), 60);
-  }, [rawData, searchQuery, focusNodeId, viewMode]);
+  }, [rawData, searchQuery, focusNodeId, viewMode, direction]);
+
+  // Run impact analysis
+  const runImpactAnalysis = useCallback(async (nodeId: string) => {
+    if (!activeRepo?.repoId) return;
+    setImpactLoading(true);
+    try {
+      const result = await graphApi.analyzeImpact({
+        repo_id: activeRepo.repoId,
+        node_id: nodeId,
+        change_type: "modify",
+      });
+      setImpactData(result);
+    } catch (err) {
+      console.error("Impact analysis failed:", err);
+    } finally {
+      setImpactLoading(false);
+    }
+  }, [activeRepo?.repoId]);
+
+  // Future feature: Run trace
+  // const runTrace = useCallback(async (nodeId: string) => {
+  //   if (!activeRepo?.repoId) return;
+  //   try {
+  //     const result = await graphApi.traceLineage({
+  //       repo_id: activeRepo.repoId,
+  //       node_id: nodeId,
+  //       trace_type: "source",
+  //     });
+  //     setTraceData(result);
+  //   } catch (err) {
+  //     console.error("Trace failed:", err);
+  //   }
+  // }, [activeRepo?.repoId]);
 
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: Node<LineageNodeData>) => {
@@ -398,9 +631,14 @@ const DataLineageInner: React.FC = () => {
         setFocusNodeId(orig.id);
         setPanelNode(orig);
         setSelectedNode(orig);
+
+        // Auto-run impact analysis for Service nodes
+        if (viewMode === "lineage" && ["Service", "service"].includes(orig.type)) {
+          runImpactAnalysis(orig.id);
+        }
       }
     },
-    [focusNodeId],
+    [focusNodeId, viewMode, runImpactAnalysis],
   );
 
   const handleReset = () => {
@@ -408,17 +646,20 @@ const DataLineageInner: React.FC = () => {
     setPanelNode(null);
     setSelectedNode(null);
     setSearchQuery("");
+    setImpactData(null);
+    // setTraceData(null); // Future feature
     setTimeout(() => fitView({ padding: 0.1, duration: 450 }), 60);
   };
 
-  // Edge type counts for legend
-  const edgeCounts = useMemo(() => {
-    if (!rawData) return {};
-    const counts: Record<string, number> = {};
-    rawData.edges.forEach((e) => {
-      counts[e.type] = (counts[e.type] ?? 0) + 1;
-    });
-    return counts;
+  // Node select options
+  const nodeOptions = useMemo(() => {
+    if (!rawData) return [];
+    return rawData.nodes
+      .filter((n) => ["Service", "service", "Repository", "repository", "Component", "component"].includes(n.type))
+      .map((n) => ({
+        value: n.id,
+        label: `${n.label} (${n.type})`,
+      }));
   }, [rawData]);
 
   const nodeCount = rawData?.nodes.length ?? 0;
@@ -479,6 +720,7 @@ const DataLineageInner: React.FC = () => {
           onChange={(e) => {
             setViewMode(e.target.value);
             setFocusNodeId(null);
+            setImpactData(null);
           }}
           size="small"
           style={{ fontFamily: "'IBM Plex Mono'" }}
@@ -497,8 +739,54 @@ const DataLineageInner: React.FC = () => {
           </Radio.Button>
         </Radio.Group>
 
+        {/* Direction toggle (only for lineage mode) */}
+        {viewMode === "lineage" && (
+          <Radio.Group
+            value={direction}
+            onChange={(e) => setDirection(e.target.value)}
+            size="small"
+            style={{ fontFamily: "'IBM Plex Mono'" }}
+          >
+            <Radio.Button
+              value="downstream"
+              style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10 }}
+            >
+              <ArrowDownOutlined /> 下游
+            </Radio.Button>
+            <Radio.Button
+              value="upstream"
+              style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10 }}
+            >
+              <ArrowUpOutlined /> 上游
+            </Radio.Button>
+            <Radio.Button
+              value="both"
+              style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10 }}
+            >
+              双向
+            </Radio.Button>
+          </Radio.Group>
+        )}
+
         {/* Repository selector */}
         <RepoSelector showStats={false} width={200} />
+
+        {/* Node selector for lineage trace */}
+        {viewMode === "lineage" && (
+          <Select
+            placeholder="选择起点节点..."
+            value={focusNodeId}
+            onChange={(val) => setFocusNodeId(val)}
+            options={nodeOptions}
+            showSearch
+            allowClear
+            style={{ width: 220 }}
+            size="small"
+            filterOption={(input, option) =>
+              (option?.label ?? "").toLowerCase().includes(input.toLowerCase())
+            }
+          />
+        )}
 
         {/* Stats */}
         <div style={{ display: "flex", gap: 16, marginRight: "auto" }}>
@@ -548,40 +836,6 @@ const DataLineageInner: React.FC = () => {
           </div>
         </div>
 
-        {/* Edge type legend */}
-        <div style={{ display: "flex", gap: 10 }}>
-          {LEGEND_ITEMS.filter(({ type }) => edgeCounts[type] > 0).map(
-            ({ type, label }) => (
-              <div
-                key={type}
-                style={{ display: "flex", alignItems: "center", gap: 4 }}
-              >
-                <div
-                  style={{
-                    width: 16,
-                    height: 1.5,
-                    background:
-                      EDGE_COLORS[type]
-                        ?.replace("66", "cc")
-                        .replace("55", "cc")
-                        .replace("44", "cc") ?? "#3a5a6a",
-                    borderRadius: 1,
-                  }}
-                />
-                <span
-                  style={{
-                    fontFamily: "'IBM Plex Mono'",
-                    fontSize: 9,
-                    color: "#3a5a6a",
-                  }}
-                >
-                  {label} ({edgeCounts[type] ?? 0})
-                </span>
-              </div>
-            ),
-          )}
-        </div>
-
         {/* Search */}
         <Input
           prefix={<SearchOutlined style={{ color: "#2a4a5a", fontSize: 11 }} />}
@@ -589,7 +843,7 @@ const DataLineageInner: React.FC = () => {
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           style={{
-            width: 180,
+            width: 160,
             background: "#080e16",
             border: "1px solid #1a2535",
             borderRadius: 3,
@@ -642,7 +896,7 @@ const DataLineageInner: React.FC = () => {
               style={{
                 fontFamily: "'IBM Plex Mono'",
                 fontSize: 10,
-                color: "#2a4a5a",
+                color: "#2a4a6a",
                 letterSpacing: "0.12em",
               }}
             >
@@ -668,7 +922,7 @@ const DataLineageInner: React.FC = () => {
                 style={{
                   fontFamily: "'IBM Plex Mono'",
                   fontSize: 11,
-                  color: "#2a4a5a",
+                  color: "#2a4a6a",
                   letterSpacing: "0.1em",
                 }}
               >
@@ -723,6 +977,37 @@ const DataLineageInner: React.FC = () => {
           />
         )}
       </div>
+
+      {/* Impact Analysis Panel */}
+      <ImpactPanel
+        impactData={impactData}
+        onClose={() => setImpactData(null)}
+        onNodeClick={(nodeId) => {
+          setFocusNodeId(nodeId);
+          const node = rawData?.nodes.find((n) => n.id === nodeId);
+          if (node) {
+            setPanelNode(node);
+            setSelectedNode(node);
+          }
+        }}
+      />
+
+      {/* Loading overlay for impact analysis */}
+      {impactLoading && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(7,9,13,0.6)",
+            zIndex: 100,
+          }}
+        >
+          <Spin size="large" />
+        </div>
+      )}
     </div>
   );
 };
