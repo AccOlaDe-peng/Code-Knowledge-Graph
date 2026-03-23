@@ -222,6 +222,152 @@ def _filter_by_edge_types(
     return {"nodes": filtered_nodes, "edges": filtered_edges}
 
 
+def _get_module_class_level_graph(
+    all_nodes: list[dict],
+    all_edges: list[dict],
+    module_name: str,
+) -> dict[str, Any]:
+    """获取模块内的 Class 级血缘图。
+
+    聚合 Function 级 calls 边为 Class 级 calls 边，
+    同时保留 reads/writes 等血缘边。
+
+    Args:
+        all_nodes: 原始节点列表
+        all_edges: 原始边列表
+        module_name: 模块名
+
+    Returns:
+        {nodes: Class 级节点, edges: Class 级边}
+    """
+    # 1. 收集模块内的 Class 级节点
+    class_nodes = []
+    class_node_ids = set()
+    function_to_class: dict[str, str] = {}  # function ID -> class ID
+
+    for node in all_nodes:
+        node_id = node.get("id", "")
+        node_type = node.get("type", "")
+
+        # 检查是否在模块内
+        extracted_module = _extract_module_from_id(node_id)
+        if extracted_module != module_name:
+            continue
+
+        # 过滤掉测试类
+        if "/test/" in node_id or "/Test" in node_id or node_id.endswith("Test"):
+            continue
+
+        if node_type == "Class":
+            class_nodes.append(node)
+            class_node_ids.add(node_id)
+
+        elif node_type == "Service":
+            class_nodes.append(node)
+            class_node_ids.add(node_id)
+
+        elif node_type == "Component":
+            # 检查是否是 Controller
+            annotations = node.get("properties", {}).get("annotations", [])
+            if "@RestController" in annotations or "@Controller" in annotations:
+                class_nodes.append(node)
+                class_node_ids.add(node_id)
+
+        elif node_type == "Function":
+            # 构建 function -> class 映射
+            # function:adms-api/src/.../UserService.java:UserService.getUser
+            # -> class:adms-api/src/.../UserService.java:UserService
+            if node_id.startswith("function:"):
+                parts = node_id.rsplit(".", 1)
+                if len(parts) == 2:
+                    class_id = f"class:{parts[0][9:]}"  # 移除 "function:" 前缀
+                    function_to_class[node_id] = class_id
+
+    # 2. 收集模块内涉及的其他节点（Database 等）
+    other_nodes = []
+    for node in all_nodes:
+        node_id = node.get("id", "")
+        node_type = node.get("type", "")
+        if node_type in ("Database",) and node_id.startswith(("datasource:", "database:")):
+            other_nodes.append(node)
+
+    # 3. 聚合 Function 级 calls 边为 Class 级 calls 边
+    class_edge_map: dict[tuple[str, str, str], dict] = {}  # (from, to, type) -> edge
+
+    def extract_class_id(node_id: str) -> str | None:
+        """从节点 ID 提取 Class ID。
+
+        支持：
+        - function:adms-api/src/.../UserService.java:UserService.method -> class:adms-api/src/.../UserService.java:UserService
+        - class:adms-api/src/.../UserService.java:UserService -> class:adms-api/src/.../UserService.java:UserService
+        """
+        if node_id.startswith("function:"):
+            parts = node_id.rsplit(".", 1)
+            if len(parts) == 2:
+                return f"class:{parts[0][9:]}"  # 移除 "function:" 前缀
+        elif node_id.startswith("class:"):
+            return node_id
+        return None
+
+    for edge in all_edges:
+        edge_type = edge.get("type", "")
+        from_id = edge.get("from", "")
+        to_id = edge.get("to", "")
+
+        if edge_type == "calls":
+            # 聚合 Function 级 calls 边
+            from_class = function_to_class.get(from_id) or extract_class_id(from_id)
+            to_class = function_to_class.get(to_id) or extract_class_id(to_id)
+
+            if not from_class or not to_class:
+                continue
+
+            # 只保留至少一端在模块内的边
+            if from_class not in class_node_ids and to_class not in class_node_ids:
+                continue
+
+            key = (from_class, to_class, "calls")
+            if key not in class_edge_map:
+                class_edge_map[key] = {
+                    "from": from_class,
+                    "to": to_class,
+                    "type": "calls",
+                    "properties": {
+                        "call_count": 0,
+                        "source": "aggregated_from_functions",
+                    },
+                }
+            class_edge_map[key]["properties"]["call_count"] += 1
+
+        elif edge_type in ("reads", "writes"):
+            # 保留 reads/writes 边（Repository -> Database）
+            # from_id 是 Class，to_id 是 Database
+            if from_id in class_node_ids:
+                key = (from_id, to_id, edge_type)
+                if key not in class_edge_map:
+                    class_edge_map[key] = {
+                        "from": from_id,
+                        "to": to_id,
+                        "type": edge_type,
+                        "properties": edge.get("properties", {}),
+                    }
+
+    class_edges = list(class_edge_map.values())
+
+    # 4. 添加 Database 节点（如果被边引用）
+    involved_db_ids = set()
+    for edge in class_edges:
+        to_id = edge.get("to", "")
+        if to_id.startswith(("datasource:", "database:")):
+            involved_db_ids.add(to_id)
+
+    for node in other_nodes:
+        if node.get("id") in involved_db_ids:
+            class_nodes.append(node)
+
+    return {"nodes": class_nodes, "edges": class_edges}
+
+
 def _infer_lineage_from_graph(
     nodes: list[dict],
     edges: list[dict],
@@ -535,6 +681,14 @@ def get_lineage(
         default="downstream",
         description="追踪方向: downstream(下游影响) | upstream(上游来源) | both(双向)",
     ),
+    module_id: Optional[str] = Query(
+        default=None,
+        description="模块 ID（如 adms-api）；指定后只返回该模块内的节点和边",
+    ),
+    include_calls: bool = Query(
+        default=True,
+        description="是否包含 calls 边（用于展示 Controller → Service → Repository 链路）",
+    ),
 ) -> dict[str, Any]:
     """
     数据血缘视图。
@@ -550,6 +704,8 @@ def get_lineage(
             - downstream: 追踪下游影响（数据去向）
             - upstream: 追溯上游来源（数据来源）
             - both: 双向展开
+        module_id: 模块 ID，指定后只返回该模块内的节点和边（聚合为 Class 级）
+        include_calls: 是否包含 calls 边
 
     Returns:
         血缘图数据（nodes + edges）
@@ -561,15 +717,36 @@ def get_lineage(
             detail=f"无效的 direction 参数: {direction}，可选值: downstream, upstream, both",
         )
 
+    # 构建目标边类型集合
     target_types = (
         frozenset(t.strip() for t in edge_types.split(",") if t.strip())
         if edge_types
         else _LINEAGE_EDGE_TYPES
     )
 
+    # 如果需要包含 calls 边，添加到目标类型
+    if include_calls and "calls" not in target_types:
+        target_types = target_types | {"calls"}
+
     graph = _storage_load_or_404(repo_id)
     all_nodes = graph.get("nodes", [])
     all_edges = graph.get("edges", [])
+
+    # 如果指定了 module_id，使用专门的模块级聚合逻辑
+    if module_id:
+        module_name = module_id.replace("module:", "")
+        result = _get_module_class_level_graph(all_nodes, all_edges, module_name)
+        return {
+            "repo_id":    repo_id,
+            "module_id":  module_id,
+            "edge_types": sorted(target_types),
+            "direction":  direction,
+            "node_count": len(result["nodes"]),
+            "edge_count": len(result["edges"]),
+            "nodes":      result["nodes"],
+            "edges":      result["edges"],
+            "inferred":   False,
+        }
 
     # 检查图谱中是否有预计算的血缘边
     has_lineage_edges = any(
@@ -607,6 +784,7 @@ def get_lineage(
 
     return {
         "repo_id":    repo_id,
+        "module_id":  module_id,
         "edge_types": sorted(target_types),
         "direction":  direction,
         "node_count": len(result["nodes"]),
@@ -614,6 +792,296 @@ def get_lineage(
         "nodes":      result["nodes"],
         "edges":      result["edges"],
         "inferred":   inferred,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 模块级血缘视图 API
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _extract_module_from_id(node_id: str) -> str | None:
+    """从节点 ID 中提取模块名。
+
+    支持的 ID 格式：
+    - class:adms-api/src/main/java/... -> adms-api
+    - function:adms-api/src/main/java/... -> adms-api
+    - datasource:primary -> None (非模块节点)
+
+    Returns:
+        模块名，如果无法提取则返回 None
+    """
+    if not node_id:
+        return None
+
+    # 过滤掉特殊节点类型
+    SPECIAL_PREFIXES = ("datasource:", "database:", "topic:", "external:", "module:")
+    if any(node_id.startswith(prefix) for prefix in SPECIAL_PREFIXES):
+        return None
+
+    # 移除前缀 (class:, function:, etc.)
+    id_body = node_id.split(":", 1)[-1] if ":" in node_id else node_id
+
+    # 取第一个路径段作为模块名
+    parts = id_body.split("/")
+    if len(parts) >= 1 and parts[0]:
+        return parts[0]
+
+    return None
+
+
+def _aggregate_class_to_module_edges(
+    nodes: list[dict],
+    edges: list[dict],
+) -> tuple[dict[str, dict], list[dict]]:
+    """将 Class 级 calls 边聚合为 Module 级 flow_to 边。
+
+    Args:
+        nodes: 原始节点列表
+        edges: 原始边列表
+
+    Returns:
+        (modules_dict, module_edges)
+        - modules_dict: {module_id: {name, services, controllers, repositories, databases}}
+        - module_edges: [{from, to, type, service_pairs, call_count}]
+    """
+    # 1. 构建 Class ID → Module 映射
+    class_to_module: dict[str, str] = {}
+    modules: dict[str, dict[str, Any]] = {}
+
+    # 需要关注的节点类型
+    TARGET_NODE_TYPES = {"Service", "Component", "Class"}
+    # Controller 识别：Component 类型 + @RestController/@Controller 注解
+    # Repository 识别：命名约定
+
+    for node in nodes:
+        node_type = node.get("type", "")
+        node_id = node.get("id", "")
+        node_name = node.get("name", "")
+
+        if node_type not in TARGET_NODE_TYPES and node_type != "Database":
+            continue
+
+        module_name = _extract_module_from_id(node_id)
+        if not module_name:
+            continue
+
+        module_id = f"module:{module_name}"
+
+        # 初始化模块
+        if module_id not in modules:
+            modules[module_id] = {
+                "id": module_id,
+                "name": module_name,
+                "services": [],
+                "controllers": [],
+                "repositories": [],
+                "databases": [],
+            }
+
+        # 分类节点
+        if node_type == "Service":
+            modules[module_id]["services"].append({
+                "id": node_id,
+                "name": node_name,
+            })
+            class_to_module[node_id] = module_id
+
+        elif node_type == "Component":
+            # 检查是否是 Controller
+            annotations = node.get("properties", {}).get("annotations", [])
+            if "@RestController" in annotations or "@Controller" in annotations:
+                modules[module_id]["controllers"].append({
+                    "id": node_id,
+                    "name": node_name,
+                })
+                class_to_module[node_id] = module_id
+
+        elif node_type == "Class":
+            # 检查是否是 Repository/Mapper
+            if any(p in node_name for p in ["Repository", "Mapper", "Dao", "DAO"]):
+                modules[module_id]["repositories"].append({
+                    "id": node_id,
+                    "name": node_name,
+                })
+                class_to_module[node_id] = module_id
+
+        elif node_type == "Database":
+            modules[module_id]["databases"].append({
+                "id": node_id,
+                "name": node.get("name", "Database"),
+            })
+
+    # 2. 聚合 calls 边为 module flow_to 边
+    # key: (from_module, to_module), value: {service_pairs: [], call_count: 0}
+    module_edge_map: dict[tuple[str, str], dict[str, Any]] = {}
+
+    for edge in edges:
+        if edge.get("type") != "calls":
+            continue
+
+        from_id = edge.get("from", "")
+        to_id = edge.get("to", "")
+
+        # 从 Function ID 提取 Class ID
+        from_class = None
+        to_class = None
+
+        if from_id.startswith("function:"):
+            parts = from_id.rsplit(".", 1)
+            if len(parts) == 2:
+                from_class = f"class:{parts[0][9:]}"  # 移除 "function:" 前缀
+        elif from_id.startswith("class:"):
+            from_class = from_id
+
+        if to_id.startswith("function:"):
+            parts = to_id.rsplit(".", 1)
+            if len(parts) == 2:
+                to_class = f"class:{parts[0][9:]}"
+        elif to_id.startswith("class:"):
+            to_class = to_id
+
+        if not from_class or not to_class:
+            continue
+
+        from_module = class_to_module.get(from_class)
+        to_module = class_to_module.get(to_class)
+
+        # 只处理跨模块调用
+        if not from_module or not to_module or from_module == to_module:
+            continue
+
+        key = (from_module, to_module)
+        if key not in module_edge_map:
+            module_edge_map[key] = {
+                "from": from_module,
+                "to": to_module,
+                "type": "flow_to",
+                "service_pairs": [],
+                "call_count": 0,
+            }
+
+        # 提取类名用于展示
+        from_name = from_class.split(":")[-1].split("/")[-1]
+        to_name = to_class.split(":")[-1].split("/")[-1]
+
+        pair = [from_name, to_name]
+        if pair not in module_edge_map[key]["service_pairs"]:
+            module_edge_map[key]["service_pairs"].append(pair)
+        module_edge_map[key]["call_count"] += 1
+
+    # 3. 聚合 reads/writes 边为 module → database 边
+    # 先构建 Database ID -> Node 映射
+    db_node_map = {n.get("id"): n for n in nodes if n.get("type") == "Database"}
+
+    for edge in edges:
+        if edge.get("type") not in ("reads", "writes"):
+            continue
+
+        from_id = edge.get("from", "")
+        to_id = edge.get("to", "")
+
+        # from_id 是 Class，to_id 是 Database
+        from_module = class_to_module.get(from_id)
+        if not from_module:
+            continue
+
+        # 添加 Database 到模块的 databases 列表
+        if from_module in modules:
+            db_ids = {db["id"] for db in modules[from_module]["databases"]}
+            if to_id not in db_ids:
+                # 从原始节点中查找 Database 名称
+                db_node = db_node_map.get(to_id)
+                db_name = db_node.get("name", to_id.split(":")[-1]) if db_node else to_id.split(":")[-1]
+                modules[from_module]["databases"].append({
+                    "id": to_id,
+                    "name": db_name,
+                })
+
+        # 创建 module → database 边
+        module_edge_key = (from_module, to_id, edge["type"])
+        if module_edge_key not in module_edge_map:
+            module_edge_map[(from_module, to_id, edge["type"])] = {
+                "from": from_module,
+                "to": to_id,
+                "type": edge["type"],
+                "call_count": 1,
+            }
+
+    module_edges = list(module_edge_map.values())
+
+    return modules, module_edges
+
+
+@router.get("/graph/lineage/modules", tags=["图谱视图"])
+def get_lineage_modules(
+    repo_id: str = Query(description="仓库 ID"),
+) -> dict[str, Any]:
+    """
+    模块级血缘视图。
+
+    将 Class 级血缘数据聚合为 Module 级视图，展示：
+    - 各模块的 Service/Controller/Repository 数量
+    - 模块间的数据流向（flow_to 边）
+    - 模块访问的数据库（reads/writes 边）
+
+    Returns:
+        {
+            "repo_id": "xxx",
+            "modules": [
+                {
+                    "id": "module:adms-api",
+                    "name": "adms-api",
+                    "service_count": 142,
+                    "services": [{"id": "...", "name": "..."}, ...],
+                    "controllers": [...],
+                    "repositories": [...],
+                    "databases": [...],
+                    "cross_module_calls": 15
+                }
+            ],
+            "edges": [
+                {
+                    "from": "module:adms-api",
+                    "to": "module:adms-repository",
+                    "type": "flow_to",
+                    "service_pairs": [["UserService", "UserRepository"]],
+                    "call_count": 12
+                }
+            ]
+        }
+    """
+    graph = _storage_load_or_404(repo_id)
+    all_nodes = graph.get("nodes", [])
+    all_edges = graph.get("edges", [])
+
+    # 聚合为模块级
+    modules, module_edges = _aggregate_class_to_module_edges(all_nodes, all_edges)
+
+    # 计算每个模块的跨模块调用数
+    for module_id, module_data in modules.items():
+        cross_calls = sum(
+            e["call_count"] for e in module_edges
+            if e["from"] == module_id and e["type"] == "flow_to"
+        )
+        module_data["cross_module_calls"] = cross_calls
+        module_data["service_count"] = len(module_data["services"])
+        module_data["controller_count"] = len(module_data["controllers"])
+        module_data["repository_count"] = len(module_data["repositories"])
+
+    # 按 Service 数量排序
+    sorted_modules = sorted(
+        modules.values(),
+        key=lambda m: m["service_count"],
+        reverse=True,
+    )
+
+    return {
+        "repo_id": repo_id,
+        "module_count": len(sorted_modules),
+        "edge_count": len(module_edges),
+        "modules": sorted_modules,
+        "edges": module_edges,
     }
 
 
