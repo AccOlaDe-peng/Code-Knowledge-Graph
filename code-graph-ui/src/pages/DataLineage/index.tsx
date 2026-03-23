@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactFlow, {
   Background,
   BackgroundVariant,
@@ -552,8 +552,34 @@ const DataLineageInner: React.FC = () => {
   }, [activeRepo?.repoId]);
 
   // Load lineage data based on focusNodeId
+  // Key logic:
+  // - Full graph (no focusNodeId): only load when repo/viewMode changes (direction doesn't affect full graph data)
+  // - Subgraph (with focusNodeId): reload when focusNodeId OR direction changes
+  const prevDepsRef = useRef<{ focusNodeId: string | null; direction: LineageDirection; repoId: string | undefined }>({
+    focusNodeId: null,
+    direction: "downstream",
+    repoId: undefined,
+  });
+
   useEffect(() => {
     if (!activeRepo?.repoId || viewMode !== "lineage") return;
+
+    const prev = prevDepsRef.current;
+    const repoChanged = prev.repoId !== activeRepo?.repoId;
+    const focusNodeChanged = prev.focusNodeId !== focusNodeId;
+    const directionChanged = prev.direction !== direction;
+
+    // Determine if we need to load data:
+    // - Repo changed: always reload
+    // - Focus node changed: always reload (different subgraph)
+    // - Direction changed with focusNodeId: reload (same node, different direction)
+    const shouldLoadData = repoChanged || focusNodeChanged || (directionChanged && focusNodeId !== null);
+
+    prevDepsRef.current = { focusNodeId, direction, repoId: activeRepo?.repoId };
+
+    if (!shouldLoadData) {
+      return;
+    }
 
     // Set loading state
     useGraphStore.setState({
@@ -561,7 +587,7 @@ const DataLineageInner: React.FC = () => {
     });
 
     if (focusNodeId) {
-      // Load subgraph for specific node
+      // Load subgraph for specific node with direction
       graphApi.getLineageView(activeRepo.repoId, {
         nodeId: focusNodeId,
         depth: 3,
@@ -581,7 +607,7 @@ const DataLineageInner: React.FC = () => {
             properties: e.properties || {},
           })),
         };
-        console.log('[DataLineage] Loaded subgraph for node:', focusNodeId, 'nodes:', graph.nodes.length, 'edges:', graph.edges.length);
+        console.log('[DataLineage] Loaded subgraph for node:', focusNodeId, 'direction:', direction, 'nodes:', graph.nodes.length, 'edges:', graph.edges.length);
         useGraphStore.setState({
           lineageGraph: { data: graph, loading: false, error: null },
         });
@@ -591,9 +617,10 @@ const DataLineageInner: React.FC = () => {
         });
       });
     } else {
-      // Load full lineage graph
+      // Load full lineage graph (no direction filtering for full graph)
       loadLineage(activeRepo.repoId);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRepo?.repoId, viewMode, focusNodeId, direction]);
 
   // Pick data source based on view mode
@@ -628,6 +655,13 @@ const DataLineageInner: React.FC = () => {
     }));
 
     const visibleNodeIds = new Set(rfNodes.map((n) => n.id));
+
+    // Edge types that represent data flow (should have flow animation)
+    const DATA_FLOW_EDGE_TYPES = new Set([
+      "flow_to", "reads", "writes", "produces", "consumes",
+      "queries", "transforms", "calls", "imports",
+    ]);
+
     const rfEdges: Edge[] = rawData.edges
       .filter(
         (e) => visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target),
@@ -636,12 +670,17 @@ const DataLineageInner: React.FC = () => {
         const color = EDGE_COLORS[e.type] ?? "#1a2535";
         const isFocused =
           focusNodeId && (e.source === focusNodeId || e.target === focusNodeId);
+        const isDataFlow = DATA_FLOW_EDGE_TYPES.has(e.type);
+        const isDimmed = matchIds && matchIds.size > 0 && !isFocused;
+
         return {
           id: `${e.source}--${e.type}--${e.target}`,
           source: e.source,
           target: e.target,
           type: "smoothstep",
-          animated: e.type === "flow_to" && !!isFocused,
+          // Enable animation for all data flow edges
+          // When dimmed (search mode), disable animation for non-focused edges
+          animated: isDataFlow && !isDimmed,
           label: !["contains", "depends_on"].includes(e.type) ? e.type : undefined,
           labelStyle: {
             fontFamily: "'IBM Plex Mono'",
@@ -661,9 +700,8 @@ const DataLineageInner: React.FC = () => {
                   .replace("44", "cc")
                   .replace("77", "cc")
               : color,
-            strokeWidth: isFocused ? 2 : e.type === "contains" ? 1 : 1.5,
-            strokeDasharray: e.type === "imports" ? "4 3" : undefined,
-            opacity: matchIds && matchIds.size > 0 && !isFocused ? 0.15 : 0.8,
+            strokeWidth: isFocused ? 2.5 : e.type === "contains" ? 1 : 1.5,
+            opacity: isDimmed ? 0.15 : 0.85,
             cursor: "pointer",
           },
           markerEnd: {
@@ -681,7 +719,20 @@ const DataLineageInner: React.FC = () => {
         };
       });
 
-    const layoutDirection = viewMode === "lineage" && direction === "upstream" ? "BT" : "LR";
+    // Layout direction based on lineage direction:
+    // - downstream: data flows left → right (LR)
+    // - upstream: data flows bottom → top (BT), showing sources at top
+    // - both: use TB for symmetric view
+    let layoutDirection: "TB" | "LR" | "BT" = "LR";
+    if (viewMode === "lineage") {
+      if (direction === "upstream") {
+        layoutDirection = "BT"; // Bottom-to-Top: sources appear at top
+      } else if (direction === "both") {
+        layoutDirection = "TB"; // Top-to-Bottom for bidirectional
+      } else {
+        layoutDirection = "LR"; // Left-to-Right for downstream
+      }
+    }
     const dagreDirection = viewMode === "module" ? "TB" : layoutDirection;
     const laid = applyLayout(rfNodes, rfEdges, layoutType, dagreDirection, focusNodeId);
     setNodes(laid);

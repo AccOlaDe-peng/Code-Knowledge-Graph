@@ -317,3 +317,41 @@ h4.ant-typography, h5.ant-typography {
   animation: blink 1s step-end infinite;
   font-size: 0.85em;
 }
+
+/* ─── ReactFlow Edge Data Flow Animation ─────────────────── */
+/* Override default ReactFlow animated edge with custom data flow effect */
+.react-flow__edge-path {
+  stroke-linecap: round;
+}
+
+/* Data flow animation - moving dashes along the edge */
+.react-flow__edge.animated path {
+  stroke-dasharray: 6 4;
+  stroke-dashoffset: 0;
+  animation: dataFlowDash 0.6s linear infinite;
+}
+
+@keyframes dataFlowDash {
+  to {
+    stroke-dashoffset: -10;
+  }
+}
+
+/* Enhanced glow effect for animated edges */
+.react-flow__edge.animated path {
+  filter: drop-shadow(0 0 3px currentColor);
+}
+
+/* Faster and brighter animation for focused/hovered edges */
+.react-flow__edge.selected.animated path,
+.react-flow__edge:hover.animated path {
+  animation-duration: 0.4s;
+  stroke-dasharray: 4 3;
+  filter: drop-shadow(0 0 6px currentColor);
+}
+
+/* Reduce animation for dimmed edges (when searching) */
+.react-flow__edge.animated.dimmed path {
+  animation: none;
+  opacity: 0.3;
+}
