@@ -37,9 +37,47 @@ _LINEAGE_EDGE_TYPES = LINEAGE_EDGE_TYPES
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
+def _resolve_graph_id(repo_id: str) -> str:
+    """将前端 repo_id 解析为实际的 graph_id。
+
+    查找顺序：
+    1. 直接在 GraphStorage 中查找 repo_id（兼容旧逻辑）
+    2. 从 analysis_store 获取最新 graph_id
+
+    Returns:
+        实际的 graph_id（用于 GraphStorage 查询）
+
+    Raises:
+        RepoNotFoundError: 找不到对应图谱时抛出
+    """
+    storage = get_graph_storage()
+
+    # 1. 直接用 repo_id 查找（兼容 graph_id == repo_id 的情况）
+    if storage.repo_exists(repo_id):
+        return repo_id
+
+    # 2. 从 analysis_store 获取最新 graph_id
+    from backend.store.analysis_store import get_analysis_store
+    analysis_store = get_analysis_store()
+    latest = analysis_store.get_latest(repo_id)
+
+    if latest and latest.get("graph_id"):
+        graph_id = latest["graph_id"]
+        if storage.repo_exists(graph_id):
+            logger.debug("resolve_graph_id: repo_id=%s -> graph_id=%s", repo_id, graph_id)
+            return graph_id
+
+    # 找不到
+    raise RepoNotFoundError(repo_id)
+
+
 def _storage_load_or_404(repo_id: str) -> dict[str, Any]:
     try:
-        return get_graph_storage().load_graph(repo_id)
+        # 解析实际的 graph_id
+        graph_id = _resolve_graph_id(repo_id)
+        return get_graph_storage().load_graph(graph_id)
+    except HTTPException:
+        raise
     except RepoNotFoundError:
         raise HTTPException(status_code=404, detail=f"repo not found: {repo_id}")
     except Exception as exc:
@@ -412,8 +450,11 @@ def get_call(
 
     # 无指定起点：智能加载
     try:
+        # 解析实际的 graph_id
+        graph_id = _resolve_graph_id(repo_id)
+
         # 获取仓库目录路径
-        repo_dir = storage._repo_dir(_safe_repo_id(repo_id))
+        repo_dir = storage._repo_dir(_safe_repo_id(graph_id))
         core_path = repo_dir / "call-graph-core.json"
 
         # 优先返回核心子图（最快路径）
@@ -433,7 +474,7 @@ def get_call(
                 logger.warning("读取 call-graph-core.json 失败，降级: %s", exc)
 
         # 回退：读取 call-graph.json
-        subgraph = storage.get_subgraph(repo_id, "calls")
+        subgraph = storage.get_subgraph(graph_id, "calls")
         nodes = subgraph.get("nodes", [])
         edges = subgraph.get("edges", [])
         meta = subgraph.get("meta", {})
