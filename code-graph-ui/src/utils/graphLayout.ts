@@ -2,7 +2,7 @@ import type { GraphNode, GraphEdge } from "../types/graph";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type LayoutName = "force" | "dagre" | "hierarchy" | "grid";
+export type LayoutName = "force" | "dagre" | "hierarchy" | "grid" | "radial";
 
 export type Position = { x: number; y: number };
 
@@ -380,6 +380,114 @@ export function gridLayout(
   return { nodes: positions, width, height };
 }
 
+// ─── Radial Layout ────────────────────────────────────────────────────────────
+
+export type RadialLayoutOptions = LayoutOptions & {
+  centerId?: string; // Center node ID (if not provided, uses first node)
+};
+
+/**
+ * Radial layout - arranges nodes in concentric circles around a center node.
+ * Uses BFS to compute layers based on distance from center.
+ */
+export function radialLayout(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  options: RadialLayoutOptions = {},
+): LayoutResult {
+  const {
+    width = 1000,
+    height = 800,
+    padding = 50,
+    centerId,
+  } = options;
+
+  if (nodes.length === 0) {
+    return { nodes: new Map(), width, height };
+  }
+
+  const centerX = width / 2;
+  const centerY = height / 2;
+  const maxRadius = Math.min(width, height) / 2 - padding - 50;
+
+  // Build adjacency map (undirected)
+  const adjacency = new Map<string, Set<string>>();
+  nodes.forEach((n) => adjacency.set(n.id, new Set()));
+  edges.forEach((e) => {
+    adjacency.get(e.source)?.add(e.target);
+    adjacency.get(e.target)?.add(e.source);
+  });
+
+  // Find center node
+  const actualCenterId = centerId ?? nodes[0]?.id;
+  if (!actualCenterId) {
+    return { nodes: new Map(), width, height };
+  }
+
+  // BFS to compute layers (distance from center)
+  const layers = new Map<string, number>();
+  const queue: [string, number][] = [[actualCenterId, 0]];
+  const visited = new Set<string>();
+
+  while (queue.length > 0) {
+    const [nodeId, layer] = queue.shift()!;
+    if (visited.has(nodeId)) continue;
+    visited.add(nodeId);
+    layers.set(nodeId, layer);
+
+    const neighbors = adjacency.get(nodeId);
+    if (neighbors) {
+      neighbors.forEach((neighborId) => {
+        if (!visited.has(neighborId)) {
+          queue.push([neighborId, layer + 1]);
+        }
+      });
+    }
+  }
+
+  // Handle disconnected nodes (assign to outermost layer)
+  const maxLayer = Math.max(...Array.from(layers.values()), 0);
+  nodes.forEach((n) => {
+    if (!layers.has(n.id)) {
+      layers.set(n.id, maxLayer + 1);
+    }
+  });
+
+  // Group nodes by layer
+  const layerGroups = new Map<number, string[]>();
+  layers.forEach((layer, nodeId) => {
+    if (!layerGroups.has(layer)) {
+      layerGroups.set(layer, []);
+    }
+    layerGroups.get(layer)!.push(nodeId);
+  });
+
+  // Position nodes
+  const positions = new Map<string, Position>();
+  const actualMaxLayer = Math.max(...Array.from(layers.values()), 1);
+
+  layerGroups.forEach((nodeIds, layer) => {
+    const radius = layer === 0 ? 0 : (layer / actualMaxLayer) * maxRadius;
+    const angleStep = (2 * Math.PI) / nodeIds.length;
+
+    nodeIds.forEach((nodeId, i) => {
+      if (layer === 0) {
+        // Center node
+        positions.set(nodeId, { x: centerX, y: centerY });
+      } else {
+        // Distribute evenly in circle
+        const angle = i * angleStep - Math.PI / 2; // Start from top
+        positions.set(nodeId, {
+          x: centerX + radius * Math.cos(angle),
+          y: centerY + radius * Math.sin(angle),
+        });
+      }
+    });
+  });
+
+  return { nodes: positions, width, height };
+}
+
 // ─── Layout Dispatcher ────────────────────────────────────────────────────────
 
 /**
@@ -400,6 +508,8 @@ export function applyLayout(
       return hierarchyLayout(nodes, edges, options);
     case "grid":
       return gridLayout(nodes, edges, options);
+    case "radial":
+      return radialLayout(nodes, edges, options);
     default:
       return gridLayout(nodes, edges, options);
   }

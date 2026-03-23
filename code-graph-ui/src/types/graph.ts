@@ -11,6 +11,7 @@ export type GraphEdge = {
   source: string
   target: string
   type: string
+  properties?: Record<string, unknown>
 }
 
 export type Graph = {

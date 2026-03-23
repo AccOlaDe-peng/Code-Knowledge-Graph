@@ -220,6 +220,7 @@ export type RawEdge = {
   from: string;
   to: string;
   type: string; // contains, calls, imports, reads, writes
+  properties?: Record<string, unknown>;
 };
 
 /** Normalize raw node to GraphNode (label = name or id-derived) */
@@ -240,5 +241,5 @@ export function rawNodeToGraphNode(
 export function rawEdgeToGraphEdge(
   e: RawEdge,
 ): import("../types/graph").GraphEdge {
-  return { source: e.from, target: e.to, type: e.type };
+  return { source: e.from, target: e.to, type: e.type, properties: e.properties ?? {} };
 }

@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react'
 import { Drawer } from 'antd'
 import type { GraphNode, GraphEdge } from '../../types/graph'
+import NodeStatsPanel from '../NodeStatsPanel'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -89,6 +90,37 @@ const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ node, edges = [], all
 
     return { outgoing: out, incoming: inc }
   }, [node, edges, allNodes])
+
+  // Calculate impact range (BFS to count reachable nodes)
+  const impactRange = useMemo(() => {
+    if (!node || edges.length === 0) return 0
+
+    const visited = new Set<string>()
+    const queue: string[] = [node.id]
+    visited.add(node.id)
+
+    // Build adjacency for downstream traversal
+    const adjacency = new Map<string, string[]>()
+    edges.forEach(e => {
+      if (!adjacency.has(e.source)) adjacency.set(e.source, [])
+      adjacency.get(e.source)!.push(e.target)
+    })
+
+    // BFS
+    while (queue.length > 0) {
+      const current = queue.shift()!
+      const neighbors = adjacency.get(current) ?? []
+      neighbors.forEach(neighbor => {
+        if (!visited.has(neighbor)) {
+          visited.add(neighbor)
+          queue.push(neighbor)
+        }
+      })
+    }
+
+    // Exclude the node itself
+    return visited.size - 1
+  }, [node, edges])
 
   const properties = node?.properties ?? {}
   const propEntries = Object.entries(properties)
@@ -184,6 +216,15 @@ const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ node, edges = [], all
           }}>
             {node.id}
           </div>
+
+          {/* ── Statistics ───────────────────────────────────── */}
+          <Divider />
+          <SectionLabel>统计摘要</SectionLabel>
+          <NodeStatsPanel
+            inDegree={incoming.length}
+            outDegree={outgoing.length}
+            impactRange={impactRange}
+          />
 
           {/* ── Properties ───────────────────────────────────── */}
           {propEntries.length > 0 && (

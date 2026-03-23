@@ -25,19 +25,25 @@ import {
   ArrowUpOutlined,
   WarningOutlined,
   CheckCircleOutlined,
+  ApartmentOutlined,
+  ShareAltOutlined,
+  AimOutlined,
 } from "@ant-design/icons";
 import { useGraphStore } from "../../store/graphStore";
 import { useRepoStore } from "../../store/repoStore";
 import NodeDetailPanel from "../../components/NodeDetailPanel";
+import EdgeDetailPanel from "../../components/EdgeDetailPanel";
 import RepoSelector from "../../components/ui/RepoSelector";
 import { graphApi } from "../../api/graphApi";
-import type { GraphNode } from "../../types/graph";
+import type { GraphNode, GraphEdge } from "../../types/graph";
 import type { ImpactAnalysisResponse } from "../../types/api";
+import { forceLayout, radialLayout } from "../../utils/graphLayout";
 
 // ─── View modes & Direction ───────────────────────────────────────────────────
 
 type ViewMode = "module" | "lineage";
 type LineageDirection = "downstream" | "upstream" | "both";
+type LayoutType = "dagre" | "force" | "radial";
 
 // ─── Node / edge styling ──────────────────────────────────────────────────────
 
@@ -109,7 +115,7 @@ function getNodeDims(type: string): { w: number; h: number } {
   return { w: 160, h: 40 };
 }
 
-// ─── Dagre layout ─────────────────────────────────────────────────────────────
+// ─── Layout functions ─────────────────────────────────────────────────────────
 
 function applyDagreLayout(
   nodes: Node[],
@@ -136,6 +142,81 @@ function applyDagreLayout(
     const pos = g.node(n.id);
     return { ...n, position: { x: pos.x - dims.w / 2, y: pos.y - dims.h / 2 } };
   });
+}
+
+function applyForceLayout(
+  nodes: Node[],
+  edges: Edge[],
+  width: number = 1200,
+  height: number = 800,
+): Node[] {
+  const graphNodes = nodes.map((n) => ({
+    id: n.id,
+    type: (n.data as LineageNodeData).nodeType,
+    label: (n.data as LineageNodeData).label,
+    properties: (n.data as LineageNodeData).originalNode.properties,
+  }));
+  const graphEdges = edges.map((e) => ({
+    source: e.source,
+    target: e.target,
+    type: e.label as string ?? "unknown",
+  }));
+
+  const result = forceLayout(graphNodes, graphEdges, { width, height, iterations: 200 });
+
+  return nodes.map((n) => {
+    const pos = result.nodes.get(n.id) ?? { x: width / 2, y: height / 2 };
+    return { ...n, position: pos };
+  });
+}
+
+function applyRadialLayout(
+  nodes: Node[],
+  edges: Edge[],
+  centerId: string | null,
+  width: number = 1200,
+  height: number = 800,
+): Node[] {
+  const graphNodes = nodes.map((n) => ({
+    id: n.id,
+    type: (n.data as LineageNodeData).nodeType,
+    label: (n.data as LineageNodeData).label,
+    properties: (n.data as LineageNodeData).originalNode.properties,
+  }));
+  const graphEdges = edges.map((e) => ({
+    source: e.source,
+    target: e.target,
+    type: e.label as string ?? "unknown",
+  }));
+
+  const result = radialLayout(graphNodes, graphEdges, {
+    width,
+    height,
+    centerId: centerId ?? undefined,
+  });
+
+  return nodes.map((n) => {
+    const pos = result.nodes.get(n.id) ?? { x: width / 2, y: height / 2 };
+    return { ...n, position: pos };
+  });
+}
+
+function applyLayout(
+  nodes: Node[],
+  edges: Edge[],
+  layoutType: LayoutType,
+  direction: "TB" | "LR" | "BT" = "TB",
+  centerId: string | null = null,
+): Node[] {
+  switch (layoutType) {
+    case "force":
+      return applyForceLayout(nodes, edges);
+    case "radial":
+      return applyRadialLayout(nodes, edges, centerId);
+    case "dagre":
+    default:
+      return applyDagreLayout(nodes, edges, direction);
+  }
 }
 
 // ─── Node data type ───────────────────────────────────────────────────────────
@@ -455,8 +536,10 @@ const DataLineageInner: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("lineage");
   const [direction, setDirection] = useState<LineageDirection>("downstream");
+  const [layoutType, setLayoutType] = useState<LayoutType>("dagre");
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const [panelNode, setPanelNode] = useState<GraphNode | null>(null);
+  const [panelEdge, setPanelEdge] = useState<GraphEdge | null>(null);
   const [impactData, setImpactData] = useState<ImpactAnalysisResponse | null>(null);
   const [impactLoading, setImpactLoading] = useState(false);
   // Future feature: trace lineage
@@ -495,8 +578,10 @@ const DataLineageInner: React.FC = () => {
             source: e.from,
             target: e.to,
             type: e.type,
+            properties: e.properties || {},
           })),
         };
+        console.log('[DataLineage] Loaded subgraph for node:', focusNodeId, 'nodes:', graph.nodes.length, 'edges:', graph.edges.length);
         useGraphStore.setState({
           lineageGraph: { data: graph, loading: false, error: null },
         });
@@ -579,6 +664,7 @@ const DataLineageInner: React.FC = () => {
             strokeWidth: isFocused ? 2 : e.type === "contains" ? 1 : 1.5,
             strokeDasharray: e.type === "imports" ? "4 3" : undefined,
             opacity: matchIds && matchIds.size > 0 && !isFocused ? 0.15 : 0.8,
+            cursor: "pointer",
           },
           markerEnd: {
             type: MarkerType.ArrowClosed,
@@ -590,16 +676,18 @@ const DataLineageInner: React.FC = () => {
             width: 8,
             height: 8,
           },
+          // Store original edge data for edge click handling
+          data: { originalEdge: e },
         };
       });
 
     const layoutDirection = viewMode === "lineage" && direction === "upstream" ? "BT" : "LR";
     const dagreDirection = viewMode === "module" ? "TB" : layoutDirection;
-    const laid = applyDagreLayout(rfNodes, rfEdges, dagreDirection);
+    const laid = applyLayout(rfNodes, rfEdges, layoutType, dagreDirection, focusNodeId);
     setNodes(laid);
     setEdges(rfEdges);
     setTimeout(() => fitView({ padding: 0.1, duration: 450 }), 60);
-  }, [rawData, searchQuery, focusNodeId, viewMode, direction]);
+  }, [rawData, searchQuery, focusNodeId, viewMode, direction, layoutType]);
 
   // Run impact analysis
   const runImpactAnalysis = useCallback(async (nodeId: string) => {
@@ -645,6 +733,7 @@ const DataLineageInner: React.FC = () => {
       setFocusNodeId(orig.id);
       setPanelNode(orig);
       setSelectedNode(orig);
+      setPanelEdge(null); // Close edge panel if open
 
       // Auto-run impact analysis for Service nodes
       if (viewMode === "lineage" && ["Service", "service"].includes(orig.type)) {
@@ -654,6 +743,21 @@ const DataLineageInner: React.FC = () => {
     [viewMode, runImpactAnalysis],
   );
 
+  // Edge click handler
+  const onEdgeClick = useCallback(
+    (evt: React.MouseEvent, edge: Edge) => {
+      evt.stopPropagation();
+      const origEdge = rawData?.edges.find(
+        (e) => `${e.source}--${e.type}--${e.target}` === edge.id
+      );
+      if (origEdge) {
+        setPanelEdge(origEdge);
+        setPanelNode(null); // Close node panel if open
+      }
+    },
+    [rawData],
+  );
+
   // 双击节点回到主图
   const onNodeDoubleClick = useCallback(
     () => {
@@ -661,6 +765,7 @@ const DataLineageInner: React.FC = () => {
       setPanelNode(null);
       setSelectedNode(null);
       setImpactData(null);
+      setPanelEdge(null);
     },
     [],
   );
@@ -791,6 +896,19 @@ const DataLineageInner: React.FC = () => {
             </Radio.Button>
           </Radio.Group>
         )}
+
+        {/* Layout selector */}
+        <Select
+          value={layoutType}
+          onChange={(val) => setLayoutType(val)}
+          size="small"
+          style={{ width: 110 }}
+          options={[
+            { value: "dagre", label: <span><ApartmentOutlined style={{ marginRight: 4 }} />分层</span> },
+            { value: "force", label: <span><ShareAltOutlined style={{ marginRight: 4 }} />力导向</span> },
+            { value: "radial", label: <span><AimOutlined style={{ marginRight: 4 }} />径向</span> },
+          ]}
+        />
 
         {/* Repository selector */}
         <RepoSelector showStats={false} width={200} />
@@ -966,6 +1084,7 @@ const DataLineageInner: React.FC = () => {
             onEdgesChange={onEdgesChange}
             onNodeClick={onNodeClick}
             onNodeDoubleClick={onNodeDoubleClick}
+            onEdgeClick={onEdgeClick}
             nodeTypes={nodeTypes}
             fitView
             minZoom={0.06}
@@ -998,9 +1117,17 @@ const DataLineageInner: React.FC = () => {
             allNodes={rawData?.nodes}
             onClose={() => {
               setPanelNode(null);
-              setFocusNodeId(null);
               setSelectedNode(null);
+              // 不要清除 focusNodeId，保持在当前子图
             }}
+          />
+        )}
+
+        {panelEdge && (
+          <EdgeDetailPanel
+            edge={panelEdge}
+            allNodes={rawData?.nodes}
+            onClose={() => setPanelEdge(null)}
           />
         )}
       </div>
