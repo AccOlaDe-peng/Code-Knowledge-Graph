@@ -673,14 +673,17 @@ const DataLineageInner: React.FC = () => {
         const isDataFlow = DATA_FLOW_EDGE_TYPES.has(e.type);
         const isDimmed = matchIds && matchIds.size > 0 && !isFocused;
 
+        // Only show animation in subgraph mode (when a node is focused)
+        // In full graph mode, edges are static for better performance
+        const shouldAnimate = isDataFlow && focusNodeId !== null && !isDimmed;
+
         return {
           id: `${e.source}--${e.type}--${e.target}`,
           source: e.source,
           target: e.target,
           type: "smoothstep",
-          // Enable animation for all data flow edges
-          // When dimmed (search mode), disable animation for non-focused edges
-          animated: isDataFlow && !isDimmed,
+          // Enable animation only in subgraph mode
+          animated: shouldAnimate,
           label: !["contains", "depends_on"].includes(e.type) ? e.type : undefined,
           labelStyle: {
             fontFamily: "'IBM Plex Mono'",
