@@ -119,7 +119,7 @@ class DataLineageExtractionStage(StageBase):
         start_time = time.time()
 
         if observer:
-            observer.emit(StageStarted.create("data_lineage_extraction", node_count=len(structural_nodes)))
+            observer.emit(StageStarted.create("data_lineage_extraction", file_count=len(structural_nodes)))
 
         if on_progress:
             on_progress({
