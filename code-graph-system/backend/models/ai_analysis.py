@@ -48,6 +48,7 @@ class AIAnalysisConfig:
     retry_count: int = 2
     retry_delay_seconds: float = 2.0
     timeout_seconds: float = 120.0
+    enable_ai_description: bool = True  # 启用 AI 描述生成
 
 
 @dataclass

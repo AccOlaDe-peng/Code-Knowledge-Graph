@@ -43,6 +43,10 @@ from backend.pipeline.stages.graph_merge_with_quality import (
 from backend.pipeline.stages.spring_di_event_ai import SpringDIEventAIStage
 from backend.pipeline.stages.spring_di_event_static import SpringDIEventStaticStage
 from backend.pipeline.stages.data_lineage_extraction import DataLineageExtractionStage
+from backend.pipeline.stages.ai_description_stage import (
+    AIDescriptionStage,
+    AIDescriptionConfig,
+)
 from backend.rag.graph_rag_engine import GraphRAGEngine
 from backend.rag.vector_store import VectorStore
 
@@ -347,6 +351,54 @@ class StaticFirstPipeline:
             observer=observer,
             on_progress=on_progress,
         )
+
+        # ── Stage 7: AI Description Generation ────────────────────────────────
+        if self.config.enable_ai_description:
+            if on_progress:
+                on_progress(
+                    {"step": "ai_description", "status": "start", "message": "生成 AI 描述..."}
+                )
+
+            ai_desc_stage = AIDescriptionStage(
+                repo_id=name,
+                repo_path=str(repo_path),
+                config=AIDescriptionConfig(
+                    enabled=True,
+                    max_nodes_per_domain=50,
+                    batch_size=10,
+                    concurrency=3,
+                    skip_if_cached=True,
+                ),
+            )
+            ai_desc_result = ai_desc_stage.run(
+                nodes=built.nodes,
+                edges=built.edges,
+                domain_definitions=None,  # 可选：从配置加载预定义领域
+            )
+
+            if on_progress:
+                on_progress(
+                    {
+                        "step": "ai_description",
+                        "status": "complete",
+                        "message": f"AI 描述生成完成: {ai_desc_result.domains_generated} 领域, {ai_desc_result.nodes_generated} 节点",
+                        "domains_generated": ai_desc_result.domains_generated,
+                        "nodes_generated": ai_desc_result.nodes_generated,
+                        "domains_skipped": ai_desc_result.domains_skipped,
+                        "nodes_skipped": ai_desc_result.nodes_skipped,
+                    }
+                )
+
+            logger.info(
+                "[ai_description] 完成: 领域 %d/%d, 节点 %d/%d, 错误 %d",
+                ai_desc_result.domains_generated,
+                ai_desc_result.domains_generated + ai_desc_result.domains_skipped,
+                ai_desc_result.nodes_generated,
+                ai_desc_result.nodes_generated + ai_desc_result.nodes_skipped,
+                len(ai_desc_result.errors),
+            )
+        else:
+            logger.info("[ai_description] 跳过: 未启用")
 
         # ── 持久化 ──────────────────────────────────────────────────────────
         if on_progress:

@@ -15,6 +15,52 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# ── 全局单例 ──────────────────────────────────────────────────────────────────
+
+_llm_client_instance: LLMClient | None = None
+
+
+def get_llm_client() -> LLMClient:
+    """获取 LLM 客户端单例。
+
+    通过环境变量配置：
+    - LLM_PROVIDER: 提供商 (anthropic/openai/minimax/ollama/zhipu)
+    - ANTHROPIC_API_KEY / OPENAI_API_KEY / MINIMAX_API_KEY 等
+    """
+    global _llm_client_instance
+
+    if _llm_client_instance is not None:
+        return _llm_client_instance
+
+    provider = os.environ.get("LLM_PROVIDER", "anthropic")
+
+    # 根据 provider 获取对应的配置
+    api_key = None
+    base_url = None
+
+    if provider == "anthropic":
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+    elif provider == "openai":
+        api_key = os.environ.get("OPENAI_API_KEY")
+        base_url = os.environ.get("OPENAI_BASE_URL")
+    elif provider == "minimax":
+        api_key = os.environ.get("MINIMAX_API_KEY")
+        base_url = os.environ.get("MINIMAX_BASE_URL", "https://api.minimax.chat/v1")
+    elif provider == "ollama":
+        base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+    elif provider == "zhipu":
+        api_key = os.environ.get("ZHIPU_API_KEY")
+        base_url = os.environ.get("ZHIPU_BASE_URL", "https://open.bigmodel.cn/api/paas/v4/")
+
+    _llm_client_instance = LLMClient(
+        provider=provider,
+        api_key=api_key,
+        base_url=base_url,
+    )
+
+    return _llm_client_instance
+
+
 # ── 压缩相关常量 ────────────────────────────────────────────────────────────
 COMPRESSED_PLACEHOLDER = (
     "[已压缩] 原始结果已移除以节省上下文。"
@@ -329,6 +375,76 @@ class LLMClient:
                 temperature=_temperature,
             )
             return response.choices[0].message.content or ""
+
+    def chat_completion(
+        self,
+        messages: list[dict],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> dict:
+        """标准 chat completion 接口。
+
+        Args:
+            messages: 消息列表，格式为 [{"role": "system/user/assistant", "content": "..."}]
+            max_tokens: 最大生成 Token 数
+            temperature: 采样温度
+
+        Returns:
+            {"content": str, "usage": {"input_tokens": int, "output_tokens": int}}
+        """
+        client = self._get_client()
+        _max_tokens = max_tokens or self.max_tokens
+        _temperature = temperature if temperature is not None else self.temperature
+
+        if self.provider == "anthropic":
+            # 提取 system 消息
+            system_prompt = None
+            chat_messages = []
+            for msg in messages:
+                if msg["role"] == "system":
+                    system_prompt = msg["content"]
+                else:
+                    chat_messages.append(msg)
+
+            response = client.messages.create(
+                model=self.model,
+                max_tokens=_max_tokens,
+                temperature=_temperature,
+                system=system_prompt or "你是一个代码分析专家。",
+                messages=chat_messages,
+            )
+
+            # 提取文本内容
+            text_parts = []
+            if response.content:
+                for block in response.content:
+                    if hasattr(block, 'text'):
+                        text_parts.append(block.text)
+            content = ''.join(text_parts) if text_parts else ""
+
+            return {
+                "content": content,
+                "usage": {
+                    "input_tokens": getattr(response.usage, 'input_tokens', 0) or 0,
+                    "output_tokens": getattr(response.usage, 'output_tokens', 0) or 0,
+                }
+            }
+
+        else:  # OpenAI 兼容接口
+            response = client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                max_tokens=_max_tokens,
+                temperature=_temperature,
+            )
+
+            return {
+                "content": response.choices[0].message.content or "",
+                "usage": {
+                    "input_tokens": getattr(response.usage, 'prompt_tokens', 0) or 0,
+                    "output_tokens": getattr(response.usage, 'completion_tokens', 0) or 0,
+                }
+            }
 
     def tool_call_loop(
         self,
