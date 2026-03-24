@@ -1,10 +1,14 @@
 /**
  * DataLineage - 数据血缘主页面。
  *
+ * 支持两种视图模式：
+ * - 技术架构视图：按技术模块聚合（adms-api, adms-repository...）
+ * - 业务领域视图：按业务领域聚合（drs, mdm, frs...）
+ *
  * 三层渐进式视图：
- * - 层级 1: 模块级主图（ModuleView）
- * - 层级 2: 模块内视图（ServiceView）
- * - 层级 3: 详细血缘（DetailView）
+ * - 层级 1: 主图（模块/领域）
+ * - 层级 2: 内部视图（Service）
+ * - 层级 3: 详细血缘（Function）
  */
 import React, { useEffect, useState, useCallback } from "react";
 import { ReactFlowProvider } from "reactflow";
@@ -14,13 +18,17 @@ import {
   SearchOutlined,
   ReloadOutlined,
 } from "@ant-design/icons";
-import { useLineageLevel, useLineageNavigation } from "../../store/lineageStore";
+import { useLineageLevel, useLineageNavigation, useViewMode, useDomainConfig } from "../../store/lineageStore";
 import { useRepoStore } from "../../store/repoStore";
 import { graphApi } from "../../api/graphApi";
+import { domainApi } from "../../api/domainApi";
 import RepoSelector from "../../components/ui/RepoSelector";
 import ModuleView from "./components/ModuleView";
 import ServiceView from "./components/ServiceView";
 import DetailView from "./components/DetailView";
+import BusinessDomainView from "./components/BusinessDomainView";
+import ViewModeSelector from "./components/ViewModeSelector";
+import DomainConfigPanel from "./components/DomainConfigPanel";
 import type { ModuleInfo } from "../../store/lineageStore";
 import type { GraphNode } from "../../types/graph";
 
@@ -45,6 +53,8 @@ interface RawEdge {
 const DataLineageInner: React.FC = () => {
   const { selectedModule, selectedService, isModuleView, isServiceView, isDetailView } = useLineageLevel();
   const { navigateToModule, navigateToService, navigateBack, reset } = useLineageNavigation();
+  const { isBusinessView, isTechView } = useViewMode();
+  const { domainConfig, inferredDomains, domainLoading, setDomainConfig, setInferredDomains, setDomainLoading } = useDomainConfig();
   const { activeRepo } = useRepoStore();
 
   // 数据状态
@@ -74,6 +84,26 @@ const DataLineageInner: React.FC = () => {
         setLoading(false);
       });
   }, [activeRepo?.repoId, isModuleView]);
+
+  // 加载领域配置（业务视图模式）
+  useEffect(() => {
+    if (!activeRepo?.repoId || !isBusinessView) return;
+
+    setDomainLoading(true);
+    Promise.all([
+      domainApi.getDomainConfig(activeRepo.repoId),
+      domainApi.inferDomains(activeRepo.repoId),
+    ])
+      .then(([config, inferred]) => {
+        setDomainConfig(config);
+        setInferredDomains(inferred);
+        setDomainLoading(false);
+      })
+      .catch((err) => {
+        console.error("加载领域配置失败:", err);
+        setDomainLoading(false);
+      });
+  }, [activeRepo?.repoId, isBusinessView, setDomainConfig, setInferredDomains, setDomainLoading]);
 
   // 处理模块点击
   const handleModuleClick = useCallback(
@@ -211,6 +241,25 @@ const DataLineageInner: React.FC = () => {
 
         {/* 仓库选择器 */}
         <RepoSelector showStats={false} width={200} />
+
+        {/* 视图模式选择器 */}
+        <ViewModeSelector />
+
+        {/* 领域配置（仅业务视图模式） */}
+        {isBusinessView && activeRepo && (
+          <DomainConfigPanel
+            repoId={activeRepo.repoId}
+            domains={domainConfig?.domains || []}
+            inferredDomains={inferredDomains}
+            loading={domainLoading}
+            onDomainsChange={(domains) => setDomainConfig(
+              domainConfig
+                ? { ...domainConfig, domains }
+                : { repoId: activeRepo.repoId, version: 1, lastModified: new Date().toISOString(), domains }
+            )}
+            onInferredDomainsChange={setInferredDomains}
+          />
+        )}
 
         {/* 统计 */}
         {isModuleView && (
@@ -382,14 +431,25 @@ const DataLineageInner: React.FC = () => {
           </div>
         )}
 
-        {/* 层级 1: 模块主图 */}
-        {activeRepo && isModuleView && !loading && !error && (
+        {/* 层级 1a: 模块主图 - 技术架构视图 */}
+        {activeRepo && isModuleView && isTechView && !loading && !error && (
           <ModuleView
             repoId={activeRepo.repoId}
             nodes={nodes}
             edges={edges}
             loading={loading}
             onModuleClick={handleModuleClick}
+          />
+        )}
+
+        {/* 层级 1b: 业务领域视图 */}
+        {activeRepo && isModuleView && isBusinessView && !loading && !error && (
+          <BusinessDomainView
+            nodes={nodes}
+            edges={edges}
+            domains={domainConfig?.domains || []}
+            inferredDomains={inferredDomains}
+            loading={loading}
           />
         )}
 

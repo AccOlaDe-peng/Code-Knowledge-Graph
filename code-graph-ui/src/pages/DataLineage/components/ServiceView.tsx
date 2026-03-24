@@ -303,7 +303,7 @@ const ServiceView: React.FC<ServiceViewProps> = ({
           source: e.from,
           target: e.to,
           type: "smoothstep",
-          animated: e.type !== "calls",
+          animated: true, // 所有边都有动画效果
           label: e.type,
           labelStyle: {
             fontFamily: "'IBM Plex Mono'",
@@ -313,14 +313,14 @@ const ServiceView: React.FC<ServiceViewProps> = ({
           labelBgStyle: { fill: "#07090d", fillOpacity: 0.85 },
           style: {
             stroke: color,
-            strokeWidth: 1.5,
-            opacity: 0.8,
+            strokeWidth: 2,
+            opacity: 0.9,
           },
           markerEnd: {
             type: MarkerType.ArrowClosed,
             color: color.replace("66", "cc"),
-            width: 8,
-            height: 8,
+            width: 10,
+            height: 10,
           },
           data: { originalEdge: e },
         };

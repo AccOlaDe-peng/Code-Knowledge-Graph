@@ -66,3 +66,10 @@ def get_vector_store() -> VectorStore:
     if _vector_store is None:
         raise RuntimeError("VectorStore 未初始化，请确保 lifespan 已执行")
     return _vector_store
+
+
+# 测试用设置函数
+def set_graph_storage(storage: GraphStorage) -> None:
+    """设置 GraphStorage 单例（用于测试）。"""
+    global _graph_storage
+    _graph_storage = storage

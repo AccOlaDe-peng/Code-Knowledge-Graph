@@ -66,7 +66,74 @@ export const ArchitectureCanvas: React.FC<ArchitectureCanvasProps> = ({
             'target-arrow-color':     '#2a3a5c',
             'target-arrow-shape':     'triangle',
             'curve-style':            'bezier',
-            'width':                  1,
+            'width':                  1.5,
+            'line-opacity':           0.8,
+          },
+        },
+        // calls 边 - 青绿色动画
+        {
+          selector: 'edge[type="calls"]',
+          style: {
+            'line-color':         '#00f084',
+            'target-arrow-color': '#00f084',
+            'line-opacity':       0.85,
+            'line-style':         'solid',
+          },
+        },
+        // contains 边 - 紫色虚线
+        {
+          selector: 'edge[type="contains"]',
+          style: {
+            'line-color':         '#b08eff',
+            'target-arrow-color': '#b08eff',
+            'line-opacity':       0.6,
+            'line-style':         'dashed',
+          },
+        },
+        // depends_on 边 - 琥珀色
+        {
+          selector: 'edge[type="depends_on"]',
+          style: {
+            'line-color':         '#ffc145',
+            'target-arrow-color': '#ffc145',
+            'line-opacity':       0.85,
+          },
+        },
+        // reads 边 - 青色
+        {
+          selector: 'edge[type="reads"]',
+          style: {
+            'line-color':         '#00d4ff',
+            'target-arrow-color': '#00d4ff',
+            'line-opacity':       0.85,
+          },
+        },
+        // writes 边 - 红色
+        {
+          selector: 'edge[type="writes"]',
+          style: {
+            'line-color':         '#ff6b6b',
+            'target-arrow-color': '#ff6b6b',
+            'line-opacity':       0.85,
+          },
+        },
+        // implements 边 - 紫色
+        {
+          selector: 'edge[type="implements"]',
+          style: {
+            'line-color':         '#b08eff',
+            'target-arrow-color': '#b08eff',
+            'line-opacity':       0.7,
+            'line-style':         'dotted',
+          },
+        },
+        // imports 边 - 灰色
+        {
+          selector: 'edge[type="imports"]',
+          style: {
+            'line-color':         '#6b8aaa',
+            'target-arrow-color': '#6b8aaa',
+            'line-opacity':       0.6,
           },
         },
         {
@@ -90,10 +157,34 @@ export const ArchitectureCanvas: React.FC<ArchitectureCanvasProps> = ({
       }
     })
 
+    // ── 边脉冲动画 ───────────────────────────────────────────────────────────
+    let animationFrame: number | null = null
+    let pulsePhase = 0
+
+    const animateEdges = () => {
+      const edges = cy.edges(':visible')
+      const pulse = Math.sin(pulsePhase) * 0.25 + 0.75 // 0.5 ~ 1.0
+
+      edges.forEach(edge => {
+        // 通过调整透明度实现脉冲效果
+        edge.style('line-opacity', pulse)
+      })
+
+      pulsePhase += 0.025 // 控制动画速度
+      animationFrame = requestAnimationFrame(animateEdges)
+    }
+
+    // 启动动画
+    animateEdges()
+
     cyRef.current = cy
     // NOTE: 调用方必须用 useCallback 稳定 onNodeExpand/onNodeCollapse 引用，
     // 否则 prop 变化会导致 cy.destroy() + 重建，丢失图谱状态。
-    return () => { cy.destroy(); cyRef.current = null }
+    return () => {
+      if (animationFrame) cancelAnimationFrame(animationFrame)
+      cy.destroy()
+      cyRef.current = null
+    }
   }, [onNodeExpand, onNodeCollapse])
 
   // ── 监听 graphloader:merge — 合并新节点/边 ────────────────────────────────

@@ -1,10 +1,7 @@
 /**
- * ModuleView - 模块级主视图组件。
+ * BusinessDomainView - 业务领域视图组件。
  *
- * 展示所有模块及其之间的数据流向，支持：
- * - 点击模块进入层级 2（模块内视图）
- * - 悬停显示模块统计信息
- * - 跨模块边高亮显示
+ * 展示按业务领域聚合的血缘图。
  */
 import React, { useEffect, useMemo, useCallback, useState } from "react";
 import ReactFlow, {
@@ -18,30 +15,42 @@ import ReactFlow, {
   type Node,
   type Edge,
   type NodeTypes,
+  useReactFlow,
 } from "reactflow";
 import "reactflow/dist/style.css";
 import dagre from "dagre";
-import { Spin, Tooltip } from "antd";
+import { Spin, Tooltip, Tag } from "antd";
 import { ApartmentOutlined, ShareAltOutlined } from "@ant-design/icons";
-import ModuleNode from "./ModuleNode";
-import type { ModuleData, ModuleNode as ModuleNodeType } from "../utils/moduleAggregation";
-import { aggregateToModuleLevel } from "../utils/moduleAggregation";
-import type { RawNode, RawEdge } from "../../../api/graphApi";
+import BusinessDomainNodeComponent from "./BusinessDomainNode";
+import {
+  aggregateToBusinessDomain,
+} from "../utils/domainAggregation";
+import type { RawNode, RawEdge, BusinessDomainNode as BusinessDomainNodeType } from "../utils/domainAggregation";
+import type { DomainDefinition, InferredDomain } from "../../../store/lineageStore";
 
 // ─── 类型定义 ────────────────────────────────────────────────────────────────
 
-interface ModuleViewProps {
-  repoId: string;
+interface BusinessDomainViewProps {
   nodes: RawNode[];
   edges: RawEdge[];
+  domains: DomainDefinition[];
+  inferredDomains: InferredDomain[];
   loading?: boolean;
-  onModuleClick?: (moduleId: string, module: ModuleNodeType) => void;
+  onDomainClick?: (domainId: string, domain: BusinessDomainNodeType) => void;
 }
 
 // ─── 节点类型注册 ────────────────────────────────────────────────────────────
 
 const nodeTypes: NodeTypes = {
-  module: ModuleNode,
+  businessDomain: BusinessDomainNodeComponent,
+};
+
+// ─── 边颜色 ────────────────────────────────────────────────────────────────
+
+const EDGE_COLORS: Record<string, string> = {
+  flow_to: "#00f08466",
+  reads: "#00d4ff66",
+  writes: "#ffc14566",
 };
 
 // ─── 布局函数 ────────────────────────────────────────────────────────────────
@@ -62,7 +71,7 @@ function applyDagreLayout(
   });
 
   nodes.forEach((n) => {
-    g.setNode(n.id, { width: 220, height: n.data?.isExpanded ? 180 : 80 });
+    g.setNode(n.id, { width: 240, height: 100 });
   });
 
   edges.forEach((e) => g.setEdge(e.source, e.target));
@@ -70,108 +79,74 @@ function applyDagreLayout(
 
   return nodes.map((n) => {
     const pos = g.node(n.id);
-    return { ...n, position: { x: pos.x - 110, y: pos.y - 40 } };
+    return { ...n, position: { x: pos.x - 120, y: pos.y - 50 } };
   });
 }
 
-// ─── 边样式 ──────────────────────────────────────────────────────────────────
-
-const EDGE_COLORS = {
-  flow_to: "#b08eff66",
-  reads: "#00d4ff66",
-  writes: "#ffc14566",
-};
-
 // ─── 主组件 ──────────────────────────────────────────────────────────────────
 
-const ModuleView: React.FC<ModuleViewProps> = ({
+const BusinessDomainView: React.FC<BusinessDomainViewProps> = ({
   nodes,
   edges,
+  domains,
+  inferredDomains,
   loading,
-  onModuleClick,
+  onDomainClick,
 }) => {
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState([]);
   const [layoutType, setLayoutType] = useState<"TB" | "LR">("LR");
+  const { fitView } = useReactFlow();
 
-  // 聚合数据为模块级
-  const moduleData = useMemo<ModuleData>(() => {
+  // 聚合数据为业务领域级
+  const domainData = useMemo(() => {
     if (!nodes.length || !edges.length) {
-      return { modules: [], edges: [] };
+      return { domains: [], edges: [] };
     }
-    return aggregateToModuleLevel(nodes, edges);
-  }, [nodes, edges]);
+    return aggregateToBusinessDomain(nodes, edges, domains, inferredDomains);
+  }, [nodes, edges, domains, inferredDomains]);
 
   // 构建 ReactFlow 节点和边
   useEffect(() => {
-    if (!moduleData.modules.length) return;
+    if (!domainData.domains.length) return;
 
     // 创建节点
-    const flowNodes: Node[] = moduleData.modules.map((module) => ({
-      id: module.id,
-      type: "module",
+    const flowNodes: Node[] = domainData.domains.map((domain) => ({
+      id: domain.id,
+      type: "businessDomain",
       position: { x: 0, y: 0 },
       data: {
-        module,
+        domain,
         isSelected: false,
       },
     }));
 
-    // 添加 Database 节点（如果有的话）
-    const dbIds = new Set<string>();
-    moduleData.modules.forEach((m) => {
-      m.databases.forEach((db) => dbIds.add(db.id));
-    });
-
-    dbIds.forEach((dbId) => {
-      const dbNode = {
-        id: dbId,
-        type: "default" as const,
-        position: { x: 0, y: 0 },
-        data: {
-          label: dbId.split(":").pop() || dbId,
-          nodeType: "Database",
-        },
-        style: {
-          background: "rgba(176,142,255,0.08)",
-          border: "1px solid #b08eff44",
-          borderRadius: 4,
-          padding: "8px 12px",
-          fontFamily: "'IBM Plex Mono'",
-          fontSize: 11,
-          color: "#b08eff",
-        },
-      };
-      flowNodes.push(dbNode);
-    });
-
     // 创建边
-    const flowEdges: Edge[] = moduleData.edges.map((edge) => {
-      const color = EDGE_COLORS[edge.type as keyof typeof EDGE_COLORS] || "#1e3a4a";
-      const isCrossModule = edge.type === "flow_to";
+    const flowEdges: Edge[] = domainData.edges.map((edge) => {
+      const color = EDGE_COLORS[edge.type] || "#1e3a4a";
 
       return {
         id: `${edge.from}--${edge.type}--${edge.to}`,
         source: edge.from,
         target: edge.to,
         type: "smoothstep",
-        animated: true, // 所有边都有动画效果
-        label: isCrossModule ? undefined : edge.type,
+        animated: true,
+        label: edge.callCount > 1 ? `${edge.callCount} calls` : undefined,
         labelStyle: {
           fontFamily: "'IBM Plex Mono'",
           fontSize: 8,
-          fill: color.replace("66", "cc").replace("33", "cc"),
+          fill: color.replace("66", "cc"),
         },
         labelBgStyle: { fill: "#07090d", fillOpacity: 0.85 },
         style: {
-          stroke: isCrossModule ? color.replace("66", "99") : color,
-          strokeWidth: isCrossModule ? 2.5 : 2,
-          strokeDasharray: isCrossModule ? "5,5" : undefined,
-          opacity: 0.9,
+          stroke: color.replace("66", "99"),
+          strokeWidth: 2,
+          strokeDasharray: "5,5",
+          opacity: 0.8,
         },
         markerEnd: {
           type: MarkerType.ArrowClosed,
-          color: color.replace("66", "cc").replace("33", "cc"),
+          color: color.replace("66", "cc"),
           width: 10,
           height: 10,
         },
@@ -183,19 +158,21 @@ const ModuleView: React.FC<ModuleViewProps> = ({
     const laidNodes = applyDagreLayout(flowNodes, flowEdges, layoutType);
     setRfNodes(laidNodes);
     setRfEdges(flowEdges);
-  }, [moduleData, layoutType, setRfNodes, setRfEdges]);
+
+    setTimeout(() => fitView({ padding: 0.1, duration: 300 }), 60);
+  }, [domainData, layoutType, setRfNodes, setRfEdges, fitView]);
 
   // 处理节点点击
   const handleNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
-      if (node.type === "module" && onModuleClick) {
-        const module = moduleData.modules.find((m) => m.id === node.id);
-        if (module) {
-          onModuleClick(node.id, module);
+      if (onDomainClick && node.type === "businessDomain") {
+        const domain = domainData.domains.find((d) => d.id === node.id);
+        if (domain) {
+          onDomainClick(node.id, domain);
         }
       }
     },
-    [moduleData.modules, onModuleClick]
+    [domainData.domains, onDomainClick]
   );
 
   if (loading) {
@@ -219,13 +196,13 @@ const ModuleView: React.FC<ModuleViewProps> = ({
             letterSpacing: "0.12em",
           }}
         >
-          加载模块视图...
+          加载业务领域视图...
         </span>
       </div>
     );
   }
 
-  if (!moduleData.modules.length) {
+  if (!domainData.domains.length) {
     return (
       <div
         style={{
@@ -245,7 +222,7 @@ const ModuleView: React.FC<ModuleViewProps> = ({
               letterSpacing: "0.1em",
             }}
           >
-            暂无模块数据
+            暂无业务领域数据
           </div>
         </div>
       </div>
@@ -290,6 +267,12 @@ const ModuleView: React.FC<ModuleViewProps> = ({
             {layoutType === "LR" ? "水平" : "垂直"}
           </button>
         </Tooltip>
+
+        {/* 统计 */}
+        <div style={{ display: "flex", gap: 12 }}>
+          <Tag color="#00f084">{domainData.domains.length} 业务领域</Tag>
+          <Tag color="#00d4ff">{domainData.edges.length} 跨领域调用</Tag>
+        </div>
       </div>
 
       <ReactFlow
@@ -316,8 +299,11 @@ const ModuleView: React.FC<ModuleViewProps> = ({
         <MiniMap
           style={{ background: "#07090d", border: "1px solid #1a2535" }}
           nodeColor={(n) => {
-            if (n.type === "module") return "#b08eff";
-            return "#b08eff";
+            if (n.type === "businessDomain") {
+              const data = n.data as { domain: { color: string } };
+              return data.domain?.color || "#00f084";
+            }
+            return "#00f084";
           }}
           maskColor="rgba(7,9,13,0.75)"
         />
@@ -326,4 +312,4 @@ const ModuleView: React.FC<ModuleViewProps> = ({
   );
 };
 
-export default ModuleView;
+export default BusinessDomainView;
