@@ -63,6 +63,61 @@ export interface InferredDomain {
   suggestedColor: string;
 }
 
+// ─── 领域交互类型 ─────────────────────────────────────────────────────────────
+
+export type DetailLevel = "compact" | "standard" | "detailed";
+export type DomainLevel = "main" | "subgraph";
+
+export interface DomainInfo {
+  id: string;
+  key: string;
+  name: string;
+  color: string;
+  nodeCount: number;
+  serviceCount: number;
+  controllerCount: number;
+  repositoryCount: number;
+  crossDomainCalls: number;
+}
+
+export interface DomainDescription {
+  domainId: string;
+  summary: string;
+  coreServices: string[];
+  dataFlowPattern: string;
+  generatedAt: string;
+  confidence: number;
+}
+
+export interface NodeDetail {
+  nodeId: string;
+  name: string;
+  type: string;
+  file: string;
+  signature?: string;
+  line?: number;
+  endLine?: number;
+  aiDescription?: string;
+  codeSnippet?: CodeSnippet;
+  callCount: number;
+  calledByCount: number;
+  dependencies: string[];
+  generatedAt?: string;
+}
+
+export interface CodeSnippet {
+  language: string;
+  content: string;
+  startLine: number;
+  highlightLines: number[];
+}
+
+export interface InfoPanelData {
+  type: "domain" | "node" | null;
+  data: DomainDescription | NodeDetail | null;
+  loading: boolean;
+}
+
 export interface LineageState {
   // 视图模式
   viewMode: ViewMode;
@@ -79,6 +134,16 @@ export interface LineageState {
   inferredDomains: InferredDomain[];
   domainLoading: boolean;
 
+  // 领域交互状态（新增）
+  selectedDomain: DomainInfo | null;
+  domainLevel: DomainLevel;
+  infoPanelData: InfoPanelData;
+  domainDrawerVisible: boolean;
+  nodeDrawerVisible: boolean;
+  domainDrawerData: DomainDescription | null;
+  nodeDrawerData: NodeDetail | null;
+  detailLevel: DetailLevel;
+
   // 导航 actions
   navigateToModule: (module: ModuleInfo) => void;
   navigateToService: (service: ServiceInfo) => void;
@@ -90,6 +155,18 @@ export interface LineageState {
   setDomainConfig: (config: DomainConfig | null) => void;
   setInferredDomains: (domains: InferredDomain[]) => void;
   setDomainLoading: (loading: boolean) => void;
+
+  // 领域交互 actions（新增）
+  setSelectedDomain: (domain: DomainInfo | null) => void;
+  setDomainLevel: (level: DomainLevel) => void;
+  setInfoPanelData: (data: InfoPanelData) => void;
+  openDomainDrawer: (data: DomainDescription) => void;
+  closeDomainDrawer: () => void;
+  openNodeDrawer: (data: NodeDetail) => void;
+  closeNodeDrawer: () => void;
+  setDetailLevel: (level: DetailLevel) => void;
+  navigateToDomain: (domain: DomainInfo) => void;
+  navigateFromDomain: () => void;
 }
 
 // ─── Store 实现 ──────────────────────────────────────────────────────────────
@@ -103,6 +180,16 @@ export const useLineageStore = create<LineageState>((set, get) => ({
   domainConfig: null,
   inferredDomains: [],
   domainLoading: false,
+
+  // 领域交互初始状态
+  selectedDomain: null,
+  domainLevel: "main",
+  infoPanelData: { type: null, data: null, loading: false },
+  domainDrawerVisible: false,
+  nodeDrawerVisible: false,
+  domainDrawerData: null,
+  nodeDrawerData: null,
+  detailLevel: "standard",
 
   // 导航到模块内视图
   navigateToModule: (module: ModuleInfo) => {
@@ -147,6 +234,14 @@ export const useLineageStore = create<LineageState>((set, get) => ({
       level: "module",
       selectedModule: null,
       selectedService: null,
+      selectedDomain: null,
+      domainLevel: "main",
+      infoPanelData: { type: null, data: null, loading: false },
+      domainDrawerVisible: false,
+      nodeDrawerVisible: false,
+      domainDrawerData: null,
+      nodeDrawerData: null,
+      detailLevel: "standard",
     });
   },
 
@@ -158,6 +253,9 @@ export const useLineageStore = create<LineageState>((set, get) => ({
       level: "module",
       selectedModule: null,
       selectedService: null,
+      selectedDomain: null,
+      domainLevel: "main",
+      infoPanelData: { type: null, data: null, loading: false },
     });
   },
 
@@ -174,6 +272,78 @@ export const useLineageStore = create<LineageState>((set, get) => ({
   // 设置领域加载状态
   setDomainLoading: (loading: boolean) => {
     set({ domainLoading: loading });
+  },
+
+  // ─── 领域交互 Actions ─────────────────────────────────────────────────────
+
+  // 设置选中的领域
+  setSelectedDomain: (domain: DomainInfo | null) => {
+    set({ selectedDomain: domain });
+  },
+
+  // 设置领域层级
+  setDomainLevel: (level: DomainLevel) => {
+    set({ domainLevel: level });
+  },
+
+  // 设置信息面板数据
+  setInfoPanelData: (data: InfoPanelData) => {
+    set({ infoPanelData: data });
+  },
+
+  // 打开领域抽屉
+  openDomainDrawer: (data: DomainDescription) => {
+    set({
+      domainDrawerVisible: true,
+      domainDrawerData: data,
+    });
+  },
+
+  // 关闭领域抽屉
+  closeDomainDrawer: () => {
+    set({
+      domainDrawerVisible: false,
+    });
+  },
+
+  // 打开节点抽屉
+  openNodeDrawer: (data: NodeDetail) => {
+    set({
+      nodeDrawerVisible: true,
+      nodeDrawerData: data,
+    });
+  },
+
+  // 关闭节点抽屉
+  closeNodeDrawer: () => {
+    set({
+      nodeDrawerVisible: false,
+    });
+  },
+
+  // 设置详细度
+  setDetailLevel: (level: DetailLevel) => {
+    set({ detailLevel: level });
+  },
+
+  // 导航到领域子图
+  navigateToDomain: (domain: DomainInfo) => {
+    set({
+      domainLevel: "subgraph",
+      selectedDomain: domain,
+      infoPanelData: { type: null, data: null, loading: false },
+    });
+  },
+
+  // 从领域子图返回
+  navigateFromDomain: () => {
+    set({
+      domainLevel: "main",
+      selectedDomain: null,
+      infoPanelData: { type: null, data: null, loading: false },
+      domainDrawerVisible: false,
+      nodeDrawerVisible: false,
+    });
   },
 }));
 
@@ -256,5 +426,89 @@ export function useDomainConfig() {
     setDomainConfig,
     setInferredDomains,
     setDomainLoading,
+  };
+}
+
+/**
+ * 获取领域交互状态。
+ */
+export function useDomainInteraction() {
+  const selectedDomain = useLineageStore((s) => s.selectedDomain);
+  const domainLevel = useLineageStore((s) => s.domainLevel);
+  const infoPanelData = useLineageStore((s) => s.infoPanelData);
+  const domainDrawerVisible = useLineageStore((s) => s.domainDrawerVisible);
+  const nodeDrawerVisible = useLineageStore((s) => s.nodeDrawerVisible);
+  const domainDrawerData = useLineageStore((s) => s.domainDrawerData);
+  const nodeDrawerData = useLineageStore((s) => s.nodeDrawerData);
+  const detailLevel = useLineageStore((s) => s.detailLevel);
+
+  const setSelectedDomain = useLineageStore((s) => s.setSelectedDomain);
+  const setDomainLevel = useLineageStore((s) => s.setDomainLevel);
+  const setInfoPanelData = useLineageStore((s) => s.setInfoPanelData);
+  const openDomainDrawer = useLineageStore((s) => s.openDomainDrawer);
+  const closeDomainDrawer = useLineageStore((s) => s.closeDomainDrawer);
+  const openNodeDrawer = useLineageStore((s) => s.openNodeDrawer);
+  const closeNodeDrawer = useLineageStore((s) => s.closeNodeDrawer);
+  const setDetailLevel = useLineageStore((s) => s.setDetailLevel);
+  const navigateToDomain = useLineageStore((s) => s.navigateToDomain);
+  const navigateFromDomain = useLineageStore((s) => s.navigateFromDomain);
+
+  return {
+    selectedDomain,
+    domainLevel,
+    infoPanelData,
+    domainDrawerVisible,
+    nodeDrawerVisible,
+    domainDrawerData,
+    nodeDrawerData,
+    detailLevel,
+    isMainView: domainLevel === "main",
+    isSubgraphView: domainLevel === "subgraph",
+    setSelectedDomain,
+    setDomainLevel,
+    setInfoPanelData,
+    openDomainDrawer,
+    closeDomainDrawer,
+    openNodeDrawer,
+    closeNodeDrawer,
+    setDetailLevel,
+    navigateToDomain,
+    navigateFromDomain,
+  };
+}
+
+/**
+ * 获取信息面板状态。
+ */
+export function useInfoPanel() {
+  const infoPanelData = useLineageStore((s) => s.infoPanelData);
+  const setInfoPanelData = useLineageStore((s) => s.setInfoPanelData);
+  const openDomainDrawer = useLineageStore((s) => s.openDomainDrawer);
+  const openNodeDrawer = useLineageStore((s) => s.openNodeDrawer);
+
+  return {
+    infoPanelData,
+    setInfoPanelData,
+    openDomainDrawer,
+    openNodeDrawer,
+    hasData: infoPanelData.type !== null && infoPanelData.data !== null,
+    isDomain: infoPanelData.type === "domain",
+    isNode: infoPanelData.type === "node",
+  };
+}
+
+/**
+ * 获取详细度状态。
+ */
+export function useDetailLevel() {
+  const detailLevel = useLineageStore((s) => s.detailLevel);
+  const setDetailLevel = useLineageStore((s) => s.setDetailLevel);
+
+  return {
+    detailLevel,
+    setDetailLevel,
+    isCompact: detailLevel === "compact",
+    isStandard: detailLevel === "standard",
+    isDetailed: detailLevel === "detailed",
   };
 }
