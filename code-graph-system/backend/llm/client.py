@@ -52,8 +52,16 @@ def get_llm_client() -> LLMClient:
         api_key = os.environ.get("ZHIPU_API_KEY")
         base_url = os.environ.get("ZHIPU_BASE_URL", "https://open.bigmodel.cn/api/paas/v4/")
 
+    # 读取模型名（与主流水线保持一致）
+    model = os.environ.get("LLM_MODEL") or None
+
+    # Anthropic 代理也可能需要自定义 base_url
+    if provider == "anthropic" and not base_url:
+        base_url = os.environ.get("ANTHROPIC_BASE_URL") or None
+
     _llm_client_instance = LLMClient(
         provider=provider,
+        model=model,
         api_key=api_key,
         base_url=base_url,
     )

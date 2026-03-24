@@ -148,7 +148,7 @@ class AIDescriptionStage:
                     domain_map[alias.lower()] = domain_id
 
         # 分组节点
-        groups: dict[str, list[GraphNode]] = defaultdict(list)
+        raw_groups: dict[str, list[GraphNode]] = defaultdict(list)
 
         for node in nodes:
             # 提取业务关键字
@@ -156,12 +156,31 @@ class AIDescriptionStage:
             if not biz_key:
                 continue
 
+            # 过滤掉含文件扩展名的 key（如 nbuimageservice.java）
+            if "." in biz_key:
+                continue
+
             biz_key_lower = biz_key.lower()
 
             # 查找对应的领域
             domain_id = domain_map.get(biz_key_lower, f"domain:{biz_key_lower}")
 
-            groups[domain_id].append(node)
+            raw_groups[domain_id].append(node)
+
+        # 过滤：移除节点数过少的领域（< 3 个节点），避免把单个类当领域
+        MIN_DOMAIN_SIZE = 3
+        groups: dict[str, list[GraphNode]] = {
+            domain_id: nodes_list
+            for domain_id, nodes_list in raw_groups.items()
+            if len(nodes_list) >= MIN_DOMAIN_SIZE
+        }
+
+        logger.info(
+            "领域分组: 原始 %d 个 → 过滤后 %d 个（最小节点数 %d）",
+            len(raw_groups),
+            len(groups),
+            MIN_DOMAIN_SIZE,
+        )
 
         return groups
 
