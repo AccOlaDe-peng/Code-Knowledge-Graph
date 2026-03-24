@@ -9,23 +9,19 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { ReactFlowProvider } from "reactflow";
 import "reactflow/dist/style.css";
-import { Spin, Button, Tooltip, Select, Input, Radio, Tag } from "antd";
+import { Spin, Button, Tooltip, Input, Tag } from "antd";
 import {
   SearchOutlined,
   ReloadOutlined,
-  ArrowDownOutlined,
-  ArrowUpOutlined,
-  ApartmentOutlined,
-  ShareAltOutlined,
 } from "@ant-design/icons";
-import { useLineageStore, useLineageLevel, useLineageNavigation } from "../../store/lineageStore";
+import { useLineageLevel, useLineageNavigation } from "../../store/lineageStore";
 import { useRepoStore } from "../../store/repoStore";
 import { graphApi } from "../../api/graphApi";
 import RepoSelector from "../../components/ui/RepoSelector";
 import ModuleView from "./components/ModuleView";
 import ServiceView from "./components/ServiceView";
 import DetailView from "./components/DetailView";
-import type { ModuleInfo, ServiceInfo } from "../../store/lineageStore";
+import type { ModuleInfo } from "../../store/lineageStore";
 import type { GraphNode } from "../../types/graph";
 
 // ─── 类型定义 ────────────────────────────────────────────────────────────────
@@ -47,7 +43,7 @@ interface RawEdge {
 // ─── 内部组件 ────────────────────────────────────────────────────────────────
 
 const DataLineageInner: React.FC = () => {
-  const { level, selectedModule, selectedService, isModuleView, isServiceView, isDetailView } = useLineageLevel();
+  const { selectedModule, selectedService, isModuleView, isServiceView, isDetailView } = useLineageLevel();
   const { navigateToModule, navigateToService, navigateBack, reset } = useLineageNavigation();
   const { activeRepo } = useRepoStore();
 
@@ -57,7 +53,6 @@ const DataLineageInner: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [layoutType, setLayoutType] = useState<"dagre" | "force">("dagre");
 
   // 加载模块级数据
   useEffect(() => {
@@ -82,7 +77,7 @@ const DataLineageInner: React.FC = () => {
 
   // 处理模块点击
   const handleModuleClick = useCallback(
-    (moduleId: string, module: ModuleInfo) => {
+    (_moduleId: string, module: ModuleInfo) => {
       navigateToModule(module);
     },
     [navigateToModule]

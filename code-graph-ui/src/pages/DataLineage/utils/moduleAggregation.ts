@@ -24,6 +24,8 @@ export interface ModuleNode {
   id: string;
   name: string;
   serviceCount: number;
+  controllerCount: number;
+  repositoryCount: number;
   services: Array<{ id: string; name: string }>;
   controllers: Array<{ id: string; name: string }>;
   repositories: Array<{ id: string; name: string }>;
@@ -124,6 +126,8 @@ export function aggregateToModuleLevel(
         id: moduleId,
         name: moduleName,
         serviceCount: 0,
+        controllerCount: 0,
+        repositoryCount: 0,
         services: [],
         controllers: [],
         repositories: [],
@@ -144,12 +148,14 @@ export function aggregateToModuleLevel(
       const annotations = (node.properties?.annotations as string[]) || [];
       if (annotations.includes("@RestController") || annotations.includes("@Controller")) {
         module.controllers.push({ id: nodeId, name: nodeName });
+        module.controllerCount++;
         classToModule.set(nodeId, moduleId);
       }
     } else if (nodeType === "Class") {
       // 检查是否是 Repository/Mapper
       if (["Repository", "Mapper", "Dao", "DAO"].some((p) => nodeName.includes(p))) {
         module.repositories.push({ id: nodeId, name: nodeName });
+        module.repositoryCount++;
         classToModule.set(nodeId, moduleId);
       }
     }

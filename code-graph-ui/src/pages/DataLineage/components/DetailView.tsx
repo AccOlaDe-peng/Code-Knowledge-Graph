@@ -4,7 +4,7 @@
  * 展示 Function 级完整调用链：
  * APIEndpoint → Controller 方法 → Service 方法 → Repository 方法 → Database
  */
-import React, { useEffect, useMemo, useCallback, useState } from "react";
+import React, { useEffect, useCallback, useState } from "react";
 import ReactFlow, {
   Background,
   BackgroundVariant,
@@ -25,12 +25,7 @@ import dagre from "dagre";
 import { Spin, Tooltip, Button, Tag } from "antd";
 import {
   ArrowLeftOutlined,
-  CodeOutlined,
   DatabaseOutlined,
-  ApiOutlined,
-  FileTextOutlined,
-  ShareAltOutlined,
-  ApartmentOutlined,
 } from "@ant-design/icons";
 import { graphApi } from "../../../api/graphApi";
 import type { GraphNode } from "../../../types/graph";
@@ -59,15 +54,7 @@ interface RawEdge {
   properties?: Record<string, unknown>;
 }
 
-// ─── 节点颜色 ────────────────────────────────────────────────────────────────
-
-const NODE_COLORS: Record<string, { bg: string; border: string; text: string }> = {
-  function: { bg: "rgba(255,107,107,0.07)", border: "#ff6b6b33", text: "#ff6b6b" },
-  apiendpoint: { bg: "rgba(0,212,255,0.12)", border: "#00d4ff88", text: "#00d4ff" },
-  database: { bg: "rgba(176,142,255,0.1)", border: "#b08eff55", text: "#b08eff" },
-  datasource: { bg: "rgba(176,142,255,0.12)", border: "#b08eff88", text: "#b08eff" },
-  _default: { bg: "rgba(30,45,61,0.5)", border: "#1e2d3d", text: "#6b8aaa" },
-};
+// ─── 边颜色 ────────────────────────────────────────────────────────────────
 
 const EDGE_COLORS: Record<string, string> = {
   calls: "#00f08466",
@@ -75,11 +62,6 @@ const EDGE_COLORS: Record<string, string> = {
   writes: "#ffc14566",
   handles: "#00d4ff77",
 };
-
-function getNodeStyle(type: string) {
-  const t = type.toLowerCase();
-  return NODE_COLORS[t] ?? NODE_COLORS._default;
-}
 
 // ─── 辅助函数 ────────────────────────────────────────────────────────────────
 
@@ -95,7 +77,7 @@ function parseFunctionId(functionId: string): {
 } | null {
   if (!functionId.startsWith("function:")) return null;
 
-  const body = functionid.slice(9); // 移除 "function:"
+  const body = functionId.slice(9); // 移除 "function:"
   const lastDot = body.lastIndexOf(".");
 
   if (lastDot === -1) return null;
@@ -192,7 +174,6 @@ type DetailNodeData = {
 // ─── 自定义节点组件 ──────────────────────────────────────────────────────────
 
 const DetailNode: React.FC<{ data: DetailNodeData }> = ({ data }) => {
-  const style = getNodeStyle(data.nodeType);
   const methodColor = getMethodTypeColor(data.methodType);
 
   return (
@@ -474,18 +455,6 @@ const DetailView: React.FC<DetailViewProps> = ({
   const handleDoubleClick = useCallback(() => {
     onBack();
   }, [onBack]);
-
-  // 计算路径深度
-  const maxDepth = useMemo(() => {
-    const depths = new Set<number>();
-    edges.forEach((e) => {
-      const sourceNode = nodes.find((n) => n.id === e.source);
-      if (sourceNode && (sourceNode.data as DetailNodeData).isEntryPoint) {
-        depths.add(0);
-      }
-    });
-    return Math.max(depths.size, 1);
-  }, [nodes, edges]);
 
   if (loading) {
     return (

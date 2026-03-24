@@ -25,7 +25,7 @@ import { Spin, Tooltip } from "antd";
 import { ApartmentOutlined, ShareAltOutlined } from "@ant-design/icons";
 import ModuleNode from "./ModuleNode";
 import type { ModuleData, ModuleNode as ModuleNodeType } from "../utils/moduleAggregation";
-import { aggregateToModuleLevel, getCrossModuleEdges } from "../utils/moduleAggregation";
+import { aggregateToModuleLevel } from "../utils/moduleAggregation";
 import type { RawNode, RawEdge } from "../../../api/graphApi";
 
 // ─── 类型定义 ────────────────────────────────────────────────────────────────
@@ -85,7 +85,6 @@ const EDGE_COLORS = {
 // ─── 主组件 ──────────────────────────────────────────────────────────────────
 
 const ModuleView: React.FC<ModuleViewProps> = ({
-  repoId,
   nodes,
   edges,
   loading,
@@ -147,7 +146,7 @@ const ModuleView: React.FC<ModuleViewProps> = ({
     });
 
     // 创建边
-    const flowEdges: Edge[] = moduleData.edges.map((edge, idx) => {
+    const flowEdges: Edge[] = moduleData.edges.map((edge) => {
       const color = EDGE_COLORS[edge.type as keyof typeof EDGE_COLORS] || "#1e3a4a";
       const isCrossModule = edge.type === "flow_to";
 

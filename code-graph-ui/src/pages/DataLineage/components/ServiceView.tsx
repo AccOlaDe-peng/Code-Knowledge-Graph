@@ -22,7 +22,7 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import dagre from "dagre";
-import { Spin, Tooltip, Drawer, Tag, Button } from "antd";
+import { Spin, Tooltip, Tag, Button } from "antd";
 import {
   ArrowLeftOutlined,
   DatabaseOutlined,
@@ -32,7 +32,7 @@ import {
   ApartmentOutlined,
 } from "@ant-design/icons";
 import { graphApi } from "../../../api/graphApi";
-import type { GraphNode, GraphEdge } from "../../../types/graph";
+import type { GraphNode } from "../../../types/graph";
 import NodeDetailPanel from "../../../components/NodeDetailPanel";
 import CrossModulePanel from "./CrossModulePanel";
 import type { ModuleNode } from "../utils/moduleAggregation";
