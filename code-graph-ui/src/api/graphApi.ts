@@ -146,9 +146,17 @@ export const graphApi = {
    */
   getLineageView(
     repoId: string,
-    opts?: { edgeTypes?: string; nodeId?: string; depth?: number; direction?: string },
+    opts?: {
+      edgeTypes?: string;
+      nodeId?: string;
+      depth?: number;
+      direction?: string;
+      moduleId?: string;
+      includeCalls?: boolean;
+    },
   ): Promise<{
     repo_id: string;
+    module_id?: string;
     edge_types: string[];
     direction?: string;
     node_count: number;
@@ -165,9 +173,43 @@ export const graphApi = {
               ...(opts.nodeId
                 ? { node_id: opts.nodeId, depth: opts.depth, direction: opts.direction }
                 : {}),
+              ...(opts.moduleId ? { module_id: opts.moduleId } : {}),
+              ...(opts.includeCalls !== undefined ? { include_calls: opts.includeCalls } : {}),
             }
           : {}),
       },
+    });
+  },
+
+  /**
+   * GET /graph/lineage/modules — 模块级血缘视图
+   */
+  getLineageModules(repoId: string): Promise<{
+    repo_id: string;
+    module_count: number;
+    edge_count: number;
+    modules: Array<{
+      id: string;
+      name: string;
+      service_count: number;
+      controller_count: number;
+      repository_count: number;
+      services: Array<{ id: string; name: string }>;
+      controllers: Array<{ id: string; name: string }>;
+      repositories: Array<{ id: string; name: string }>;
+      databases: Array<{ id: string; name: string }>;
+      cross_module_calls: number;
+    }>;
+    edges: Array<{
+      from: string;
+      to: string;
+      type: string;
+      service_pairs?: Array<[string, string]>;
+      call_count?: number;
+    }>;
+  }> {
+    return httpClient.get("/graph/lineage/modules", {
+      params: { repo_id: repoId },
     });
   },
 
