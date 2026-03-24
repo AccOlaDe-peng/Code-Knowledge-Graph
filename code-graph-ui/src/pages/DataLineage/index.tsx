@@ -18,7 +18,7 @@ import {
   SearchOutlined,
   ReloadOutlined,
 } from "@ant-design/icons";
-import { useLineageLevel, useLineageNavigation, useViewMode, useDomainConfig } from "../../store/lineageStore";
+import { useLineageLevel, useLineageNavigation, useViewMode, useDomainConfig, useDomainInteraction } from "../../store/lineageStore";
 import { useRepoStore } from "../../store/repoStore";
 import { graphApi } from "../../api/graphApi";
 import { domainApi } from "../../api/domainApi";
@@ -27,10 +27,12 @@ import ModuleView from "./components/ModuleView";
 import ServiceView from "./components/ServiceView";
 import DetailView from "./components/DetailView";
 import BusinessDomainView from "./components/BusinessDomainView";
+import DomainDetailView from "./components/DomainDetailView";
 import ViewModeSelector from "./components/ViewModeSelector";
 import DomainConfigPanel from "./components/DomainConfigPanel";
-import type { ModuleInfo } from "../../store/lineageStore";
+import type { ModuleInfo, DomainInfo } from "../../store/lineageStore";
 import type { GraphNode } from "../../types/graph";
+import type { BusinessDomainNode } from "./utils/domainAggregation";
 
 // ─── 类型定义 ────────────────────────────────────────────────────────────────
 
@@ -55,6 +57,12 @@ const DataLineageInner: React.FC = () => {
   const { navigateToModule, navigateToService, navigateBack, reset } = useLineageNavigation();
   const { isBusinessView, isTechView } = useViewMode();
   const { domainConfig, inferredDomains, domainLoading, setDomainConfig, setInferredDomains, setDomainLoading } = useDomainConfig();
+  const {
+    selectedDomain,
+    domainLevel,
+    navigateToDomain,
+    navigateFromDomain,
+  } = useDomainInteraction();
   const { activeRepo } = useRepoStore();
 
   // 数据状态
@@ -124,6 +132,30 @@ const DataLineageInner: React.FC = () => {
     },
     [navigateToService]
   );
+
+  // 处理领域双击（进入子图）
+  const handleDomainDoubleClick = useCallback(
+    (_domainId: string, domain: BusinessDomainNode) => {
+      const domainInfo: DomainInfo = {
+        id: domain.id,
+        key: domain.key,
+        name: domain.name,
+        color: domain.color,
+        nodeCount: domain.nodeCount,
+        serviceCount: domain.services.length,
+        controllerCount: domain.controllers.length,
+        repositoryCount: domain.repositories.length,
+        crossDomainCalls: 0,
+      };
+      navigateToDomain(domainInfo);
+    },
+    [navigateToDomain]
+  );
+
+  // 从领域子图返回
+  const handleDomainBack = useCallback(() => {
+    navigateFromDomain();
+  }, [navigateFromDomain]);
 
   // 重置视图
   const handleReset = useCallback(() => {
@@ -442,14 +474,25 @@ const DataLineageInner: React.FC = () => {
           />
         )}
 
-        {/* 层级 1b: 业务领域视图 */}
-        {activeRepo && isModuleView && isBusinessView && !loading && !error && (
+        {/* 层级 1b: 业务领域视图 - 主图 */}
+        {activeRepo && isModuleView && isBusinessView && domainLevel === "main" && !loading && !error && (
           <BusinessDomainView
             nodes={nodes}
             edges={edges}
             domains={domainConfig?.domains || []}
             inferredDomains={inferredDomains}
             loading={loading}
+            onDomainDoubleClick={handleDomainDoubleClick}
+          />
+        )}
+
+        {/* 层级 1c: 业务领域视图 - 子图 */}
+        {activeRepo && isModuleView && isBusinessView && domainLevel === "subgraph" && selectedDomain && !error && (
+          <DomainDetailView
+            domain={selectedDomain}
+            allNodes={nodes}
+            allEdges={edges}
+            onBack={handleDomainBack}
           />
         )}
 

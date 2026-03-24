@@ -1,0 +1,640 @@
+/**
+ * DomainDetailView - 领域子图视图组件。
+ *
+ * 展示领域内的节点和数据流向，支持：
+ * - 详细度滑块（简洁/标准/详细）
+ * - 核心路径过滤
+ * - 节点点击查看信息
+ */
+import React, { useEffect, useMemo, useCallback, useState } from "react";
+import ReactFlow, {
+  Background,
+  BackgroundVariant,
+  Controls,
+  MiniMap,
+  useNodesState,
+  useEdgesState,
+  MarkerType,
+  type Node,
+  type Edge,
+  type NodeTypes,
+  useReactFlow,
+} from "reactflow";
+import "reactflow/dist/style.css";
+import dagre from "dagre";
+import { Tag, Slider, Button, Tooltip } from "antd";
+import {
+  ApartmentOutlined,
+  ShareAltOutlined,
+  ArrowLeftOutlined,
+  AppstoreOutlined,
+} from "@ant-design/icons";
+import DomainInfoPanel from "./DomainInfoPanel";
+import NodeInfoDrawer from "./NodeInfoDrawer";
+import {
+  filterCorePathNodes,
+  calculateNodeStats,
+  type DetailLevel,
+  type FilteredGraphData,
+} from "../utils/domainFilter";
+import type { RawNode, RawEdge } from "../../../api/graphApi";
+import type {
+  DomainInfo,
+  NodeDetail,
+} from "../../../store/lineageStore";
+
+// ─── 类型定义 ────────────────────────────────────────────────────────────────
+
+interface DomainDetailViewProps {
+  domain: DomainInfo;
+  allNodes: RawNode[];
+  allEdges: RawEdge[];
+  onBack: () => void;
+  onNodeClick?: (nodeId: string) => void;
+}
+
+// ─── 节点类型注册 ────────────────────────────────────────────────────────────
+
+// 简单节点组件
+const SimpleNode: React.FC<{
+  data: {
+    node: RawNode;
+    callCount: number;
+    calledByCount: number;
+    isSelected?: boolean;
+  };
+}> = ({ data }) => {
+  const { node, callCount, calledByCount, isSelected } = data;
+  const nodeType = node.type;
+
+  // 节点颜色
+  const getNodeColor = () => {
+    switch (nodeType) {
+      case "Controller":
+      case "APIEndpoint":
+        return "#00d4ff";
+      case "Service":
+        return "#00f084";
+      case "Repository":
+      case "DAO":
+        return "#ffc145";
+      case "Function":
+        return "#b08eff";
+      default:
+        return "#8ab4c8";
+    }
+  };
+
+  const color = getNodeColor();
+
+  return (
+    <div
+      style={{
+        padding: "10px 14px",
+        background: isSelected
+          ? `rgba(${hexToRgb(color)}, 0.15)`
+          : "rgba(10,15,22,0.95)",
+        border: `1px solid ${isSelected ? color : "#1a2535"}`,
+        borderRadius: 6,
+        minWidth: 140,
+        maxWidth: 200,
+        boxShadow: isSelected ? `0 0 12px ${color}44` : "none",
+      }}
+    >
+      {/* 节点类型标签 */}
+      <div
+        style={{
+          fontFamily: "'IBM Plex Mono'",
+          fontSize: 8,
+          color: color,
+          letterSpacing: "0.1em",
+          marginBottom: 4,
+          textTransform: "uppercase",
+        }}
+      >
+        {nodeType}
+      </div>
+
+      {/* 节点名称 */}
+      <div
+        style={{
+          fontFamily: "'IBM Plex Mono'",
+          fontSize: 11,
+          fontWeight: 600,
+          color: "#b0c4d8",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+        title={node.name || node.id}
+      >
+        {node.name || node.id.split(":").pop()}
+      </div>
+
+      {/* 统计 */}
+      {(callCount > 0 || calledByCount > 0) && (
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            marginTop: 6,
+          }}
+        >
+          {callCount > 0 && (
+            <span
+              style={{
+                fontFamily: "'IBM Plex Mono'",
+                fontSize: 9,
+                color: "#00d4ff",
+              }}
+            >
+              →{callCount}
+            </span>
+          )}
+          {calledByCount > 0 && (
+            <span
+              style={{
+                fontFamily: "'IBM Plex Mono'",
+                fontSize: 9,
+                color: "#ffc145",
+              }}
+            >
+              ←{calledByCount}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// 辅助函数：hex 转 rgb
+function hexToRgb(hex: string): string {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result
+    ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`
+    : "0, 0, 0";
+}
+
+const nodeTypes: NodeTypes = {
+  simple: SimpleNode,
+};
+
+// ─── 边颜色 ──────────────────────────────────────────────────────────────────
+
+const EDGE_COLORS: Record<string, string> = {
+  calls: "#b08eff66",
+  reads: "#00d4ff66",
+  writes: "#ffc14566",
+  depends_on: "#00f08466",
+};
+
+// ─── 布局函数 ────────────────────────────────────────────────────────────────
+
+function applyDagreLayout(
+  nodes: Node[],
+  edges: Edge[],
+  direction: "TB" | "LR" = "TB"
+): Node[] {
+  const g = new dagre.graphlib.Graph();
+  g.setDefaultEdgeLabel(() => ({}));
+  g.setGraph({
+    rankdir: direction,
+    nodesep: 50,
+    ranksep: 80,
+    marginx: 30,
+    marginy: 30,
+  });
+
+  nodes.forEach((n) => {
+    g.setNode(n.id, { width: 160, height: 60 });
+  });
+
+  edges.forEach((e) => g.setEdge(e.source, e.target));
+  dagre.layout(g);
+
+  return nodes.map((n) => {
+    const pos = g.node(n.id);
+    return { ...n, position: { x: pos.x - 80, y: pos.y - 30 } };
+  });
+}
+
+// ─── 主组件 ──────────────────────────────────────────────────────────────────
+
+const DomainDetailView: React.FC<DomainDetailViewProps> = ({
+  domain,
+  allNodes,
+  allEdges,
+  onBack,
+  onNodeClick,
+}) => {
+  const [rfNodes, setRfNodes, onNodesChange] = useNodesState([]);
+  const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState([]);
+  const [layoutType, setLayoutType] = useState<"TB" | "LR">("TB");
+  const [detailLevel, setDetailLevel] = useState<DetailLevel>("standard");
+  const { fitView } = useReactFlow();
+
+  // 交互状态
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [nodeDrawerVisible, setNodeDrawerVisible] = useState(false);
+
+  // 过滤领域内的节点
+  const domainNodes = useMemo(() => {
+    const keys = [domain.key].map((k) => k.toLowerCase());
+    return allNodes.filter((node) => {
+      const nodeId = node.id.toLowerCase();
+      for (const key of keys) {
+        if (nodeId.includes(`/${key}/`) || nodeId.includes(`\\${key}\\`)) {
+          return true;
+        }
+      }
+      return false;
+    });
+  }, [allNodes, domain.key]);
+
+  const domainNodeIds = useMemo(
+    () => new Set(domainNodes.map((n) => n.id)),
+    [domainNodes]
+  );
+
+  // 过滤领域内的边
+  const domainEdges = useMemo(() => {
+    return allEdges.filter(
+      (edge) => domainNodeIds.has(edge.from) && domainNodeIds.has(edge.to)
+    );
+  }, [allEdges, domainNodeIds]);
+
+  // 应用核心路径过滤
+  const filteredData: FilteredGraphData = useMemo(() => {
+    return filterCorePathNodes(domainNodes, domainEdges, detailLevel);
+  }, [domainNodes, domainEdges, detailLevel]);
+
+  // 计算节点统计
+  const nodeStats = useMemo(() => {
+    return calculateNodeStats(filteredData.nodes, filteredData.edges);
+  }, [filteredData.nodes, filteredData.edges]);
+
+  // 选中节点的信息
+  const selectedNode = useMemo(() => {
+    if (!selectedNodeId) return null;
+    return filteredData.nodes.find((n) => n.id === selectedNodeId) || null;
+  }, [selectedNodeId, filteredData.nodes]);
+
+  // 转换为 NodeDetail 格式
+  const nodeDetail: NodeDetail | null = useMemo(() => {
+    if (!selectedNode) return null;
+    const stats = nodeStats.get(selectedNode.id) || {
+      callCount: 0,
+      calledByCount: 0,
+    };
+    const props = selectedNode.properties || {};
+
+    return {
+      nodeId: selectedNode.id,
+      name: selectedNode.name || selectedNode.id.split(":").pop() || "",
+      type: selectedNode.type,
+      file: (props.file as string) || "",
+      signature: props.signature as string | undefined,
+      line: props.line as number | undefined,
+      endLine: props.endLine as number | undefined,
+      aiDescription: undefined, // 后续从后端获取
+      callCount: stats.callCount,
+      calledByCount: stats.calledByCount,
+      dependencies: [],
+      generatedAt: undefined,
+    };
+  }, [selectedNode, nodeStats]);
+
+  // 构建 ReactFlow 节点和边
+  useEffect(() => {
+    if (!filteredData.nodes.length) return;
+
+    // 创建节点
+    const flowNodes: Node[] = filteredData.nodes.map((node) => {
+      const stats = nodeStats.get(node.id) || {
+        callCount: 0,
+        calledByCount: 0,
+      };
+
+      return {
+        id: node.id,
+        type: "simple",
+        position: { x: 0, y: 0 },
+        data: {
+          node,
+          callCount: stats.callCount,
+          calledByCount: stats.calledByCount,
+          isSelected: node.id === selectedNodeId,
+        },
+      };
+    });
+
+    // 创建边
+    const flowEdges: Edge[] = filteredData.edges.map((edge, i) => {
+      const color = EDGE_COLORS[edge.type] || "#1e3a4a";
+
+      return {
+        id: `${edge.from}--${edge.type}--${edge.to}--${i}`,
+        source: edge.from,
+        target: edge.to,
+        type: "smoothstep",
+        animated: true,
+        style: {
+          stroke: color.replace("66", "99"),
+          strokeWidth: 1.5,
+          opacity: 0.7,
+        },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: color.replace("66", "cc"),
+          width: 8,
+          height: 8,
+        },
+        data: { edge },
+      };
+    });
+
+    // 应用布局
+    const laidNodes = applyDagreLayout(flowNodes, flowEdges, layoutType);
+    setRfNodes(laidNodes);
+    setRfEdges(flowEdges);
+
+    setTimeout(() => fitView({ padding: 0.1, duration: 300 }), 60);
+  }, [
+    filteredData,
+    layoutType,
+    selectedNodeId,
+    nodeStats,
+    setRfNodes,
+    setRfEdges,
+    fitView,
+  ]);
+
+  // 处理节点点击
+  const handleNodeClick = useCallback(
+    (_: React.MouseEvent, node: Node) => {
+      setSelectedNodeId(node.id);
+    },
+    []
+  );
+
+  // 处理节点双击
+  const handleNodeDoubleClick = useCallback(
+    (_: React.MouseEvent, node: Node) => {
+      if (onNodeClick) {
+        onNodeClick(node.id);
+      }
+    },
+    [onNodeClick]
+  );
+
+  // 查看详情
+  const handleViewDetail = useCallback(() => {
+    setNodeDrawerVisible(true);
+  }, []);
+
+  // 关闭抽屉
+  const handleCloseDrawer = useCallback(() => {
+    setNodeDrawerVisible(false);
+  }, []);
+
+  // 详细度变化
+  const handleDetailLevelChange = useCallback((value: number) => {
+    const levels: DetailLevel[] = ["compact", "standard", "detailed"];
+    setDetailLevel(levels[value]);
+  }, []);
+
+  if (!domainNodes.length) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          height: "100%",
+        }}
+      >
+        <AppstoreOutlined style={{ fontSize: 48, color: "#2a4a5a", marginBottom: 16 }} />
+        <div
+          style={{
+            fontFamily: "'IBM Plex Mono'",
+            fontSize: 11,
+            color: "#4a6a7a",
+          }}
+        >
+          领域内暂无节点数据
+        </div>
+        <Button
+          onClick={onBack}
+          style={{
+            marginTop: 16,
+            background: "#080e16",
+            border: "1px solid #1a2535",
+            color: "#8ab4c8",
+          }}
+        >
+          返回主图
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ height: "100%", width: "100%", display: "flex" }}>
+      {/* 主图区域 */}
+      <div style={{ flex: 1, position: "relative" }}>
+        {/* 工具栏 */}
+        <div
+          style={{
+            position: "absolute",
+            top: 10,
+            left: 10,
+            zIndex: 10,
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+          }}
+        >
+          {/* 返回按钮 */}
+          <Button
+            onClick={onBack}
+            icon={<ArrowLeftOutlined />}
+            style={{
+              background: "rgba(10,15,22,0.9)",
+              border: "1px solid #1a2535",
+              color: "#8ab4c8",
+              fontFamily: "'IBM Plex Mono'",
+              fontSize: 10,
+            }}
+          >
+            返回
+          </Button>
+
+          {/* 领域名称 */}
+          <Tag
+            color={domain.color}
+            style={{
+              fontFamily: "'Syne', sans-serif",
+              fontSize: 11,
+              fontWeight: 600,
+              margin: 0,
+              padding: "4px 10px",
+            }}
+          >
+            {domain.name}
+          </Tag>
+
+          {/* 详细度滑块 */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              background: "rgba(10,15,22,0.9)",
+              border: "1px solid #1a2535",
+              borderRadius: 4,
+              padding: "4px 12px",
+            }}
+          >
+            <span
+              style={{
+                fontFamily: "'IBM Plex Mono'",
+                fontSize: 9,
+                color: detailLevel === "compact" ? "#8ab4c8" : "#3a5a6a",
+              }}
+            >
+              简洁
+            </span>
+            <Slider
+              value={
+                detailLevel === "compact" ? 0 : detailLevel === "standard" ? 1 : 2
+              }
+              onChange={handleDetailLevelChange}
+              min={0}
+              max={2}
+              step={1}
+              style={{ width: 80, margin: 0 }}
+              tooltip={{ formatter: () => detailLevel }}
+            />
+            <span
+              style={{
+                fontFamily: "'IBM Plex Mono'",
+                fontSize: 9,
+                color: detailLevel === "detailed" ? "#8ab4c8" : "#3a5a6a",
+              }}
+            >
+              详细
+            </span>
+          </div>
+
+          {/* 统计 */}
+          <div style={{ display: "flex", gap: 8 }}>
+            <Tag color="#b08eff">
+              {filteredData.stats.filtered}/{filteredData.stats.total} 节点
+            </Tag>
+            <Tag color="#00d4ff">{filteredData.edges.length} 边</Tag>
+          </div>
+
+          {/* 布局切换 */}
+          <Tooltip title="切换布局方向">
+            <button
+              onClick={() => setLayoutType(layoutType === "TB" ? "LR" : "TB")}
+              style={{
+                background: "rgba(10,15,22,0.9)",
+                border: "1px solid #1a2535",
+                borderRadius: 4,
+                padding: "6px 10px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                color: "#8ab4c8",
+                fontFamily: "'IBM Plex Mono'",
+                fontSize: 10,
+              }}
+            >
+              {layoutType === "TB" ? (
+                <ApartmentOutlined />
+              ) : (
+                <ShareAltOutlined />
+              )}
+            </button>
+          </Tooltip>
+        </div>
+
+        <ReactFlow
+          nodes={rfNodes}
+          edges={rfEdges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onNodeClick={handleNodeClick}
+          onNodeDoubleClick={handleNodeDoubleClick}
+          nodeTypes={nodeTypes}
+          fitView
+          minZoom={0.1}
+          maxZoom={2}
+          proOptions={{ hideAttribution: true }}
+        >
+          <Background
+            variant={BackgroundVariant.Dots}
+            gap={30}
+            size={0.7}
+            color="#0d1520"
+          />
+          <Controls
+            style={{ background: "#080e16", border: "1px solid #1a2535" }}
+          />
+          <MiniMap
+            style={{ background: "#07090d", border: "1px solid #1a2535" }}
+            nodeColor={(n) => {
+              const data = n.data as { node?: { type: string } };
+              const type = data?.node?.type;
+              switch (type) {
+                case "Controller":
+                case "APIEndpoint":
+                  return "#00d4ff";
+                case "Service":
+                  return "#00f084";
+                case "Repository":
+                case "DAO":
+                  return "#ffc145";
+                default:
+                  return "#8ab4c8";
+              }
+            }}
+            maskColor="rgba(7,9,13,0.75)"
+          />
+        </ReactFlow>
+      </div>
+
+      {/* 右侧固定信息面板 */}
+      <div
+        style={{
+          width: 280,
+          background: "rgba(7,9,13,0.97)",
+          borderLeft: "1px solid #1a2535",
+          padding: 16,
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <DomainInfoPanel
+          type={selectedNode ? "node" : null}
+          data={nodeDetail}
+          loading={false}
+          onViewDetail={handleViewDetail}
+        />
+      </div>
+
+      {/* 节点详情抽屉 */}
+      <NodeInfoDrawer
+        visible={nodeDrawerVisible}
+        node={nodeDetail}
+        onClose={handleCloseDrawer}
+        onNodeClick={onNodeClick}
+      />
+    </div>
+  );
+};
+
+export default DomainDetailView;
