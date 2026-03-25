@@ -32,6 +32,7 @@ export interface BusinessDomainNode {
   repositories: NodeSummary[];
   inModules: string[];
   databases: string[];
+  nodeIds: string[];
 }
 
 export interface NodeSummary {
@@ -267,7 +268,15 @@ export function matchNodeToDomain(
 // ─── 聚合函数 ────────────────────────────────────────────────────────────────
 
 // 业务节点类型白名单（性能优化）
-const BUSINESS_NODE_TYPES = new Set(["Service", "Component", "Class", "Function"]);
+const BUSINESS_NODE_TYPES = new Set([
+  "Service",
+  "Component",
+  "Class",
+  "Function",
+  "Repository",
+  "DAO",
+  "APIEndpoint",
+]);
 
 /**
  * 将原始节点/边聚合为业务领域视图。
@@ -365,11 +374,13 @@ export function aggregateToBusinessDomain(
         repositories: [],
         inModules: [],
         databases: [],
+        nodeIds: [],
       });
     }
 
     const domainNode = domainNodes.get(domainId)!;
     domainNode.nodeCount++;
+    domainNode.nodeIds.push(nodeId);
 
     // 提取模块名
     const moduleName = extractModuleName(nodeId);
@@ -393,8 +404,12 @@ export function aggregateToBusinessDomain(
       if (annotations.includes("@RestController") || annotations.includes("@Controller")) {
         domainNode.controllers.push(nodeSummary);
       }
+    } else if (nodeType === "APIEndpoint") {
+      domainNode.controllers.push(nodeSummary);
+    } else if (nodeType === "Repository" || nodeType === "DAO") {
+      domainNode.repositories.push(nodeSummary);
     } else if (nodeType === "Class") {
-      // 检查是否是 Repository
+      // 检查是否是 Repository（通过类名）
       const name = nodeName.toLowerCase();
       if (
         name.includes("repository") ||

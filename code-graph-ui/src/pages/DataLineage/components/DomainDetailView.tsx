@@ -15,6 +15,8 @@ import ReactFlow, {
   useNodesState,
   useEdgesState,
   MarkerType,
+  Handle,
+  Position,
   type Node,
   type Edge,
   type NodeTypes,
@@ -164,6 +166,17 @@ const SimpleNode: React.FC<{
           )}
         </div>
       )}
+
+      <Handle
+        type="target"
+        position={Position.Top}
+        style={{ background: color, width: 5, height: 5, border: "none", top: -3 }}
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        style={{ background: color, width: 5, height: 5, border: "none", bottom: -3 }}
+      />
     </div>
   );
 };
@@ -238,31 +251,22 @@ const DomainDetailView: React.FC<DomainDetailViewProps> = ({
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [nodeDrawerVisible, setNodeDrawerVisible] = useState(false);
 
-  // 过滤领域内的节点
-  const domainNodes = useMemo(() => {
-    const keys = [domain.key].map((k) => k.toLowerCase());
-    return allNodes.filter((node) => {
-      const nodeId = node.id.toLowerCase();
-      for (const key of keys) {
-        if (nodeId.includes(`/${key}/`) || nodeId.includes(`\\${key}\\`)) {
-          return true;
-        }
-      }
-      return false;
-    });
-  }, [allNodes, domain.key]);
-
-  const domainNodeIds = useMemo(
-    () => new Set(domainNodes.map((n) => n.id)),
-    [domainNodes]
+  // 用聚合阶段确定的 nodeIds 集合过滤，与主图逻辑完全一致
+  const domainNodeSet = useMemo(
+    () => new Set(domain.nodeIds),
+    [domain.nodeIds]
   );
 
-  // 过滤领域内的边
-  const domainEdges = useMemo(() => {
-    return allEdges.filter(
-      (edge) => domainNodeIds.has(edge.from) && domainNodeIds.has(edge.to)
-    );
-  }, [allEdges, domainNodeIds]);
+  const domainNodes = useMemo(
+    () => allNodes.filter((n) => domainNodeSet.has(n.id)),
+    [allNodes, domainNodeSet]
+  );
+
+  // 过滤领域内的边（两端都在领域内即保留，不限 edge type）
+  const domainEdges = useMemo(
+    () => allEdges.filter((e) => domainNodeSet.has(e.from) && domainNodeSet.has(e.to)),
+    [allEdges, domainNodeSet]
+  );
 
   // 应用核心路径过滤
   const filteredData: FilteredGraphData = useMemo(() => {
@@ -304,6 +308,29 @@ const DomainDetailView: React.FC<DomainDetailViewProps> = ({
       generatedAt: undefined,
     };
   }, [selectedNode, nodeStats]);
+
+  // 面板默认展示的领域描述（未选中节点时使用）
+  const defaultDomainDescription = useMemo(() => ({
+    domainId: domain.id,
+    summary: `${domain.name} 包含 ${domain.nodeCount} 个节点，涵盖 ${domain.serviceCount} 个服务。`,
+    coreServices: [],
+    dataFlowPattern: "Controller → Service → Repository",
+    generatedAt: new Date().toISOString(),
+    confidence: 0.85,
+  }), [domain]);
+
+  const domainInfoForPanel = useMemo(() => ({
+    id: domain.id,
+    key: domain.key,
+    name: domain.name,
+    color: domain.color,
+    nodeCount: domain.nodeCount,
+    serviceCount: domain.serviceCount,
+    controllerCount: domain.controllerCount,
+    repositoryCount: domain.repositoryCount,
+    crossDomainCalls: domain.crossDomainCalls,
+    nodeIds: domain.nodeIds,
+  }), [domain]);
 
   // 构建 ReactFlow 节点和边
   useEffect(() => {
@@ -619,8 +646,9 @@ const DomainDetailView: React.FC<DomainDetailViewProps> = ({
         }}
       >
         <DomainInfoPanel
-          type={selectedNode ? "node" : null}
-          data={nodeDetail}
+          type={selectedNode ? "node" : "domain"}
+          data={selectedNode ? nodeDetail : defaultDomainDescription}
+          domainInfo={!selectedNode ? domainInfoForPanel : undefined}
           loading={false}
           onViewDetail={handleViewDetail}
         />

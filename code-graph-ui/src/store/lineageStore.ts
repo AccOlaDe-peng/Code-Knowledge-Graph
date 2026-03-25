@@ -78,6 +78,7 @@ export interface DomainInfo {
   controllerCount: number;
   repositoryCount: number;
   crossDomainCalls: number;
+  nodeIds: string[];
 }
 
 export interface DomainDescription {

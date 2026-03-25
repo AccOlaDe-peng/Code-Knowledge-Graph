@@ -6,7 +6,7 @@
  * - 单击领域节点：显示右侧面板信息
  * - 双击领域节点：进入领域子图
  */
-import React, { useEffect, useMemo, useCallback, useState, useRef } from "react";
+import React, { useEffect, useMemo, useCallback, useState } from "react";
 import ReactFlow, {
   Background,
   BackgroundVariant,
@@ -65,7 +65,6 @@ const EDGE_COLORS: Record<string, string> = {
 
 // ─── 双击检测常量 ────────────────────────────────────────────────────────────
 
-const DOUBLE_CLICK_DELAY = 300; // ms
 
 // ─── 布局函数 ────────────────────────────────────────────────────────────────
 
@@ -116,9 +115,6 @@ const BusinessDomainView: React.FC<BusinessDomainViewProps> = ({
   const [selectedDomainId, setSelectedDomainId] = useState<string | null>(null);
   const [domainDrawerVisible, setDomainDrawerVisible] = useState(false);
 
-  // 双击检测
-  const lastClickTimeRef = useRef(0);
-  const lastClickedNodeRef = useRef<string | null>(null);
 
   // 聚合数据为业务领域级
   const domainData = useMemo(() => {
@@ -145,7 +141,8 @@ const BusinessDomainView: React.FC<BusinessDomainViewProps> = ({
         serviceCount: selectedDomain.services.length,
         controllerCount: selectedDomain.controllers.length,
         repositoryCount: selectedDomain.repositories.length,
-        crossDomainCalls: 0, // TODO: 计算跨领域调用数
+        crossDomainCalls: 0,
+        nodeIds: selectedDomain.nodeIds,
       }
     : undefined;
 
@@ -217,31 +214,22 @@ const BusinessDomainView: React.FC<BusinessDomainViewProps> = ({
     setTimeout(() => fitView({ padding: 0.1, duration: 300 }), 60);
   }, [domainData, layoutType, selectedDomainId, setRfNodes, setRfEdges, fitView]);
 
-  // 处理节点点击（单击/双击检测）
+  // 单击：显示面板
   const handleNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
       if (node.type !== "businessDomain") return;
+      setSelectedDomainId(node.id);
+    },
+    []
+  );
 
-      const now = Date.now();
-      const isSameNode = lastClickedNodeRef.current === node.id;
-      const isDoubleClick = isSameNode && now - lastClickTimeRef.current < DOUBLE_CLICK_DELAY;
-
-      lastClickTimeRef.current = now;
-      lastClickedNodeRef.current = node.id;
-
-      if (isDoubleClick) {
-        // 双击：进入子图
-        const domain = domainData.domains.find((d) => d.id === node.id);
-        if (domain && onDomainDoubleClick) {
-          onDomainDoubleClick(node.id, domain);
-        }
-      } else {
-        // 单击：显示面板
-        setSelectedDomainId(node.id);
-        // 重置计时器，等待可能的第二次点击
-        setTimeout(() => {
-          // 如果 300ms 内没有第二次点击，确认是单击
-        }, DOUBLE_CLICK_DELAY);
+  // 双击：进入子图
+  const handleNodeDoubleClick = useCallback(
+    (_event: React.MouseEvent, node: Node) => {
+      if (node.type !== "businessDomain") return;
+      const domain = domainData.domains.find((d) => d.id === node.id);
+      if (domain && onDomainDoubleClick) {
+        onDomainDoubleClick(node.id, domain);
       }
     },
     [domainData.domains, onDomainDoubleClick]
@@ -365,6 +353,7 @@ const BusinessDomainView: React.FC<BusinessDomainViewProps> = ({
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onNodeClick={handleNodeClick}
+          onNodeDoubleClick={handleNodeDoubleClick}
           nodeTypes={nodeTypes}
           fitView
           minZoom={0.1}

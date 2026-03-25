@@ -146,6 +146,7 @@ const DataLineageInner: React.FC = () => {
         controllerCount: domain.controllers.length,
         repositoryCount: domain.repositories.length,
         crossDomainCalls: 0,
+        nodeIds: domain.nodeIds,
       };
       navigateToDomain(domainInfo);
     },

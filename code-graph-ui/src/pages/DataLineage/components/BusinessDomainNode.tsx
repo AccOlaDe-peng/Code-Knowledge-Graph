@@ -98,6 +98,7 @@ const BusinessDomainNodeComponent: React.FC<NodeProps<BusinessDomainNodeData>> =
       {/* 标题栏 */}
       <div
         onClick={handleToggle}
+        onDoubleClick={(e) => e.stopPropagation()}
         style={{
           display: "flex",
           alignItems: "center",
