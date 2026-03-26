@@ -490,6 +490,7 @@ const DataLineageInner: React.FC = () => {
         {/* 层级 1c: 业务领域视图 - 子图 */}
         {activeRepo && isModuleView && isBusinessView && domainLevel === "subgraph" && selectedDomain && !error && (
           <DomainDetailView
+            repoId={activeRepo.repoId}
             domain={selectedDomain}
             allNodes={nodes}
             allEdges={edges}

@@ -25,6 +25,7 @@ export interface BusinessDomainNode {
   id: string;
   key: string;
   name: string;
+  aliases: string[];
   color: string;
   nodeCount: number;
   services: NodeSummary[];
@@ -268,14 +269,15 @@ export function matchNodeToDomain(
 // ─── 聚合函数 ────────────────────────────────────────────────────────────────
 
 // 业务节点类型白名单（性能优化）
+// 注意：后端返回的节点类型可能是小写或首字母大写，需要兼容两种格式
 const BUSINESS_NODE_TYPES = new Set([
-  "Service",
-  "Component",
-  "Class",
-  "Function",
-  "Repository",
-  "DAO",
-  "APIEndpoint",
+  "Service", "service",
+  "Component", "component",
+  "Class", "class",
+  "Function", "function",
+  "Repository", "repository",
+  "DAO", "dao",
+  "APIEndpoint", "apiendpoint",
 ]);
 
 /**
@@ -367,6 +369,7 @@ export function aggregateToBusinessDomain(
         id: domainId,
         key: domainDef?.key || "",
         name: domainDef?.name || domainId,
+        aliases: domainDef?.aliases || [],
         color: domainDef?.color || DOMAIN_COLORS[domainNodes.size % DOMAIN_COLORS.length],
         nodeCount: 0,
         services: [],

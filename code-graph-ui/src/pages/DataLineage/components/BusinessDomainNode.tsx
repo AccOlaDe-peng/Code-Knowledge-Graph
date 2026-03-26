@@ -98,13 +98,13 @@ const BusinessDomainNodeComponent: React.FC<NodeProps<BusinessDomainNodeData>> =
       {/* 标题栏 */}
       <div
         onClick={handleToggle}
-        onDoubleClick={(e) => e.stopPropagation()}
         style={{
           display: "flex",
           alignItems: "center",
           padding: "10px 12px 10px 14px",
           borderBottom: isExpanded ? `1px solid ${domain.color}22` : "none",
           gap: 8,
+          cursor: "pointer",
         }}
       >
         {/* 展开/折叠图标 */}

@@ -24,7 +24,7 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import dagre from "dagre";
-import { Tag, Slider, Button, Tooltip } from "antd";
+import { Tag, Button, Tooltip } from "antd";
 import {
   ApartmentOutlined,
   ShareAltOutlined,
@@ -44,10 +44,12 @@ import type {
   DomainInfo,
   NodeDetail,
 } from "../../../store/lineageStore";
+import { domainApi } from "../../../api/domainApi";
 
 // ─── 类型定义 ────────────────────────────────────────────────────────────────
 
 interface DomainDetailViewProps {
+  repoId: string;
   domain: DomainInfo;
   allNodes: RawNode[];
   allEdges: RawEdge[];
@@ -67,20 +69,20 @@ const SimpleNode: React.FC<{
   };
 }> = ({ data }) => {
   const { node, callCount, calledByCount, isSelected } = data;
-  const nodeType = node.type;
+  const nodeType = node.type.toLowerCase(); // 统一转换为小写比较
 
   // 节点颜色
   const getNodeColor = () => {
     switch (nodeType) {
-      case "Controller":
-      case "APIEndpoint":
+      case "controller":
+      case "apiendpoint":
         return "#00d4ff";
-      case "Service":
+      case "service":
         return "#00f084";
-      case "Repository":
-      case "DAO":
+      case "repository":
+      case "dao":
         return "#ffc145";
-      case "Function":
+      case "function":
         return "#b08eff";
       default:
         return "#8ab4c8";
@@ -114,7 +116,8 @@ const SimpleNode: React.FC<{
           textTransform: "uppercase",
         }}
       >
-        {nodeType}
+        {/* 首字母大写显示 */}
+        {nodeType.charAt(0).toUpperCase() + nodeType.slice(1)}
       </div>
 
       {/* 节点名称 */}
@@ -204,6 +207,9 @@ const EDGE_COLORS: Record<string, string> = {
 
 // ─── 布局函数 ────────────────────────────────────────────────────────────────
 
+// 超过此节点数使用网格布局，避免 Dagre 主线程卡顿
+const DAGRE_NODE_LIMIT = 100;
+
 function applyDagreLayout(
   nodes: Node[],
   edges: Edge[],
@@ -232,9 +238,20 @@ function applyDagreLayout(
   });
 }
 
+function applyGridLayout(nodes: Node[]): Node[] {
+  const cols = Math.ceil(Math.sqrt(nodes.length * 1.5));
+  const hGap = 200;
+  const vGap = 100;
+  return nodes.map((n, i) => ({
+    ...n,
+    position: { x: (i % cols) * hGap, y: Math.floor(i / cols) * vGap },
+  }));
+}
+
 // ─── 主组件 ──────────────────────────────────────────────────────────────────
 
 const DomainDetailView: React.FC<DomainDetailViewProps> = ({
+  repoId,
   domain,
   allNodes,
   allEdges,
@@ -246,6 +263,8 @@ const DomainDetailView: React.FC<DomainDetailViewProps> = ({
   const [layoutType, setLayoutType] = useState<"TB" | "LR">("TB");
   const [detailLevel, setDetailLevel] = useState<DetailLevel>("standard");
   const { fitView } = useReactFlow();
+  // 已获取的节点 AI 描述缓存（nodeId -> aiDescription）
+  const [aiDescCache, setAiDescCache] = useState<Map<string, string>>(new Map());
 
   // 交互状态
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -292,6 +311,11 @@ const DomainDetailView: React.FC<DomainDetailViewProps> = ({
       calledByCount: 0,
     };
     const props = selectedNode.properties || {};
+    // 优先取 properties 里内联的描述，其次取 API 缓存
+    const aiDescription =
+      (props.ai_description as string | undefined) ||
+      (props.description as string | undefined) ||
+      aiDescCache.get(selectedNode.id);
 
     return {
       nodeId: selectedNode.id,
@@ -301,13 +325,37 @@ const DomainDetailView: React.FC<DomainDetailViewProps> = ({
       signature: props.signature as string | undefined,
       line: props.line as number | undefined,
       endLine: props.endLine as number | undefined,
-      aiDescription: undefined, // 后续从后端获取
+      aiDescription,
       callCount: stats.callCount,
       calledByCount: stats.calledByCount,
       dependencies: [],
       generatedAt: undefined,
     };
-  }, [selectedNode, nodeStats]);
+  }, [selectedNode, nodeStats, aiDescCache]);
+
+  // 选中节点时：若本地 properties 无描述则从 API 获取
+  useEffect(() => {
+    if (!selectedNodeId || !repoId) return;
+    const node = filteredData.nodes.find((n) => n.id === selectedNodeId);
+    if (!node) return;
+    const props = node.properties || {};
+    if (props.ai_description || props.description) return; // 已有内联描述
+    if (aiDescCache.has(selectedNodeId)) return; // 已缓存
+
+    domainApi
+      .getBatchNodeInfo(repoId, domain.id, [selectedNodeId])
+      .then(({ nodes }) => {
+        const fetched = nodes[0];
+        if (fetched?.aiDescription) {
+          setAiDescCache((prev) => {
+            const next = new Map(prev);
+            next.set(selectedNodeId, fetched.aiDescription!);
+            return next;
+          });
+        }
+      })
+      .catch(() => { /* 静默失败，不影响主流程 */ });
+  }, [selectedNodeId, repoId, domain.id, filteredData.nodes, aiDescCache]);
 
   // 面板默认展示的领域描述（未选中节点时使用）
   const defaultDomainDescription = useMemo(() => ({
@@ -332,17 +380,12 @@ const DomainDetailView: React.FC<DomainDetailViewProps> = ({
     nodeIds: domain.nodeIds,
   }), [domain]);
 
-  // 构建 ReactFlow 节点和边
+  // 构建 ReactFlow 节点和边（仅在数据/布局变化时重算，不响应选中状态）
   useEffect(() => {
     if (!filteredData.nodes.length) return;
 
-    // 创建节点
     const flowNodes: Node[] = filteredData.nodes.map((node) => {
-      const stats = nodeStats.get(node.id) || {
-        callCount: 0,
-        calledByCount: 0,
-      };
-
+      const stats = nodeStats.get(node.id) || { callCount: 0, calledByCount: 0 };
       return {
         id: node.id,
         type: "simple",
@@ -351,26 +394,20 @@ const DomainDetailView: React.FC<DomainDetailViewProps> = ({
           node,
           callCount: stats.callCount,
           calledByCount: stats.calledByCount,
-          isSelected: node.id === selectedNodeId,
+          isSelected: false,
         },
       };
     });
 
-    // 创建边
     const flowEdges: Edge[] = filteredData.edges.map((edge, i) => {
       const color = EDGE_COLORS[edge.type] || "#1e3a4a";
-
       return {
         id: `${edge.from}--${edge.type}--${edge.to}--${i}`,
         source: edge.from,
         target: edge.to,
         type: "smoothstep",
         animated: true,
-        style: {
-          stroke: color.replace("66", "99"),
-          strokeWidth: 1.5,
-          opacity: 0.7,
-        },
+        style: { stroke: color.replace("66", "99"), strokeWidth: 1.5, opacity: 0.7 },
         markerEnd: {
           type: MarkerType.ArrowClosed,
           color: color.replace("66", "cc"),
@@ -381,21 +418,25 @@ const DomainDetailView: React.FC<DomainDetailViewProps> = ({
       };
     });
 
-    // 应用布局
-    const laidNodes = applyDagreLayout(flowNodes, flowEdges, layoutType);
+    const laidNodes =
+      flowNodes.length > DAGRE_NODE_LIMIT
+        ? applyGridLayout(flowNodes)
+        : applyDagreLayout(flowNodes, flowEdges, layoutType);
     setRfNodes(laidNodes);
     setRfEdges(flowEdges);
 
     setTimeout(() => fitView({ padding: 0.1, duration: 300 }), 60);
-  }, [
-    filteredData,
-    layoutType,
-    selectedNodeId,
-    nodeStats,
-    setRfNodes,
-    setRfEdges,
-    fitView,
-  ]);
+  }, [filteredData, layoutType, nodeStats, setRfNodes, setRfEdges, fitView]);
+
+  // 单独更新选中高亮，不触发重排布局和 fitView
+  useEffect(() => {
+    setRfNodes((nodes) =>
+      nodes.map((n) => ({
+        ...n,
+        data: { ...n.data, isSelected: n.id === selectedNodeId },
+      }))
+    );
+  }, [selectedNodeId, setRfNodes]);
 
   // 处理节点点击
   const handleNodeClick = useCallback(
@@ -425,13 +466,8 @@ const DomainDetailView: React.FC<DomainDetailViewProps> = ({
     setNodeDrawerVisible(false);
   }, []);
 
-  // 详细度变化
-  const handleDetailLevelChange = useCallback((value: number) => {
-    const levels: DetailLevel[] = ["compact", "standard", "detailed"];
-    setDetailLevel(levels[value]);
-  }, []);
 
-  if (!domainNodes.length) {
+  if (!domainNodes.length || !filteredData.nodes.length) {
     return (
       <div
         style={{
@@ -512,47 +548,31 @@ const DomainDetailView: React.FC<DomainDetailViewProps> = ({
             {domain.name}
           </Tag>
 
-          {/* 详细度滑块 */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              background: "rgba(10,15,22,0.9)",
-              border: "1px solid #1a2535",
-              borderRadius: 4,
-              padding: "4px 12px",
-            }}
-          >
-            <span
-              style={{
-                fontFamily: "'IBM Plex Mono'",
-                fontSize: 9,
-                color: detailLevel === "compact" ? "#8ab4c8" : "#3a5a6a",
-              }}
-            >
-              简洁
-            </span>
-            <Slider
-              value={
-                detailLevel === "compact" ? 0 : detailLevel === "standard" ? 1 : 2
-              }
-              onChange={handleDetailLevelChange}
-              min={0}
-              max={2}
-              step={1}
-              style={{ width: 80, margin: 0 }}
-              tooltip={{ formatter: () => detailLevel }}
-            />
-            <span
-              style={{
-                fontFamily: "'IBM Plex Mono'",
-                fontSize: 9,
-                color: detailLevel === "detailed" ? "#8ab4c8" : "#3a5a6a",
-              }}
-            >
-              详细
-            </span>
+          {/* 详细度切换 */}
+          <div style={{ display: "flex", gap: 2 }}>
+            {(["compact", "standard", "detailed"] as const).map((level, i) => {
+              const label = ["简洁", "标准", "详细"][i];
+              const active = detailLevel === level;
+              return (
+                <button
+                  key={level}
+                  onClick={() => setDetailLevel(level)}
+                  style={{
+                    background: active ? "#1a2f40" : "rgba(10,15,22,0.9)",
+                    border: `1px solid ${active ? "#00d4ff" : "#1a2535"}`,
+                    borderRadius: i === 0 ? "4px 0 0 4px" : i === 2 ? "0 4px 4px 0" : "0",
+                    padding: "4px 10px",
+                    cursor: "pointer",
+                    fontFamily: "'IBM Plex Mono'",
+                    fontSize: 10,
+                    color: active ? "#00d4ff" : "#4a6a7a",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
 
           {/* 统计 */}

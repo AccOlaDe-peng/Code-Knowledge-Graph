@@ -24,17 +24,24 @@ export interface FilteredGraphData {
 }
 
 // ─── 节点类型常量 ────────────────────────────────────────────────────────────
+// 注意：后端返回的节点类型可能是小写或首字母大写，需要兼容两种格式
 
 const ENTRY_NODE_TYPES = new Set([
   "Controller",
+  "controller",
   "APIEndpoint",
+  "apiendpoint",
   "Component",
+  "component",
 ]);
 
 const EXIT_NODE_TYPES = new Set([
   "Repository",
+  "repository",
   "DAO",
+  "dao",
   "Database",
+  "database",
 ]);
 
 // ─── 主过滤函数 ──────────────────────────────────────────────────────────────
@@ -72,7 +79,6 @@ export function filterCorePathNodes(
 
   // 从入口节点 BFS 遍历，记录主路径上的节点
   const pathNodeIds = new Set<string>();
-  const queue = [...entryNodeIds];
 
   // 构建边索引
   const outEdgesMap = new Map<string, RawEdge[]>();
@@ -81,6 +87,17 @@ export function filterCorePathNodes(
     existing.push(edge);
     outEdgesMap.set(edge.from, existing);
   }
+
+  // 如果没有传统入口节点（Controller/APIEndpoint/Component），
+  // 降级为以 Service 节点作为 BFS 起点
+  const bfsStartIds =
+    entryNodeIds.size > 0
+      ? [...entryNodeIds]
+      : nodes
+          .filter((n) => n.type === "Service" || n.type === "service")
+          .map((n) => n.id);
+
+  const queue = bfsStartIds;
 
   // BFS 遍历
   while (queue.length > 0) {
@@ -128,6 +145,22 @@ export function filterCorePathNodes(
     const callCount = calledByCount.get(node.id) || 0;
     return callCount >= minCallCount;
   });
+
+  // 保底：过滤后节点为空时（例如域内既无入口也无 Service 节点），
+  // 直接返回全部节点，避免画布空白
+  if (filteredNodes.length === 0 && nodes.length > 0) {
+    return {
+      nodes,
+      edges,
+      stats: {
+        total: nodes.length,
+        filtered: nodes.length,
+        entryNodes: entryNodes.length,
+        exitNodes: exitNodes.length,
+        pathNodes: pathNodeIds.size,
+      },
+    };
+  }
 
   const filteredNodeIds = new Set(filteredNodes.map((n) => n.id));
 
