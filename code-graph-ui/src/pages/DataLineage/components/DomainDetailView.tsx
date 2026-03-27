@@ -32,7 +32,6 @@ import {
   AppstoreOutlined,
 } from "@ant-design/icons";
 import DomainInfoPanel from "./DomainInfoPanel";
-import NodeInfoDrawer from "./NodeInfoDrawer";
 import {
   filterCorePathNodes,
   calculateNodeStats,
@@ -268,7 +267,6 @@ const DomainDetailView: React.FC<DomainDetailViewProps> = ({
 
   // 交互状态
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [nodeDrawerVisible, setNodeDrawerVisible] = useState(false);
 
   // 用聚合阶段确定的 nodeIds 集合过滤，与主图逻辑完全一致
   const domainNodeSet = useMemo(
@@ -456,15 +454,6 @@ const DomainDetailView: React.FC<DomainDetailViewProps> = ({
     [onNodeClick]
   );
 
-  // 查看详情
-  const handleViewDetail = useCallback(() => {
-    setNodeDrawerVisible(true);
-  }, []);
-
-  // 关闭抽屉
-  const handleCloseDrawer = useCallback(() => {
-    setNodeDrawerVisible(false);
-  }, []);
 
 
   if (!domainNodes.length || !filteredData.nodes.length) {
@@ -667,20 +656,12 @@ const DomainDetailView: React.FC<DomainDetailViewProps> = ({
       >
         <DomainInfoPanel
           type={selectedNode ? "node" : "domain"}
-          data={selectedNode ? nodeDetail : defaultDomainDescription}
+          data={selectedNode && nodeDetail ? nodeDetail : defaultDomainDescription}
           domainInfo={!selectedNode ? domainInfoForPanel : undefined}
           loading={false}
-          onViewDetail={handleViewDetail}
         />
       </div>
 
-      {/* 节点详情抽屉 */}
-      <NodeInfoDrawer
-        visible={nodeDrawerVisible}
-        node={nodeDetail}
-        onClose={handleCloseDrawer}
-        onNodeClick={onNodeClick}
-      />
     </div>
   );
 };

@@ -24,7 +24,7 @@ interface DomainInfoPanelProps {
   data: DomainDescription | NodeDetail | null;
   domainInfo?: DomainInfo; // 领域统计信息（用于简要显示）
   loading?: boolean;
-  onViewDetail: () => void;
+  onViewDetail?: () => void;
 }
 
 // ─── 子组件：领域面板 ────────────────────────────────────────────────────────
@@ -32,7 +32,7 @@ interface DomainInfoPanelProps {
 const DomainPanel: React.FC<{
   data: DomainDescription;
   domainInfo?: DomainInfo;
-  onViewDetail: () => void;
+  onViewDetail?: () => void;
 }> = ({ data, domainInfo, onViewDetail }) => (
   <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
     {/* 领域名称 */}
@@ -114,26 +114,28 @@ const DomainPanel: React.FC<{
       </div>
     )}
 
-    {/* 查看详情按钮 */}
-    <div style={{ marginTop: "auto", paddingTop: 12 }}>
-      <Button
-        type="primary"
-        block
-        onClick={onViewDetail}
-        icon={<RightOutlined />}
-        iconPosition="end"
-        style={{
-          background: "rgba(0,240,132,0.1)",
-          border: "1px solid #00f08444",
-          color: "#00f084",
-          fontFamily: "'IBM Plex Mono'",
-          fontSize: 11,
-          height: 36,
-        }}
-      >
-        查看详情
-      </Button>
-    </div>
+    {/* 查看详情按钮（仅在提供回调时显示） */}
+    {onViewDetail && (
+      <div style={{ marginTop: "auto", paddingTop: 12 }}>
+        <Button
+          type="primary"
+          block
+          onClick={onViewDetail}
+          icon={<RightOutlined />}
+          iconPosition="end"
+          style={{
+            background: "rgba(0,240,132,0.1)",
+            border: "1px solid #00f08444",
+            color: "#00f084",
+            fontFamily: "'IBM Plex Mono'",
+            fontSize: 11,
+            height: 36,
+          }}
+        >
+          查看详情
+        </Button>
+      </div>
+    )}
   </div>
 );
 
@@ -141,8 +143,7 @@ const DomainPanel: React.FC<{
 
 const NodePanel: React.FC<{
   data: NodeDetail;
-  onViewDetail: () => void;
-}> = ({ data, onViewDetail }) => (
+}> = ({ data }) => (
   <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
     {/* 节点名称 */}
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
@@ -309,26 +310,6 @@ const NodePanel: React.FC<{
       </div>
     )}
 
-    {/* 查看详情按钮 */}
-    <div style={{ marginTop: "auto", paddingTop: 12 }}>
-      <Button
-        type="primary"
-        block
-        onClick={onViewDetail}
-        icon={<RightOutlined />}
-        iconPosition="end"
-        style={{
-          background: "rgba(0,212,255,0.1)",
-          border: "1px solid #00d4ff44",
-          color: "#00d4ff",
-          fontFamily: "'IBM Plex Mono'",
-          fontSize: 11,
-          height: 36,
-        }}
-      >
-        查看详情
-      </Button>
-    </div>
   </div>
 );
 
@@ -458,7 +439,7 @@ const DomainInfoPanel: React.FC<DomainInfoPanelProps> = ({
   }
 
   // 节点面板
-  return <NodePanel data={data as NodeDetail} onViewDetail={onViewDetail} />;
+  return <NodePanel data={data as NodeDetail} />;
 };
 
 export default DomainInfoPanel;
