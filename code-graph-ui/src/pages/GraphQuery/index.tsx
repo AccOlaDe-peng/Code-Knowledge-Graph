@@ -3,6 +3,7 @@ import { Alert, message } from 'antd';
 import { ragApi } from '../../api/ragApi';
 import { useGraphStore } from '../../store/graphStore';
 import { useChatHistory } from '../../core/hooks/useChatHistory';
+import RepoSelector from '../../components/ui/RepoSelector';
 import type { ChatMessage } from '../../types/chat';
 
 const EXAMPLES = [
@@ -343,7 +344,7 @@ const GraphQuery: React.FC = () => {
         {/* Header */}
         <div style={{
           padding: '16px 24px', borderBottom: '1px solid var(--b-subtle)',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
         }}>
           <div>
             <div style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--t-muted)', letterSpacing: '0.15em', marginBottom: 4 }}>系统 / AI 查询</div>
@@ -351,16 +352,19 @@ const GraphQuery: React.FC = () => {
               AI 代码问答
             </h2>
           </div>
-          <button
-            onClick={() => setShowSidebar(!showSidebar)}
-            style={{
-              background: 'var(--s-float)', border: '1px solid var(--b-subtle)',
-              borderRadius: 4, padding: '6px 12px', cursor: 'pointer',
-              fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--t-secondary)',
-            }}
-          >
-            {showSidebar ? '隐藏历史' : '显示历史'}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <RepoSelector showStats={false} width={200} />
+            <button
+              onClick={() => setShowSidebar(!showSidebar)}
+              style={{
+                background: 'var(--s-float)', border: '1px solid var(--b-subtle)',
+                borderRadius: 4, padding: '6px 12px', cursor: 'pointer',
+                fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--t-secondary)',
+              }}
+            >
+              {showSidebar ? '隐藏历史' : '显示历史'}
+            </button>
+          </div>
         </div>
 
         {!activeGraphId && (
