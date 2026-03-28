@@ -311,8 +311,8 @@ def get_default_client() -> LLMClient:
     if _default_client is None:
         provider = os.getenv("LLM_PROVIDER", "anthropic")
         model = os.getenv("LLM_MODEL")
-        # 优先使用 ANTHROPIC_BASE_URL（MiniMax 等兼容接口），其次 OPENAI_BASE_URL
-        base_url = os.getenv("ANTHROPIC_BASE_URL") or os.getenv("OPENAI_BASE_URL")
+        # 优先读取 LLM_BASE_URL（通用配置），其次 ANTHROPIC_BASE_URL，最后 OPENAI_BASE_URL
+        base_url = os.getenv("LLM_BASE_URL") or os.getenv("ANTHROPIC_BASE_URL") or os.getenv("OPENAI_BASE_URL")
         if provider == "minimax" and not base_url:
             base_url = "https://api.minimaxi.com/anthropic"
         _default_client = LLMClient(provider=provider, model=model, base_url=base_url)
