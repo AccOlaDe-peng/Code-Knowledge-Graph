@@ -3,8 +3,6 @@ import { Alert, message } from 'antd';
 import { ragApi } from '../../api/ragApi';
 import { useGraphStore } from '../../store/graphStore';
 import { useChatHistory } from '../../core/hooks/useChatHistory';
-import GraphViewer from '../../components/GraphViewer';
-import type { RagQueryResponse } from '../../types/api';
 import type { ChatMessage } from '../../types/chat';
 
 const EXAMPLES = [
@@ -208,7 +206,6 @@ const GraphQuery: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSidebar, setShowSidebar] = useState(true);
-  const [currentResult, setCurrentResult] = useState<RagQueryResponse | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -252,8 +249,6 @@ const GraphQuery: React.FC = () => {
         sources: res.sources,
         confidence: res.confidence,
       });
-
-      setCurrentResult(res);
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : 'Query failed';
       setError(errMsg);
@@ -268,7 +263,6 @@ const GraphQuery: React.FC = () => {
     createSession();
     setQuestion('');
     setError(null);
-    setCurrentResult(null);
   };
 
   return (
@@ -420,28 +414,6 @@ const GraphQuery: React.FC = () => {
               {/* Error */}
               {error && (
                 <Alert type="error" message={error} showIcon style={{ borderRadius: 4, marginBottom: 16 }} />
-              )}
-
-              {/* Graph visualization for latest result */}
-              {currentResult?.nodes && currentResult.nodes.length > 0 && !loading && (
-                <div style={{
-                  marginTop: 16, border: '1px solid var(--b-faint)',
-                  borderRadius: 'var(--radius-m)', overflow: 'hidden',
-                }}>
-                  <div style={{
-                    padding: '10px 16px', borderBottom: '1px solid var(--b-faint)',
-                    fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--t-muted)',
-                    letterSpacing: '0.1em', textTransform: 'uppercase',
-                  }}>
-                    图谱 · {currentResult.nodes.length} 节点 · {currentResult.edges?.length ?? 0} 边
-                  </div>
-                  <GraphViewer
-                    nodes={currentResult.nodes}
-                    edges={currentResult.edges ?? []}
-                    layout="force"
-                    height={300}
-                  />
-                </div>
               )}
 
               <div ref={messagesEndRef} />
