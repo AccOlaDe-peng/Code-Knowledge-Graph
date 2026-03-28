@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Alert, message } from 'antd';
+import ReactMarkdown from 'react-markdown';
 import { ragApi } from '../../api/ragApi';
 import { useGraphStore } from '../../store/graphStore';
 import { useChatHistory } from '../../core/hooks/useChatHistory';
@@ -128,12 +129,57 @@ const MessageBubble: React.FC<{
         border: `1px solid ${isUser ? 'var(--b-subtle)' : 'var(--b-faint)'}`,
         borderRadius: isUser ? '16px 16px 4px 16px' : '4px 16px 16px 16px',
       }}>
-        <p style={{
-          margin: 0, fontFamily: 'var(--font-ui)', fontSize: 14,
-          color: 'var(--t-primary)', lineHeight: 1.75,
-        }}>
-          {message.content}
-        </p>
+        {isUser ? (
+          <p style={{
+            margin: 0, fontFamily: 'var(--font-ui)', fontSize: 14,
+            color: 'var(--t-primary)', lineHeight: 1.75,
+          }}>
+            {message.content}
+          </p>
+        ) : (
+          <ReactMarkdown
+            components={{
+              p: ({ children }) => <p style={{ margin: '0 0 12px 0', fontFamily: 'var(--font-ui)', fontSize: 14, color: 'var(--t-primary)', lineHeight: 1.75 }}>{children}</p>,
+              code: ({ className, children, ...props }) => {
+                const isInline = !className;
+                return isInline ? (
+                  <code style={{
+                    background: 'var(--s-float)',
+                    padding: '2px 6px',
+                    borderRadius: 3,
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 13,
+                    color: 'var(--a-cyan)',
+                  }} {...props}>{children}</code>
+                ) : (
+                  <code style={{
+                    display: 'block',
+                    background: 'var(--s-void)',
+                    padding: '12px 16px',
+                    borderRadius: 6,
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 13,
+                    color: 'var(--t-primary)',
+                    overflow: 'auto',
+                    margin: '8px 0',
+                  }} {...props}>{children}</code>
+                );
+              },
+              pre: ({ children }) => <pre style={{ margin: 0, background: 'transparent' }}>{children}</pre>,
+              ul: ({ children }) => <ul style={{ margin: '8px 0', paddingLeft: 20 }}>{children}</ul>,
+              ol: ({ children }) => <ol style={{ margin: '8px 0', paddingLeft: 20 }}>{children}</ol>,
+              li: ({ children }) => <li style={{ margin: '4px 0', fontFamily: 'var(--font-ui)', fontSize: 14, color: 'var(--t-primary)' }}>{children}</li>,
+              h1: ({ children }) => <h1 style={{ margin: '16px 0 8px 0', fontFamily: 'var(--font-ui)', fontSize: 18, color: 'var(--t-primary)' }}>{children}</h1>,
+              h2: ({ children }) => <h2 style={{ margin: '14px 0 8px 0', fontFamily: 'var(--font-ui)', fontSize: 16, color: 'var(--t-primary)' }}>{children}</h2>,
+              h3: ({ children }) => <h3 style={{ margin: '12px 0 6px 0', fontFamily: 'var(--font-ui)', fontSize: 15, color: 'var(--t-primary)' }}>{children}</h3>,
+              blockquote: ({ children }) => <blockquote style={{ margin: '8px 0', padding: '8px 12px', borderLeft: '3px solid var(--a-cyan)', background: 'var(--s-float)', color: 'var(--t-secondary)' }}>{children}</blockquote>,
+              strong: ({ children }) => <strong style={{ color: 'var(--t-primary)', fontWeight: 600 }}>{children}</strong>,
+              a: ({ href, children }) => <a href={href} style={{ color: 'var(--a-cyan)', textDecoration: 'none' }} target="_blank" rel="noopener noreferrer">{children}</a>,
+            }}
+          >
+            {message.content}
+          </ReactMarkdown>
+        )}
 
         {/* AI 回复的附加信息 */}
         {!isUser && message.nodes && message.nodes.length > 0 && (
