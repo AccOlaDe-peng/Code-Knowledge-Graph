@@ -19,22 +19,22 @@ type StatCardProps = {
 
 const StatCard: React.FC<StatCardProps> = ({ icon, label, value, color, trend }) => (
   <div style={{
-    background:    'var(--s-raised)',
+    background:    'linear-gradient(135deg, var(--s-raised) 0%, rgba(15,18,24,0.8) 100%)',
     border:        '1px solid var(--b-faint)',
-    borderTop:     `2px solid ${color}`,
+    borderTop:     `3px solid ${color}`,
     borderRadius:  'var(--radius-m)',
-    padding:       '18px 20px',
+    padding:       '24px 24px',
     position:      'relative',
     overflow:      'hidden',
     flex:          1,
-    minWidth:      140,
+    minWidth:      160,
     cursor:        'default',
     transition:    'all 0.2s',
   }}
   onMouseEnter={e => {
     e.currentTarget.style.borderTopColor = color
-    e.currentTarget.style.transform = 'translateY(-2px)'
-    e.currentTarget.style.boxShadow = `0 8px 24px ${color}22`
+    e.currentTarget.style.transform = 'translateY(-3px)'
+    e.currentTarget.style.boxShadow = `0 12px 32px ${color}18`
   }}
   onMouseLeave={e => {
     e.currentTarget.style.transform = 'translateY(0)'
@@ -44,43 +44,48 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, color, trend })
     {/* Glow effect */}
     <div style={{
       position:      'absolute',
-      top:           -30,
-      right:         -30,
-      width:         100,
-      height:        100,
+      top:           -40,
+      right:         -40,
+      width:         120,
+      height:        120,
       borderRadius:  '50%',
-      background:    `radial-gradient(circle, ${color}15 0%, transparent 70%)`,
+      background:    `radial-gradient(circle, ${color}12 0%, transparent 70%)`,
       pointerEvents: 'none',
     }} />
 
     <div style={{ position: 'relative', zIndex: 1 }}>
-      <div style={{ fontSize: 20, marginBottom: 10, lineHeight: 1 }}>{icon}</div>
+      <div style={{
+        fontSize: 26,
+        marginBottom: 12,
+        lineHeight: 1,
+        filter: `drop-shadow(0 0 8px ${color}40)`,
+      }}>{icon}</div>
       <div style={{
         fontFamily:    'var(--font-mono)',
-        fontSize:      28,
+        fontSize:      36,
         fontWeight:    600,
         color:         'var(--t-primary)',
         lineHeight:    1,
         letterSpacing: '-0.02em',
-        marginBottom:  6,
+        marginBottom:  8,
       }}>
         {value.toLocaleString()}
       </div>
       <div style={{
-        fontFamily:    'var(--font-mono)',
-        fontSize:      9,
-        color:         'var(--t-muted)',
-        letterSpacing: '0.12em',
-        textTransform: 'uppercase',
+        fontFamily:    'var(--font-ui)',
+        fontSize:      13,
+        fontWeight: 500,
+        color:         'var(--t-secondary)',
+        letterSpacing: '0.01em',
       }}>
         {label}
       </div>
       {trend && (
         <div style={{
           fontFamily: 'var(--font-mono)',
-          fontSize:   10,
+          fontSize:   12,
           color,
-          marginTop:  4,
+          marginTop:  8,
         }}>
           {trend}
         </div>
@@ -105,20 +110,20 @@ const ChartCard: React.FC<ChartCardProps> = ({ title, children }) => (
     height:       '100%',
   }}>
     <div style={{
-      padding:      '14px 20px',
+      padding:      '16px 24px',
       borderBottom: '1px solid var(--b-faint)',
     }}>
       <div style={{
-        fontFamily:    'var(--font-mono)',
-        fontSize:      10,
+        fontFamily:    'var(--font-ui)',
+        fontSize:      14,
+        fontWeight: 600,
         color:         'var(--t-secondary)',
-        letterSpacing: '0.1em',
-        textTransform: 'uppercase',
+        letterSpacing: '0.01em',
       }}>
         {title}
       </div>
     </div>
-    <div style={{ padding: '20px' }}>
+    <div style={{ padding: '24px' }}>
       {children}
     </div>
   </div>
@@ -172,23 +177,47 @@ const Dashboard: React.FC = () => {
 
     return {
       backgroundColor: 'transparent',
-      tooltip: { trigger: 'item', backgroundColor: '#1e2234', borderColor: '#00d4ff', textStyle: { color: '#e8ecf8', fontFamily: 'IBM Plex Mono' } },
+      tooltip: {
+        trigger: 'item',
+        backgroundColor: '#1a1f2a',
+        borderColor: '#00d4ff',
+        textStyle: {
+          color: '#f0f4fc',
+          fontFamily: 'JetBrains Mono',
+          fontSize: 13,
+        },
+      },
       legend: { show: false },
       series: [{
         type: 'pie',
-        radius: ['45%', '70%'],
+        radius: ['42%', '72%'],
         avoidLabelOverlap: true,
-        itemStyle: { borderRadius: 4, borderColor: '#0c0f16', borderWidth: 2 },
+        itemStyle: {
+          borderRadius: 6,
+          borderColor: '#06080c',
+          borderWidth: 3,
+        },
         label: {
           show: true,
           position: 'outside',
           formatter: '{b}\n{c}',
-          color: '#9ba8c8',
-          fontFamily: 'IBM Plex Mono',
-          fontSize: 10,
+          color: '#a8b8d8',
+          fontFamily: 'JetBrains Mono',
+          fontSize: 12,
         },
-        labelLine: { show: true, lineStyle: { color: '#6b7a9d' } },
-        emphasis: { itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0,212,255,0.3)' } },
+        labelLine: {
+          show: true,
+          lineStyle: { color: '#7888a8' },
+          length: 12,
+          length2: 8,
+        },
+        emphasis: {
+          itemStyle: {
+            shadowBlur: 16,
+            shadowOffsetX: 0,
+            shadowColor: 'rgba(0,212,255,0.35)',
+          },
+        },
         data,
         color: ['#00d4ff', '#00f084', '#ffc145', '#b08eff', '#ff6b6b', '#7ed957', '#ffcc44', '#44aaff'],
       }],
@@ -204,20 +233,38 @@ const Dashboard: React.FC = () => {
 
     return {
       backgroundColor: 'transparent',
-      tooltip: { trigger: 'axis', backgroundColor: '#1e2234', borderColor: '#00f084', textStyle: { color: '#e8ecf8', fontFamily: 'IBM Plex Mono' } },
-      grid: { left: 50, right: 20, top: 20, bottom: 40 },
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: '#1a1f2a',
+        borderColor: '#00f084',
+        textStyle: {
+          color: '#f0f4fc',
+          fontFamily: 'JetBrains Mono',
+          fontSize: 13,
+        },
+      },
+      grid: { left: 56, right: 24, top: 24, bottom: 48 },
       xAxis: {
         type: 'category',
         data: xData,
-        axisLine: { lineStyle: { color: '#6b7a9d' } },
-        axisLabel: { color: '#6e7a99', fontFamily: 'IBM Plex Mono', fontSize: 10, rotate: 20 },
+        axisLine: { lineStyle: { color: '#7888a8' } },
+        axisLabel: {
+          color: '#7888a8',
+          fontFamily: 'JetBrains Mono',
+          fontSize: 11,
+          rotate: 25,
+        },
       },
       yAxis: {
         type: 'value',
         axisLine: { show: false },
         axisTick: { show: false },
-        splitLine: { lineStyle: { color: '#6b7a9d', type: 'dashed' } },
-        axisLabel: { color: '#6e7a99', fontFamily: 'IBM Plex Mono', fontSize: 10 },
+        splitLine: { lineStyle: { color: '#2a3a4a', type: 'dashed' } },
+        axisLabel: {
+          color: '#7888a8',
+          fontFamily: 'JetBrains Mono',
+          fontSize: 11,
+        },
       },
       series: [{
         type: 'bar',
@@ -228,13 +275,13 @@ const Dashboard: React.FC = () => {
             x: 0, y: 0, x2: 0, y2: 1,
             colorStops: [
               { offset: 0, color: '#00f084' },
-              { offset: 1, color: '#00f08440' },
+              { offset: 1, color: '#00f08435' },
             ],
           },
-          borderRadius: [4, 4, 0, 0],
+          borderRadius: [5, 5, 0, 0],
         },
         emphasis: { itemStyle: { color: '#00f084' } },
-        barWidth: '60%',
+        barWidth: '55%',
       }],
     }
   }, [edgeTypeCounts])
@@ -244,22 +291,22 @@ const Dashboard: React.FC = () => {
   const recentRepos = repos.slice(0, 5)
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
 
       {/* ── Page heading ──────────────────────────────────────────────────── */}
       <div>
         <div style={{
-          fontSize:      9,
+          fontSize:      12,
           fontFamily:    'var(--font-mono)',
           color:         'var(--t-muted)',
-          letterSpacing: '0.15em',
-          marginBottom:  4,
+          letterSpacing: '0.1em',
+          marginBottom:  6,
         }}>
           系统 / 概览
         </div>
         <h2 style={{
           margin:        0,
-          fontSize:      22,
+          fontSize:      28,
           fontWeight:    700,
           color:         'var(--t-primary)',
           fontFamily:    'var(--font-ui)',
@@ -275,12 +322,12 @@ const Dashboard: React.FC = () => {
           type="info"
           message="请从顶栏选择一个仓库以查看详细统计信息"
           showIcon
-          style={{ borderRadius: 4 }}
+          style={{ borderRadius: 8, fontSize: 14 }}
         />
       )}
 
       {/* ── Stats grid ────────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
         <StatCard icon="◫" label="模块"   value={moduleCount}   color="#00d4ff" />
         <StatCard icon="ƒ"  label="函数" value={functionCount} color="#ffc145" />
         <StatCard icon="⇌" label="接口"  value={apiCount}      color="#ff6b6b" />
@@ -290,12 +337,12 @@ const Dashboard: React.FC = () => {
 
       {/* ── Charts row ────────────────────────────────────────────────────── */}
       {activeGraphId && nodes.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
           <ChartCard title="节点类型分布">
-            <ReactECharts option={pieOption} style={{ height: 280 }} />
+            <ReactECharts option={pieOption} style={{ height: 300 }} />
           </ChartCard>
           <ChartCard title="边类型分布">
-            <ReactECharts option={barOption} style={{ height: 280 }} />
+            <ReactECharts option={barOption} style={{ height: 300 }} />
           </ChartCard>
         </div>
       )}
@@ -308,24 +355,24 @@ const Dashboard: React.FC = () => {
         overflow:     'hidden',
       }}>
         <div style={{
-          padding:      '14px 20px',
+          padding:      '16px 24px',
           borderBottom: '1px solid var(--b-faint)',
           display:      'flex',
           alignItems:   'center',
           justifyContent: 'space-between',
         }}>
           <div style={{
-            fontFamily:    'var(--font-mono)',
-            fontSize:      10,
+            fontFamily:    'var(--font-ui)',
+            fontSize:      14,
+            fontWeight: 600,
             color:         'var(--t-secondary)',
-            letterSpacing: '0.1em',
-            textTransform: 'uppercase',
+            letterSpacing: '0.01em',
           }}>
             最近分析任务
           </div>
           <div style={{
             fontFamily: 'var(--font-mono)',
-            fontSize:   10,
+            fontSize:   12,
             color:      'var(--t-muted)',
           }}>
             共 {repos.length} 个
@@ -334,12 +381,12 @@ const Dashboard: React.FC = () => {
 
         {reposLoading && (
           <div style={{
-            padding:        '40px',
+            padding:        '48px',
             textAlign:      'center',
             color:          'var(--t-muted)',
             fontFamily:     'var(--font-mono)',
-            fontSize:       11,
-            letterSpacing:  '0.1em',
+            fontSize:       13,
+            letterSpacing:  '0.04em',
           }}>
             加载中…
           </div>
@@ -347,12 +394,12 @@ const Dashboard: React.FC = () => {
 
         {!reposLoading && repos.length === 0 && (
           <div style={{
-            padding:        '40px',
+            padding:        '48px',
             textAlign:      'center',
             color:          'var(--t-muted)',
             fontFamily:     'var(--font-mono)',
-            fontSize:       11,
-            letterSpacing:  '0.1em',
+            fontSize:       13,
+            letterSpacing:  '0.04em',
           }}>
             暂无分析任务
           </div>
@@ -368,16 +415,16 @@ const Dashboard: React.FC = () => {
                   display:       'flex',
                   alignItems:    'center',
                   gap:           16,
-                  padding:       '12px 16px',
+                  padding:       '14px 18px',
                   marginBottom:  i < recentRepos.length - 1 ? 8 : 0,
                   background:    'var(--s-float)',
                   border:        '1px solid var(--b-faint)',
-                  borderRadius:  4,
+                  borderRadius:  6,
                   cursor:        'pointer',
                   transition:    'all 0.15s',
                 }}
                 onMouseEnter={e => {
-                  e.currentTarget.style.borderColor = 'rgba(0,212,255,0.3)'
+                  e.currentTarget.style.borderColor = 'rgba(0,212,255,0.35)'
                   e.currentTarget.style.background = 'var(--s-overlay)'
                 }}
                 onMouseLeave={e => {
@@ -387,19 +434,20 @@ const Dashboard: React.FC = () => {
               >
                 {/* Timeline dot */}
                 <div style={{
-                  width:        8,
-                  height:       8,
+                  width:        10,
+                  height:       10,
                   borderRadius: '50%',
                   background:   '#00d4ff',
+                  boxShadow:    '0 0 10px rgba(0,212,255,0.5)',
                   flexShrink:   0,
                 }} />
 
                 {/* Repo name */}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{
-                    fontFamily:   'var(--font-mono)',
-                    fontSize:     13,
-                    fontWeight:   500,
+                    fontFamily:   'var(--font-ui)',
+                    fontSize:     15,
+                    fontWeight:   600,
                     color:        'var(--t-cyan)',
                     overflow:     'hidden',
                     textOverflow: 'ellipsis',
@@ -409,9 +457,9 @@ const Dashboard: React.FC = () => {
                   </div>
                   <div style={{
                     fontFamily: 'var(--font-mono)',
-                    fontSize:   10,
+                    fontSize:   12,
                     color:      'var(--t-muted)',
-                    marginTop:  2,
+                    marginTop:  3,
                   }}>
                     {repo.nodeCount.toLocaleString()} 节点 · {repo.edgeCount.toLocaleString()} 边
                   </div>
@@ -421,12 +469,12 @@ const Dashboard: React.FC = () => {
                 {repo.gitCommit && (
                   <div style={{
                     fontFamily:    'var(--font-mono)',
-                    fontSize:      10,
+                    fontSize:      12,
                     color:         'var(--t-amber)',
-                    background:    'rgba(255,193,69,0.08)',
-                    border:        '1px solid rgba(255,193,69,0.2)',
-                    borderRadius:  3,
-                    padding:       '2px 8px',
+                    background:    'rgba(255,193,69,0.1)',
+                    border:        '1px solid rgba(255,193,69,0.25)',
+                    borderRadius:  4,
+                    padding:       '4px 10px',
                     letterSpacing: '0.02em',
                   }}>
                     {repo.gitCommit.slice(0, 7)}
@@ -436,10 +484,10 @@ const Dashboard: React.FC = () => {
                 {/* Timestamp */}
                 <div style={{
                   fontFamily: 'var(--font-mono)',
-                  fontSize:   10,
+                  fontSize:   12,
                   color:      'var(--t-secondary)',
                   flexShrink: 0,
-                  minWidth:   80,
+                  minWidth:   100,
                   textAlign:  'right',
                 }}>
                   {new Date(repo.createdAt).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
@@ -456,15 +504,15 @@ const Dashboard: React.FC = () => {
           background:     'var(--s-raised)',
           border:         '1px solid var(--b-faint)',
           borderRadius:   'var(--radius-m)',
-          padding:        '60px 40px',
+          padding:        '72px 48px',
           textAlign:      'center',
         }}>
-          <div style={{ fontSize: 48, opacity: 0.1, marginBottom: 16 }}>◈</div>
+          <div style={{ fontSize: 56, opacity: 0.08, marginBottom: 20 }}>◈</div>
           <div style={{
             fontFamily:    'var(--font-mono)',
-            fontSize:      11,
+            fontSize:      14,
             color:         'var(--t-muted)',
-            letterSpacing: '0.1em',
+            letterSpacing: '0.04em',
           }}>
             暂无图谱数据
           </div>

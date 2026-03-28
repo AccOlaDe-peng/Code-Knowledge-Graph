@@ -195,34 +195,33 @@ const DataLineageInner: React.FC = () => {
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 14,
-          padding: "10px 16px",
-          borderBottom: "1px solid #0d1a24",
-          background: "rgba(7,9,13,0.97)",
+          gap: 16,
+          padding: "12px 20px",
+          borderBottom: "1px solid rgba(255,255,255,0.04)",
+          background: "rgba(6,8,12,0.97)",
           backdropFilter: "blur(12px)",
           flexShrink: 0,
           flexWrap: "wrap",
         }}
       >
         {/* 标题 */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div
             style={{
-              width: 7,
-              height: 7,
-              borderRadius: 1,
+              width: 9,
+              height: 9,
+              borderRadius: 2,
               background: "#b08eff",
-              boxShadow: "0 0 10px #b08effaa",
+              boxShadow: "0 0 12px #b08effaa",
             }}
           />
           <span
             style={{
-              fontFamily: "'Syne', sans-serif",
-              fontSize: 12,
+              fontFamily: "var(--font-ui)",
+              fontSize: 15,
               fontWeight: 700,
               color: "#b08eff",
-              letterSpacing: "0.1em",
-              textTransform: "uppercase",
+              letterSpacing: "0.04em",
             }}
           >
             {getTitle()}
@@ -230,17 +229,17 @@ const DataLineageInner: React.FC = () => {
         </div>
 
         {/* 层级指示器 */}
-        <div style={{ display: "flex", gap: 4 }}>
+        <div style={{ display: "flex", gap: 6 }}>
           <Tag
             color={isModuleView ? "#b08eff" : "#1a2535"}
-            style={{ fontFamily: "'IBM Plex Mono'", fontSize: 9, margin: 0 }}
+            style={{ fontFamily: "var(--font-mono)", fontSize: 11, margin: 0, padding: '3px 10px' }}
           >
             模块
           </Tag>
           {selectedModule && (
             <Tag
               color={isServiceView ? "#00d4ff" : "#1a2535"}
-              style={{ fontFamily: "'IBM Plex Mono'", fontSize: 9, margin: 0 }}
+              style={{ fontFamily: "var(--font-mono)", fontSize: 11, margin: 0, padding: '3px 10px' }}
             >
               服务
             </Tag>
@@ -248,7 +247,7 @@ const DataLineageInner: React.FC = () => {
           {selectedService && (
             <Tag
               color={isDetailView ? "#00f084" : "#1a2535"}
-              style={{ fontFamily: "'IBM Plex Mono'", fontSize: 9, margin: 0 }}
+              style={{ fontFamily: "var(--font-mono)", fontSize: 11, margin: 0, padding: '3px 10px' }}
             >
               详情
             </Tag>
@@ -261,11 +260,11 @@ const DataLineageInner: React.FC = () => {
             size="small"
             onClick={navigateBack}
             style={{
-              background: "#080e16",
-              border: "1px solid #1a2535",
-              color: "#8ab4c8",
-              fontFamily: "'IBM Plex Mono'",
-              fontSize: 10,
+              background: "var(--s-float)",
+              border: "1px solid var(--b-subtle)",
+              color: "#a8b8d8",
+              fontFamily: "var(--font-ui)",
+              fontSize: 12,
             }}
           >
             ← 返回
@@ -296,12 +295,12 @@ const DataLineageInner: React.FC = () => {
 
         {/* 统计 */}
         {isModuleView && (
-          <div style={{ display: "flex", gap: 16, marginRight: "auto" }}>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+          <div style={{ display: "flex", gap: 20, marginRight: "auto" }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
               <span
                 style={{
-                  fontFamily: "'IBM Plex Mono'",
-                  fontSize: 15,
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 18,
                   fontWeight: 700,
                   color: "#b08eff",
                 }}
@@ -310,20 +309,20 @@ const DataLineageInner: React.FC = () => {
               </span>
               <span
                 style={{
-                  fontFamily: "'IBM Plex Mono'",
-                  fontSize: 9,
-                  color: "#3a5a6a",
-                  letterSpacing: "0.1em",
+                  fontFamily: "var(--font-ui)",
+                  fontSize: 12,
+                  color: "#7888a8",
+                  letterSpacing: "0.02em",
                 }}
               >
                 节点
               </span>
             </div>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
               <span
                 style={{
-                  fontFamily: "'IBM Plex Mono'",
-                  fontSize: 15,
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 18,
                   fontWeight: 700,
                   color: "#00d4ff",
                 }}
@@ -332,10 +331,10 @@ const DataLineageInner: React.FC = () => {
               </span>
               <span
                 style={{
-                  fontFamily: "'IBM Plex Mono'",
-                  fontSize: 9,
-                  color: "#3a5a6a",
-                  letterSpacing: "0.1em",
+                  fontFamily: "var(--font-ui)",
+                  fontSize: 12,
+                  color: "#7888a8",
+                  letterSpacing: "0.02em",
                 }}
               >
                 关系
@@ -347,18 +346,18 @@ const DataLineageInner: React.FC = () => {
         {/* 搜索（仅模块视图） */}
         {isModuleView && (
           <Input
-            prefix={<SearchOutlined style={{ color: "#2a4a5a", fontSize: 11 }} />}
+            prefix={<SearchOutlined style={{ color: "#7888a8", fontSize: 13 }} />}
             placeholder="搜索节点..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{
-              width: 160,
-              background: "#080e16",
-              border: "1px solid #1a2535",
-              borderRadius: 3,
-              color: "#8ab4c8",
-              fontFamily: "'IBM Plex Mono'",
-              fontSize: 11,
+              width: 180,
+              background: "var(--s-float)",
+              border: "1px solid var(--b-subtle)",
+              borderRadius: 4,
+              color: "var(--t-primary)",
+              fontFamily: "var(--font-mono)",
+              fontSize: 13,
             }}
             allowClear
           />
@@ -370,9 +369,9 @@ const DataLineageInner: React.FC = () => {
             onClick={handleReset}
             size="small"
             style={{
-              background: "#080e16",
-              border: "1px solid #1a2535",
-              color: "#2a4a5a",
+              background: "var(--s-float)",
+              border: "1px solid var(--b-subtle)",
+              color: "#7888a8",
             }}
           />
         </Tooltip>
@@ -397,18 +396,18 @@ const DataLineageInner: React.FC = () => {
               flexDirection: "column",
               alignItems: "center",
               justifyContent: "center",
-              background: "rgba(7,9,13,0.85)",
+              background: "rgba(6,8,12,0.85)",
               zIndex: 10,
-              gap: 12,
+              gap: 14,
             }}
           >
             <Spin size="large" />
             <span
               style={{
-                fontFamily: "'IBM Plex Mono'",
-                fontSize: 10,
-                color: "#2a4a6a",
-                letterSpacing: "0.12em",
+                fontFamily: "var(--font-mono)",
+                fontSize: 13,
+                color: "#7888a8",
+                letterSpacing: "0.04em",
               }}
             >
               加载数据血缘...
@@ -425,11 +424,11 @@ const DataLineageInner: React.FC = () => {
               flexDirection: "column",
               alignItems: "center",
               justifyContent: "center",
-              gap: 12,
+              gap: 14,
             }}
           >
-            <div style={{ color: "#ff6b6b", fontSize: 24 }}>⚠️</div>
-            <div style={{ color: "#ff6b6b", fontFamily: "'IBM Plex Mono'", fontSize: 11 }}>
+            <div style={{ color: "#ff6b6b", fontSize: 28 }}>⚠️</div>
+            <div style={{ color: "#ff6b6b", fontFamily: "var(--font-mono)", fontSize: 13 }}>
               加载失败: {error}
             </div>
             <Button onClick={handleReset} size="small">
@@ -449,13 +448,13 @@ const DataLineageInner: React.FC = () => {
             }}
           >
             <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 40, opacity: 0.06, marginBottom: 12 }}>◈</div>
+              <div style={{ fontSize: 48, opacity: 0.06, marginBottom: 16 }}>◈</div>
               <div
                 style={{
-                  fontFamily: "'IBM Plex Mono'",
-                  fontSize: 11,
-                  color: "#2a4a6a",
-                  letterSpacing: "0.1em",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 14,
+                  color: "#7888a8",
+                  letterSpacing: "0.04em",
                 }}
               >
                 请从顶栏选择一个仓库

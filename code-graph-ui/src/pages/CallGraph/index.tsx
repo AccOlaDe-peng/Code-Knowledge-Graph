@@ -34,11 +34,11 @@ const StatPill: React.FC<{ label: string; value: number; color: string }> = ({
   value,
   color,
 }) => (
-  <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
     <span
       style={{
-        fontFamily: "'IBM Plex Mono'",
-        fontSize: 16,
+        fontFamily: 'var(--font-mono)',
+        fontSize: 18,
         fontWeight: 700,
         color,
         letterSpacing: '-0.02em',
@@ -48,11 +48,10 @@ const StatPill: React.FC<{ label: string; value: number; color: string }> = ({
     </span>
     <span
       style={{
-        fontFamily: "'IBM Plex Mono'",
-        fontSize: 9,
-        color: '#3a5a6a',
-        letterSpacing: '0.12em',
-        textTransform: 'uppercase',
+        fontFamily: 'var(--font-ui)',
+        fontSize: 12,
+        color: '#7888a8',
+        letterSpacing: '0.02em',
       }}
     >
       {label}
@@ -269,26 +268,26 @@ const CallGraph: React.FC = () => {
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 16,
-          padding: '10px 16px',
-          borderBottom: '1px solid #0d1a24',
-          background: 'rgba(7,9,13,0.97)',
+          gap: 18,
+          padding: '12px 20px',
+          borderBottom: '1px solid rgba(255,255,255,0.04)',
+          background: 'rgba(6,8,12,0.97)',
           backdropFilter: 'blur(12px)',
           flexShrink: 0,
         }}
       >
         {/* Title */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginRight: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginRight: 4 }}>
           <div
             style={{
-              width: 7, height: 7, borderRadius: '50%',
-              background: '#00f084', boxShadow: '0 0 10px #00f084aa',
+              width: 9, height: 9, borderRadius: '50%',
+              background: '#00f084', boxShadow: '0 0 12px #00f084aa',
             }}
           />
           <span
             style={{
-              fontFamily: "'Syne', sans-serif", fontSize: 12, fontWeight: 700,
-              color: '#00f084', letterSpacing: '0.1em', textTransform: 'uppercase',
+              fontFamily: 'var(--font-ui)', fontSize: 15, fontWeight: 700,
+              color: '#00f084', letterSpacing: '0.04em',
             }}
           >
             调用图
@@ -298,17 +297,17 @@ const CallGraph: React.FC = () => {
         <RepoSelector showStats={false} width={200} />
 
         {/* Stats */}
-        <div style={{ display: 'flex', gap: 20, marginRight: 'auto' }}>
+        <div style={{ display: 'flex', gap: 24, marginRight: 'auto' }}>
           <StatPill label="节点" value={nodeCount} color="#00d4ff" />
           <StatPill label="调用" value={edgeCount} color="#00f084" />
         </div>
 
         {/* Type legend */}
-        <div style={{ display: 'flex', gap: 10, marginRight: 8 }}>
+        <div style={{ display: 'flex', gap: 12, marginRight: 8 }}>
           {Object.entries(typeCounts).map(([type, count]) => (
-            <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <div style={{ width: 6, height: 6, borderRadius: 1, background: getNodeAccent(type) }} />
-              <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 9, color: '#3a5a6a', letterSpacing: '0.08em' }}>
+            <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div style={{ width: 8, height: 8, borderRadius: 2, background: getNodeAccent(type) }} />
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#7888a8', letterSpacing: '0.02em' }}>
                 {type.toLowerCase()} ({count})
               </span>
             </div>
@@ -316,30 +315,30 @@ const CallGraph: React.FC = () => {
         </div>
 
         {/* Search with navigation */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <Input
-            prefix={<SearchOutlined style={{ color: '#2a4a5a', fontSize: 11 }} />}
+            prefix={<SearchOutlined style={{ color: '#7888a8', fontSize: 13 }} />}
             placeholder="搜索函数 / 类..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{
-              width: 180, background: '#080e16', border: '1px solid #1a2535',
-              borderRadius: 3, color: '#8ab4c8', fontFamily: "'IBM Plex Mono'", fontSize: 11,
+              width: 200, background: 'var(--s-float)', border: '1px solid var(--b-subtle)',
+              borderRadius: 4, color: 'var(--t-primary)', fontFamily: 'var(--font-mono)', fontSize: 13,
             }}
             allowClear
           />
           {searchResults.length > 0 && (
             <>
-              <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 9, color: '#3a5a6a', minWidth: 40 }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#7888a8', minWidth: 48 }}>
                 {searchIndex + 1}/{searchResults.length}
               </span>
               <Button
                 icon={<LeftOutlined />} size="small" onClick={handleSearchPrev}
-                style={{ background: '#080e16', border: '1px solid #1a2535', color: '#3a5a6a', padding: '0 6px' }}
+                style={{ background: 'var(--s-float)', border: '1px solid var(--b-subtle)', color: '#7888a8', padding: '0 8px' }}
               />
               <Button
                 icon={<RightOutlined />} size="small" onClick={handleSearchNext}
-                style={{ background: '#080e16', border: '1px solid #1a2535', color: '#3a5a6a', padding: '0 6px' }}
+                style={{ background: 'var(--s-float)', border: '1px solid var(--b-subtle)', color: '#7888a8', padding: '0 8px' }}
               />
             </>
           )}
@@ -350,7 +349,7 @@ const CallGraph: React.FC = () => {
           value={layoutAlgo}
           onChange={setLayoutAlgo}
           size="small"
-          style={{ width: 80 }}
+          style={{ width: 90 }}
           options={[
             { value: 'LR', label: 'LR' },
             { value: 'TB', label: 'TB' },
@@ -359,16 +358,16 @@ const CallGraph: React.FC = () => {
         />
 
         {/* Depth */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <AimOutlined style={{ color: '#2a4a5a', fontSize: 11 }} />
-          <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 9, color: '#2a4a5a', letterSpacing: '0.1em' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <AimOutlined style={{ color: '#7888a8', fontSize: 13 }} />
+          <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12, color: '#7888a8', letterSpacing: '0.02em' }}>
             深度
           </span>
           <Slider
             min={1} max={6} value={depth} onChange={handleDepthChange}
-            style={{ width: 72 }} tooltip={{ formatter: (v) => `${v} 层` }}
+            style={{ width: 80 }} tooltip={{ formatter: (v) => `${v} 层` }}
           />
-          <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 12, fontWeight: 700, color: '#00f084', minWidth: 14 }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 700, color: '#00f084', minWidth: 18 }}>
             {depth}
           </span>
         </div>
@@ -376,7 +375,7 @@ const CallGraph: React.FC = () => {
         <Tooltip title="重置视图">
           <Button
             icon={<ReloadOutlined />} onClick={handleReset} size="small"
-            style={{ background: '#080e16', border: '1px solid #1a2535', color: '#2a4a5a' }}
+            style={{ background: 'var(--s-float)', border: '1px solid var(--b-subtle)', color: '#7888a8' }}
           />
         </Tooltip>
       </div>
@@ -390,11 +389,11 @@ const CallGraph: React.FC = () => {
             style={{
               position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
               alignItems: 'center', justifyContent: 'center',
-              background: 'rgba(7,9,13,0.85)', zIndex: 10, gap: 12,
+              background: 'rgba(6,8,12,0.85)', zIndex: 10, gap: 14,
             }}
           >
             <Spin size="large" />
-            <span style={{ fontFamily: "'IBM Plex Mono'", fontSize: 10, color: '#2a4a5a', letterSpacing: '0.12em' }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: '#7888a8', letterSpacing: '0.04em' }}>
               加载调用图...
             </span>
           </div>
@@ -404,8 +403,8 @@ const CallGraph: React.FC = () => {
         {!activeRepo && !callGraph.loading && (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 40, opacity: 0.06, marginBottom: 12 }}>⬡</div>
-              <div style={{ fontFamily: "'IBM Plex Mono'", fontSize: 11, color: '#2a5a6a', letterSpacing: '0.1em' }}>
+              <div style={{ fontSize: 48, opacity: 0.06, marginBottom: 16 }}>⬡</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 14, color: '#7888a8', letterSpacing: '0.04em' }}>
                 请从顶栏选择一个仓库
               </div>
             </div>
@@ -447,11 +446,11 @@ const CallGraph: React.FC = () => {
       {focusNodeId && (
         <div
           style={{
-            position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)',
-            background: 'rgba(0,240,132,0.08)', border: '1px solid rgba(0,240,132,0.2)',
-            borderRadius: 3, padding: '5px 14px', fontFamily: "'IBM Plex Mono'",
-            fontSize: 10, color: '#00f084', pointerEvents: 'none', zIndex: 5,
-            letterSpacing: '0.06em', backdropFilter: 'blur(8px)',
+            position: 'absolute', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+            background: 'rgba(0,240,132,0.1)', border: '1px solid rgba(0,240,132,0.25)',
+            borderRadius: 6, padding: '8px 18px', fontFamily: 'var(--font-mono)',
+            fontSize: 12, color: '#00f084', pointerEvents: 'none', zIndex: 5,
+            letterSpacing: '0.02em', backdropFilter: 'blur(12px)',
           }}
         >
           显示 {depth} 层调用链 · 再次点击节点可重置
@@ -462,12 +461,12 @@ const CallGraph: React.FC = () => {
       {largeGraphHint && focusNodeId && (
         <div
           style={{
-            position: 'absolute', bottom: 52, left: '50%',
+            position: 'absolute', bottom: 60, left: '50%',
             transform: 'translateX(-50%)',
-            background: 'rgba(255,193,69,0.08)', border: '1px solid rgba(255,193,69,0.2)',
-            borderRadius: 3, padding: '5px 14px', fontFamily: "'IBM Plex Mono'",
-            fontSize: 10, color: '#ffc145', pointerEvents: 'none', zIndex: 5,
-            letterSpacing: '0.06em', backdropFilter: 'blur(8px)',
+            background: 'rgba(255,193,69,0.1)', border: '1px solid rgba(255,193,69,0.25)',
+            borderRadius: 6, padding: '8px 18px', fontFamily: 'var(--font-mono)',
+            fontSize: 12, color: '#ffc145', pointerEvents: 'none', zIndex: 5,
+            letterSpacing: '0.02em', backdropFilter: 'blur(12px)',
           }}
         >
           大图谱（{nodeCount.toLocaleString()} 节点），已自动聚焦核心节点，显示 {depth} 层调用链。

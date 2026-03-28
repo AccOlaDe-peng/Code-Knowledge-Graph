@@ -28,23 +28,23 @@ const StatCard: React.FC<StatCardProps> = ({
     <div
       onClick={onClick}
       style={{
-        background: 'var(--s-raised)',
+        background: 'linear-gradient(135deg, var(--s-raised) 0%, rgba(15,18,24,0.8) 100%)',
         border: '1px solid var(--b-faint)',
-        borderTop: `2px solid ${color}`,
+        borderTop: `3px solid ${color}`,
         borderRadius: 'var(--radius-m)',
-        padding: '18px 20px',
+        padding: '24px 24px',
         position: 'relative',
         overflow: 'hidden',
         flex: 1,
-        minWidth: 140,
+        minWidth: 160,
         cursor: onClick ? 'pointer' : 'default',
         transition: 'all 0.2s',
       }}
       onMouseEnter={e => {
         if (onClick) {
           e.currentTarget.style.borderTopColor = color
-          e.currentTarget.style.transform = 'translateY(-2px)'
-          e.currentTarget.style.boxShadow = `0 8px 24px ${color}22`
+          e.currentTarget.style.transform = 'translateY(-3px)'
+          e.currentTarget.style.boxShadow = `0 12px 32px ${color}18`
         }
       }}
       onMouseLeave={e => {
@@ -58,40 +58,45 @@ const StatCard: React.FC<StatCardProps> = ({
       <div
         style={{
           position: 'absolute',
-          top: -30,
-          right: -30,
-          width: 100,
-          height: 100,
+          top: -40,
+          right: -40,
+          width: 120,
+          height: 120,
           borderRadius: '50%',
-          background: `radial-gradient(circle, ${color}15 0%, transparent 70%)`,
+          background: `radial-gradient(circle, ${color}12 0%, transparent 70%)`,
           pointerEvents: 'none',
         }}
       />
 
       <div style={{ position: 'relative', zIndex: 1 }}>
-        <div style={{ fontSize: 20, marginBottom: 10, lineHeight: 1 }}>
+        <div style={{
+          fontSize: 26,
+          marginBottom: 12,
+          lineHeight: 1,
+          filter: `drop-shadow(0 0 8px ${color}40)`,
+        }}>
           {icon}
         </div>
         <div
           style={{
             fontFamily: 'var(--font-mono)',
-            fontSize: 28,
+            fontSize: 36,
             fontWeight: 600,
             color: 'var(--t-primary)',
             lineHeight: 1,
             letterSpacing: '-0.02em',
-            marginBottom: 6,
+            marginBottom: 8,
           }}
         >
           {formattedValue}
         </div>
         <div
           style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: 9,
-            color: 'var(--t-muted)',
-            letterSpacing: '0.12em',
-            textTransform: 'uppercase',
+            fontFamily: 'var(--font-ui)',
+            fontSize: 13,
+            fontWeight: 500,
+            color: 'var(--t-secondary)',
+            letterSpacing: '0.01em',
           }}
         >
           {label}
@@ -100,9 +105,9 @@ const StatCard: React.FC<StatCardProps> = ({
           <div
             style={{
               fontFamily: 'var(--font-mono)',
-              fontSize: 10,
+              fontSize: 12,
               color,
-              marginTop: 4,
+              marginTop: 8,
             }}
           >
             {trend}

@@ -49,12 +49,12 @@ function getTypeMeta(type: string) {
 
 const SectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div style={{
-    fontFamily:    'var(--font-mono)',
-    fontSize:      9,
-    letterSpacing: '0.12em',
-    color:         'var(--t-muted)',
-    marginBottom:  8,
-    textTransform: 'uppercase',
+    fontFamily:    'var(--font-ui)',
+    fontSize:      12,
+    fontWeight: 600,
+    letterSpacing: '0.02em',
+    color:         'var(--t-secondary)',
+    marginBottom:  10,
   }}>
     {children}
   </div>
@@ -153,18 +153,18 @@ const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ node, edges = [], all
       }}
       title={
         node ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {/* Type badge */}
             <div style={{
-              width:          32,
-              height:         32,
-              borderRadius:   6,
+              width:          36,
+              height:         36,
+              borderRadius:   8,
               background:     meta.bg,
               border:         `1px solid ${meta.color}`,
               display:        'flex',
               alignItems:     'center',
               justifyContent: 'center',
-              fontSize:       15,
+              fontSize:       17,
               color:          meta.color,
               flexShrink:     0,
             }}>
@@ -173,10 +173,10 @@ const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ node, edges = [], all
             <div>
               <div style={{
                 fontFamily:    'var(--font-ui)',
-                fontSize:      13,
+                fontSize:      15,
                 fontWeight:    600,
                 color:         'var(--t-primary)',
-                letterSpacing: '0.02em',
+                letterSpacing: '0.01em',
                 lineHeight:    1.2,
                 maxWidth:      210,
                 overflow:      'hidden',
@@ -187,10 +187,10 @@ const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ node, edges = [], all
               </div>
               <div style={{
                 fontFamily:    'var(--font-mono)',
-                fontSize:      9,
+                fontSize:      11,
                 color:         meta.color,
-                letterSpacing: '0.1em',
-                marginTop:     2,
+                letterSpacing: '0.04em',
+                marginTop:     3,
               }}>
                 {node.type.toUpperCase()}
               </div>
@@ -205,12 +205,12 @@ const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ node, edges = [], all
           <SectionLabel>节点 ID</SectionLabel>
           <div style={{
             fontFamily:    'var(--font-mono)',
-            fontSize:      10,
+            fontSize:      12,
             color:         'var(--t-secondary)',
             background:    'var(--s-raised)',
             border:        '1px solid var(--b-faint)',
-            borderRadius:  4,
-            padding:       '7px 10px',
+            borderRadius:  6,
+            padding:       '10px 12px',
             wordBreak:     'break-all',
             letterSpacing: '0.02em',
           }}>
@@ -341,16 +341,16 @@ const RelatedNodeRow: React.FC<{ related: RelatedNode; highlight?: boolean }> = 
     <div style={{
       display:       'flex',
       alignItems:    'center',
-      gap:           8,
+      gap:           10,
       background:    highlight ? `rgba(255,107,107,0.05)` : 'var(--s-raised)',
       border:        `1px solid ${highlight ? 'rgba(255,107,107,0.15)' : 'var(--b-faint)'}`,
-      borderRadius:  4,
-      padding:       '6px 10px',
+      borderRadius:  6,
+      padding:       '8px 12px',
     }}>
       {/* Direction arrow */}
       <span style={{
         fontFamily: 'var(--font-mono)',
-        fontSize:   10,
+        fontSize:   12,
         color:      edgeColor,
         flexShrink: 0,
       }}>
@@ -360,13 +360,13 @@ const RelatedNodeRow: React.FC<{ related: RelatedNode; highlight?: boolean }> = 
       {/* Edge type chip */}
       <span style={{
         fontFamily:    'var(--font-mono)',
-        fontSize:      8,
+        fontSize:      10,
         color:         edgeColor,
         background:    `${edgeColor}18`,
         border:        `1px solid ${edgeColor}40`,
-        borderRadius:  3,
-        padding:       '1px 5px',
-        letterSpacing: '0.06em',
+        borderRadius:  4,
+        padding:       '2px 7px',
+        letterSpacing: '0.02em',
         flexShrink:    0,
         whiteSpace:    'nowrap',
       }}>
@@ -375,8 +375,8 @@ const RelatedNodeRow: React.FC<{ related: RelatedNode; highlight?: boolean }> = 
 
       {/* Node type dot */}
       <span style={{
-        width:       6,
-        height:      6,
+        width:       8,
+        height:      8,
         borderRadius: '50%',
         background:  nodeMeta.color,
         flexShrink:  0,
@@ -385,7 +385,7 @@ const RelatedNodeRow: React.FC<{ related: RelatedNode; highlight?: boolean }> = 
       {/* Node label */}
       <span style={{
         fontFamily:   'var(--font-mono)',
-        fontSize:     10,
+        fontSize:     12,
         color:        'var(--t-primary)',
         overflow:     'hidden',
         textOverflow: 'ellipsis',

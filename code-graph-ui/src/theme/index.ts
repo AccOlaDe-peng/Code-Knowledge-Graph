@@ -20,8 +20,8 @@ export type EdgeTypeName = string
 // ─── Ant Design Theme Configuration ───────────────────────────────────────────
 
 /**
- * Mission Control Dark theme for Ant Design.
- * Matches the design system defined in global.css.
+ * Professional Dark theme for Ant Design.
+ * Enhanced for readability and visual hierarchy.
  */
 export const antdTheme: ThemeConfig = {
   algorithm: theme.darkAlgorithm,
@@ -34,40 +34,40 @@ export const antdTheme: ThemeConfig = {
     colorInfo: '#00d4ff',             // Cyan
 
     // ── Backgrounds ─────────────────────────────────────────────────────────────
-    colorBgBase: '#0c0f16',           // --s-base
-    colorBgContainer: '#111520',      // --s-raised
-    colorBgElevated: '#1e2234',       // --s-overlay
-    colorBgSpotlight: '#171b28',      // --s-float
+    colorBgBase: '#0a0d14',           // --s-base
+    colorBgContainer: '#0f1218',      // --s-raised
+    colorBgElevated: '#1a1f2a',       // --s-overlay
+    colorBgSpotlight: '#141820',      // --s-float
 
     // ── Borders ─────────────────────────────────────────────────────────────────
-    colorBorder: 'rgba(255,255,255,0.1)',
-    colorBorderSecondary: 'rgba(255,255,255,0.06)',
+    colorBorder: 'rgba(255,255,255,0.08)',
+    colorBorderSecondary: 'rgba(255,255,255,0.05)',
 
     // ── Text ────────────────────────────────────────────────────────────────────
-    colorText: '#e8ecf8',             // --t-primary
-    colorTextSecondary: '#9ba8c8',    // --t-secondary
-    colorTextTertiary: '#6b7a9d',     // --t-muted
+    colorText: '#f0f4fc',             // --t-primary (enhanced)
+    colorTextSecondary: '#a8b8d8',    // --t-secondary (enhanced)
+    colorTextTertiary: '#7888a8',     // --t-muted (enhanced)
 
     // ── Typography ──────────────────────────────────────────────────────────────
-    fontFamily: "'Syne', -apple-system, sans-serif",
-    fontSize: 14,
-    fontSizeHeading1: 32,
-    fontSizeHeading2: 26,
-    fontSizeHeading3: 20,
-    fontSizeHeading4: 16,
-    fontSizeHeading5: 14,
+    fontFamily: "'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif",
+    fontSize: 15,
+    fontSizeHeading1: 36,
+    fontSizeHeading2: 28,
+    fontSizeHeading3: 22,
+    fontSizeHeading4: 18,
+    fontSizeHeading5: 15,
     lineHeight: 1.6,
-    lineHeightHeading1: 1.3,
-    lineHeightHeading2: 1.35,
-    lineHeightHeading3: 1.4,
+    lineHeightHeading1: 1.25,
+    lineHeightHeading2: 1.3,
+    lineHeightHeading3: 1.35,
 
     // ── Layout ──────────────────────────────────────────────────────────────────
     borderRadius: 4,
-    borderRadiusLG: 6,
-    borderRadiusSM: 3,
-    controlHeight: 36,
-    controlHeightLG: 42,
-    controlHeightSM: 28,
+    borderRadiusLG: 8,
+    borderRadiusSM: 4,
+    controlHeight: 38,
+    controlHeightLG: 44,
+    controlHeightSM: 30,
 
     // ── Motion ──────────────────────────────────────────────────────────────────
     motionDurationSlow: '0.3s',
@@ -78,98 +78,110 @@ export const antdTheme: ThemeConfig = {
   components: {
     // ── Layout ────────────────────────────────────────────────────────────────
     Layout: {
-      siderBg: '#0a0d13',
-      headerBg: '#0a0d13',
-      bodyBg: '#07090d',
-      footerBg: '#0a0d13',
+      siderBg: '#080a10',
+      headerBg: '#080a10',
+      bodyBg: '#06080c',
+      footerBg: '#080a10',
     },
 
     // ── Menu ──────────────────────────────────────────────────────────────────
     Menu: {
-      darkItemBg: '#0a0d13',
-      darkSubMenuItemBg: '#0a0d13',
-      darkItemSelectedBg: 'rgba(0,212,255,0.1)',
-      darkItemHoverBg: 'rgba(255,255,255,0.04)',
-      darkItemColor: '#9ba8c8',
+      darkItemBg: '#080a10',
+      darkSubMenuItemBg: '#080a10',
+      darkItemSelectedBg: 'rgba(0,212,255,0.12)',
+      darkItemHoverBg: 'rgba(255,255,255,0.05)',
+      darkItemColor: '#a8b8d8',
       darkItemSelectedColor: '#00d4ff',
-      darkItemHoverColor: '#e8ecf8',
+      darkItemHoverColor: '#f0f4fc',
+      itemMarginBlock: 4,
+      itemMarginInline: 8,
+      itemPaddingInline: 16,
     },
 
     // ── Table ─────────────────────────────────────────────────────────────────
     Table: {
-      rowHoverBg: '#171b28',
-      borderColor: 'rgba(255,255,255,0.08)',
-      headerBg: '#171b28',
-      headerColor: '#9ba8c8',
-      bodySortBg: '#111520',
+      rowHoverBg: '#141820',
+      borderColor: 'rgba(255,255,255,0.06)',
+      headerBg: '#141820',
+      headerColor: '#a8b8d8',
+      bodySortBg: '#0f1218',
+      cellPaddingBlock: 14,
+      cellPaddingInline: 16,
     },
 
     // ── Card ──────────────────────────────────────────────────────────────────
     Card: {
-      colorBgContainer: '#111520',
-      colorBorderSecondary: 'rgba(255,255,255,0.08)',
+      colorBgContainer: '#0f1218',
+      colorBorderSecondary: 'rgba(255,255,255,0.06)',
       headerBg: 'transparent',
-      headerFontSize: 13,
-      headerFontSizeSM: 12,
+      headerFontSize: 14,
+      headerFontSizeSM: 13,
+      paddingLG: 20,
     },
 
     // ── Button ────────────────────────────────────────────────────────────────
     Button: {
-      primaryColor: '#07090d',
-      primaryShadow: '0 0 18px rgba(0,212,255,0.22)',
-      defaultBg: '#171b28',
-      defaultBorderColor: 'rgba(255,255,255,0.20)',
-      defaultColor: '#e8ecf8',
-      defaultHoverBg: '#1e2234',
+      primaryColor: '#06080c',
+      primaryShadow: '0 0 24px rgba(0,212,255,0.28)',
+      defaultBg: '#141820',
+      defaultBorderColor: 'rgba(255,255,255,0.18)',
+      defaultColor: '#f0f4fc',
+      defaultHoverBg: '#1a1f2a',
       defaultHoverBorderColor: '#00d4ff',
       defaultHoverColor: '#00d4ff',
+      controlHeight: 38,
+      controlHeightLG: 44,
+      controlHeightSM: 30,
     },
 
     // ── Input ─────────────────────────────────────────────────────────────────
     Input: {
-      colorBgContainer: '#171b28',
-      colorBorder: 'rgba(255,255,255,0.12)',
-      colorText: '#e8ecf8',
-      colorTextPlaceholder: '#6b7a9d',
+      colorBgContainer: '#141820',
+      colorBorder: 'rgba(255,255,255,0.10)',
+      colorText: '#f0f4fc',
+      colorTextPlaceholder: '#7888a8',
       activeBorderColor: '#00d4ff',
-      activeShadow: '0 0 0 2px rgba(0,212,255,0.12)',
+      activeShadow: '0 0 0 2px rgba(0,212,255,0.15)',
       hoverBorderColor: 'rgba(0,212,255,0.5)',
+      paddingBlock: 8,
+      paddingInline: 12,
     },
 
     // ── Select ────────────────────────────────────────────────────────────────
     Select: {
-      colorBgContainer: '#171b28',
-      colorBgElevated: '#1e2234',
-      colorBorder: 'rgba(255,255,255,0.12)',
-      colorText: '#e8ecf8',
-      colorTextPlaceholder: '#6b7a9d',
-      optionActiveBg: '#171b28',
-      optionSelectedBg: 'rgba(0,212,255,0.1)',
+      colorBgContainer: '#141820',
+      colorBgElevated: '#1a1f2a',
+      colorBorder: 'rgba(255,255,255,0.10)',
+      colorText: '#f0f4fc',
+      colorTextPlaceholder: '#7888a8',
+      optionActiveBg: '#141820',
+      optionSelectedBg: 'rgba(0,212,255,0.12)',
       optionSelectedColor: '#00d4ff',
+      optionPadding: '10px 14px',
     },
 
     // ── Tag ───────────────────────────────────────────────────────────────────
     Tag: {
-      defaultBg: 'rgba(155,168,200,0.1)',
-      defaultColor: '#9ba8c8',
+      defaultBg: 'rgba(168,184,216,0.12)',
+      defaultColor: '#a8b8d8',
     },
 
     // ── Alert ─────────────────────────────────────────────────────────────────
     Alert: {
-      colorInfoBg: 'rgba(0,212,255,0.07)',
-      colorInfoBorder: 'rgba(0,212,255,0.2)',
-      colorSuccessBg: 'rgba(0,240,132,0.07)',
-      colorSuccessBorder: 'rgba(0,240,132,0.2)',
-      colorWarningBg: 'rgba(255,193,69,0.07)',
-      colorWarningBorder: 'rgba(255,193,69,0.2)',
-      colorErrorBg: 'rgba(255,69,104,0.07)',
-      colorErrorBorder: 'rgba(255,69,104,0.2)',
+      colorInfoBg: 'rgba(0,212,255,0.08)',
+      colorInfoBorder: 'rgba(0,212,255,0.25)',
+      colorSuccessBg: 'rgba(0,240,132,0.08)',
+      colorSuccessBorder: 'rgba(0,240,132,0.25)',
+      colorWarningBg: 'rgba(255,193,69,0.08)',
+      colorWarningBorder: 'rgba(255,193,69,0.25)',
+      colorErrorBg: 'rgba(255,69,104,0.08)',
+      colorErrorBorder: 'rgba(255,69,104,0.25)',
     },
 
     // ── Progress ──────────────────────────────────────────────────────────────
     Progress: {
       defaultColor: '#00d4ff',
-      remainingColor: '#171b28',
+      remainingColor: '#141820',
     },
 
     // ── Switch ────────────────────────────────────────────────────────────────
@@ -180,33 +192,36 @@ export const antdTheme: ThemeConfig = {
 
     // ── Pagination ────────────────────────────────────────────────────────────
     Pagination: {
-      itemBg: '#171b28',
-      itemActiveBg: 'rgba(0,212,255,0.1)',
-      itemLinkBg: '#171b28',
-      itemActiveBgDisabled: '#111520',
+      itemBg: '#141820',
+      itemActiveBg: 'rgba(0,212,255,0.12)',
+      itemLinkBg: '#141820',
+      itemActiveBgDisabled: '#0f1218',
+      itemSize: 36,
+      itemSizeSM: 28,
     },
 
     // ── Tooltip ───────────────────────────────────────────────────────────────
     Tooltip: {
-      colorBgSpotlight: '#1e2234',
-      colorTextLightSolid: '#e8ecf8',
+      colorBgSpotlight: '#1a1f2a',
+      colorTextLightSolid: '#f0f4fc',
     },
 
     // ── Modal ─────────────────────────────────────────────────────────────────
     Modal: {
-      contentBg: '#111520',
-      headerBg: '#111520',
-      titleColor: '#e8ecf8',
+      contentBg: '#0f1218',
+      headerBg: '#0f1218',
+      titleColor: '#f0f4fc',
+      titleFontSize: 18,
     },
 
     // ── Drawer ────────────────────────────────────────────────────────────────
     Drawer: {
-      colorBgElevated: '#111520',
+      colorBgElevated: '#0f1218',
     },
 
     // ── Divider ───────────────────────────────────────────────────────────────
     Divider: {
-      colorSplit: 'rgba(255,255,255,0.045)',
+      colorSplit: 'rgba(255,255,255,0.04)',
     },
 
     // ── Spin ──────────────────────────────────────────────────────────────────
@@ -216,8 +231,8 @@ export const antdTheme: ThemeConfig = {
 
     // ── Statistic ─────────────────────────────────────────────────────────────
     Statistic: {
-      titleFontSize: 10,
-      contentFontSize: 24,
+      titleFontSize: 12,
+      contentFontSize: 28,
     },
   },
 };

@@ -227,11 +227,11 @@ const Repository: React.FC = () => {
         <div>
           <div
             style={{
-              fontSize: 9,
-              fontFamily: "'IBM Plex Mono'",
+              fontSize: 12,
+              fontFamily: "var(--font-mono)",
               color: "var(--t-muted)",
-              letterSpacing: "0.15em",
-              marginBottom: 4,
+              letterSpacing: "0.1em",
+              marginBottom: 6,
             }}
           >
             系统 / 仓库
@@ -239,10 +239,10 @@ const Repository: React.FC = () => {
           <h2
             style={{
               margin: 0,
-              fontSize: 22,
+              fontSize: 28,
               fontWeight: 700,
               color: "var(--t-primary)",
-              fontFamily: "'Syne', sans-serif",
+              fontFamily: "var(--font-ui)",
               letterSpacing: "-0.01em",
             }}
           >
@@ -254,7 +254,7 @@ const Repository: React.FC = () => {
           <Button
             icon={<ReloadOutlined />}
             onClick={refreshLocalRepos}
-            style={{ fontFamily: "'IBM Plex Mono'" }}
+            style={{ fontFamily: "var(--font-ui)", fontSize: 14 }}
           >
             刷新
           </Button>
@@ -265,7 +265,7 @@ const Repository: React.FC = () => {
               setEditRepo(null);
               setModalOpen(true);
             }}
-            style={{ fontFamily: "'IBM Plex Mono'" }}
+            style={{ fontFamily: "var(--font-ui)", fontSize: 14 }}
           >
             添加仓库
           </Button>
@@ -282,7 +282,7 @@ const Repository: React.FC = () => {
       >
         <div
           style={{
-            padding: "14px 20px",
+            padding: "16px 24px",
             borderBottom: "1px solid var(--b-faint)",
             display: "flex",
             alignItems: "center",
@@ -291,19 +291,19 @@ const Repository: React.FC = () => {
         >
           <div
             style={{
-              fontFamily: "'IBM Plex Mono'",
-              fontSize: 10,
+              fontFamily: "var(--font-ui)",
+              fontSize: 14,
+              fontWeight: 600,
               color: "var(--t-secondary)",
-              letterSpacing: "0.1em",
-              textTransform: "uppercase",
+              letterSpacing: "0.01em",
             }}
           >
             仓库列表
           </div>
           <div
             style={{
-              fontFamily: "'IBM Plex Mono'",
-              fontSize: 10,
+              fontFamily: "var(--font-mono)",
+              fontSize: 12,
               color: "var(--t-muted)",
             }}
           >
@@ -312,17 +312,17 @@ const Repository: React.FC = () => {
         </div>
 
         {repos.length === 0 && (
-          <div style={{ padding: "60px 40px", textAlign: "center" }}>
-            <div style={{ fontSize: 48, opacity: 0.06, marginBottom: 16 }}>
+          <div style={{ padding: "72px 48px", textAlign: "center" }}>
+            <div style={{ fontSize: 56, opacity: 0.06, marginBottom: 20 }}>
               ⬡
             </div>
             <div
               style={{
-                fontFamily: "'IBM Plex Mono'",
-                fontSize: 11,
+                fontFamily: "var(--font-mono)",
+                fontSize: 14,
                 color: "var(--t-muted)",
-                letterSpacing: "0.1em",
-                marginBottom: 12,
+                letterSpacing: "0.04em",
+                marginBottom: 16,
               }}
             >
               暂无仓库
@@ -330,7 +330,7 @@ const Repository: React.FC = () => {
             <Button
               type="link"
               onClick={() => setModalOpen(true)}
-              style={{ fontFamily: "'IBM Plex Mono'", fontSize: 11 }}
+              style={{ fontFamily: "var(--font-ui)", fontSize: 14 }}
             >
               添加第一个仓库
             </Button>
@@ -344,7 +344,7 @@ const Repository: React.FC = () => {
                 display: "grid",
                 gridTemplateColumns: "2fr 1fr 1fr 1.2fr 1.8fr",
                 gap: 16,
-                padding: "12px 20px",
+                padding: "14px 24px",
                 background: "var(--s-float)",
                 borderBottom: "1px solid var(--b-faint)",
               }}
@@ -353,10 +353,11 @@ const Repository: React.FC = () => {
                 <div
                   key={header}
                   style={{
-                    fontFamily: "'IBM Plex Mono'",
-                    fontSize: 9,
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                    fontWeight: 500,
                     color: "var(--t-muted)",
-                    letterSpacing: "0.12em",
+                    letterSpacing: "0.02em",
                   }}
                 >
                   {header}
