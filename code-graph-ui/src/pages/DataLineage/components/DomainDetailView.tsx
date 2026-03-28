@@ -328,6 +328,10 @@ const DomainDetailView: React.FC<DomainDetailViewProps> = ({
       calledByCount: stats.calledByCount,
       dependencies: [],
       generatedAt: undefined,
+      // 新增字段
+      annotations: (props.annotations as string[]) || [],
+      returnType: props.return_type as string | undefined,
+      parameters: (props.parameters as string[]) || [],
     };
   }, [selectedNode, nodeStats, aiDescCache]);
 
@@ -364,6 +368,42 @@ const DomainDetailView: React.FC<DomainDetailViewProps> = ({
     generatedAt: new Date().toISOString(),
     confidence: 0.85,
   }), [domain]);
+
+  // 默认节点详情（选中节点但 nodeDetail 未计算时使用）
+  const defaultNodeDetail: NodeDetail = useMemo(() => {
+    if (!selectedNodeId) {
+      return {
+        nodeId: "",
+        name: "",
+        type: "Function",
+        file: "",
+        callCount: 0,
+        calledByCount: 0,
+        dependencies: [],
+        generatedAt: undefined,
+        annotations: [],
+      };
+    }
+    const node = domainNodes.find((n) => n.id === selectedNodeId);
+    const props = node?.properties || {};
+    return {
+      nodeId: selectedNodeId,
+      name: node?.name || selectedNodeId.split(":").pop() || "",
+      type: node?.type || "Function",
+      file: (props.file as string) || "",
+      signature: props.signature as string | undefined,
+      line: props.line as number | undefined,
+      endLine: props.endLine as number | undefined,
+      aiDescription: undefined,
+      callCount: 0,
+      calledByCount: 0,
+      dependencies: [],
+      generatedAt: undefined,
+      annotations: (props.annotations as string[]) || [],
+      returnType: props.return_type as string | undefined,
+      parameters: (props.parameters as string[]) || [],
+    };
+  }, [selectedNodeId, domainNodes]);
 
   const domainInfoForPanel = useMemo(() => ({
     id: domain.id,
@@ -656,7 +696,7 @@ const DomainDetailView: React.FC<DomainDetailViewProps> = ({
       >
         <DomainInfoPanel
           type={selectedNode ? "node" : "domain"}
-          data={selectedNode && nodeDetail ? nodeDetail : defaultDomainDescription}
+          data={selectedNode ? (nodeDetail || defaultNodeDetail) : defaultDomainDescription}
           domainInfo={!selectedNode ? domainInfoForPanel : undefined}
           loading={false}
         />

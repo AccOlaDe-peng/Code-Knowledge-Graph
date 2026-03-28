@@ -104,6 +104,13 @@ export interface NodeDetail {
   calledByCount: number;
   dependencies: string[];
   generatedAt?: string;
+  // 新增：功能说明和总结
+  functionDescription?: string;  // AI 生成的功能说明
+  summary?: string;              // AI 生成的总结
+  // 新增：静态推断信息
+  annotations?: string[];        // 注解列表
+  returnType?: string;           // 返回类型
+  parameters?: string[];         // 参数列表
 }
 
 export interface CodeSnippet {
