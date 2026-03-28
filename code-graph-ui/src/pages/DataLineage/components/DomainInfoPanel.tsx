@@ -355,11 +355,19 @@ const StatItem: React.FC<{
 function getTypeColor(type: string): string {
   const colors: Record<string, string> = {
     Controller: "#00d4ff",
+    controller: "#00d4ff",
     Service: "#00f084",
+    service: "#00f084",
     Repository: "#ffc145",
+    repository: "#ffc145",
     Function: "#b08eff",
+    function: "#b08eff",
     Class: "#b08eff",
+    class: "#b08eff",
     Component: "#00d4ff",
+    component: "#00d4ff",
+    Database: "#b08eff",
+    database: "#b08eff",
   };
   return colors[type] || "#8ab4c8";
 }

@@ -290,16 +290,16 @@ const DomainDetailView: React.FC<DomainDetailViewProps> = ({
     return filterCorePathNodes(domainNodes, domainEdges, detailLevel);
   }, [domainNodes, domainEdges, detailLevel]);
 
-  // 计算节点统计
+  // 计算节点统计（基于领域内所有边，而非过滤后的边）
   const nodeStats = useMemo(() => {
-    return calculateNodeStats(filteredData.nodes, filteredData.edges);
-  }, [filteredData.nodes, filteredData.edges]);
+    return calculateNodeStats(domainNodes, domainEdges);
+  }, [domainNodes, domainEdges]);
 
-  // 选中节点的信息
+  // 选中节点的信息（从领域内所有节点查找，不受过滤影响）
   const selectedNode = useMemo(() => {
     if (!selectedNodeId) return null;
-    return filteredData.nodes.find((n) => n.id === selectedNodeId) || null;
-  }, [selectedNodeId, filteredData.nodes]);
+    return domainNodes.find((n) => n.id === selectedNodeId) || null;
+  }, [selectedNodeId, domainNodes]);
 
   // 转换为 NodeDetail 格式
   const nodeDetail: NodeDetail | null = useMemo(() => {
@@ -334,7 +334,7 @@ const DomainDetailView: React.FC<DomainDetailViewProps> = ({
   // 选中节点时：若本地 properties 无描述则从 API 获取
   useEffect(() => {
     if (!selectedNodeId || !repoId) return;
-    const node = filteredData.nodes.find((n) => n.id === selectedNodeId);
+    const node = domainNodes.find((n) => n.id === selectedNodeId);
     if (!node) return;
     const props = node.properties || {};
     if (props.ai_description || props.description) return; // 已有内联描述
@@ -353,7 +353,7 @@ const DomainDetailView: React.FC<DomainDetailViewProps> = ({
         }
       })
       .catch(() => { /* 静默失败，不影响主流程 */ });
-  }, [selectedNodeId, repoId, domain.id, filteredData.nodes, aiDescCache]);
+  }, [selectedNodeId, repoId, domain.id, domainNodes, aiDescCache]);
 
   // 面板默认展示的领域描述（未选中节点时使用）
   const defaultDomainDescription = useMemo(() => ({

@@ -56,8 +56,9 @@ def get_llm_client() -> LLMClient:
     model = os.environ.get("LLM_MODEL") or None
 
     # Anthropic 代理也可能需要自定义 base_url
+    # 优先读取 LLM_BASE_URL（通用配置），其次读取 ANTHROPIC_BASE_URL（专用配置）
     if provider == "anthropic" and not base_url:
-        base_url = os.environ.get("ANTHROPIC_BASE_URL") or None
+        base_url = os.environ.get("LLM_BASE_URL") or os.environ.get("ANTHROPIC_BASE_URL") or None
 
     _llm_client_instance = LLMClient(
         provider=provider,

@@ -87,7 +87,7 @@ function parseFunctionId(functionId: string): {
 
   // classPart 格式: adms-api/src/.../UserController.java:UserController
   const colonIdx = classPart.lastIndexOf(":");
-  const className = colonIdx !== -1 ? classPart.slice(colonIdx + 1) : classPart.split("/").pop() || "";
+  const className = colonIdx !== -1 ? classPart.slice(colonIdx + 1) : classPart.split(/[/\\]/).pop() || "";
   const filePath = colonIdx !== -1 ? classPart.slice(0, colonIdx) : classPart;
 
   return { className, methodName: methodPart, filePath };

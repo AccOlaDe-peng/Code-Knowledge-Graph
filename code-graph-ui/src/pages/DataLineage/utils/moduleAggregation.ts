@@ -68,8 +68,8 @@ export function getModuleId(nodeId: string): string | null {
   // 移除前缀 (class:, function:, etc.)
   const idBody = nodeId.includes(":") ? nodeId.split(":").slice(1).join(":") : nodeId;
 
-  // 取第一个路径段作为模块名
-  const parts = idBody.split("/");
+  // 取第一个路径段作为模块名（支持 Windows 反斜杠和 Unix 正斜杠）
+  const parts = idBody.split(/[/\\]/);
   if (parts.length >= 1 && parts[0]) {
     return parts[0];
   }
@@ -89,7 +89,7 @@ export function extractClassName(nodeId: string): string {
     return parts[parts.length - 1];
   }
 
-  return nodeId.split("/").pop() || nodeId;
+  return nodeId.split(/[/\\]/).pop() || nodeId;
 }
 
 // ─── 边聚合函数 ──────────────────────────────────────────────────────────────

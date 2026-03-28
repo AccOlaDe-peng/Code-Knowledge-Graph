@@ -116,7 +116,7 @@ export function extractBusinessKey(nodeId: string): string | null {
 
   // 移除前缀
   const body = nodeId.includes(":") ? nodeId.split(":").slice(1).join(":") : nodeId;
-  const parts = body.split("/");
+  const parts = body.split(/[/\\]/);
 
   // 跳过特殊节点
   const specialPrefixes = ["datasource", "database", "topic", "external", "module"];
@@ -202,7 +202,7 @@ export function extractModuleName(nodeId: string): string | null {
   if (!nodeId) return null;
 
   const body = nodeId.includes(":") ? nodeId.split(":")[1] : nodeId;
-  const parts = body.split("/");
+  const parts = body.split(/[/\\]/);
 
   if (parts.length >= 1 && parts[0]) {
     return parts[0];
@@ -452,8 +452,8 @@ export function aggregateToBusinessDomain(
     domainEdge.callCount++;
 
     // 提取服务对
-    const fromName = edge.from.split("/").pop()?.split(":")[0] || "";
-    const toName = edge.to.split("/").pop()?.split(":")[0] || "";
+    const fromName = edge.from.split(/[/\\]/).pop()?.split(":")[0] || "";
+    const toName = edge.to.split(/[/\\]/).pop()?.split(":")[0] || "";
     const pair: [string, string] = [fromName, toName];
 
     if (!domainEdge.servicePairs.some((p) => p[0] === pair[0] && p[1] === pair[1])) {
