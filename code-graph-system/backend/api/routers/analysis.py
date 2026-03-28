@@ -107,6 +107,7 @@ class AnalyzeRequest(BaseModel):
     branch:     Optional[str]  = Field(default=None, description="Git 分支名（仅当 repo_path 为 Git URL 时生效）")
     languages:  Optional[list[str]] = Field(default=None, description="限定分析语言，如 ['python', 'typescript']")
     depth:      str            = Field(default="standard", description="分析深度 (quick | standard | deep)")
+    pipeline_mode: str         = Field(default="static_first", description="流水线模式 (static_first | ai_first)")
 
 
 class AnalyzeAsyncResponse(BaseModel):
@@ -201,7 +202,15 @@ def analyze_repository(req: AnalyzeRequest):
             detail=f"Invalid depth: {req.depth}. Must be one of: {', '.join(valid_depths)}",
         )
 
-    logger.info("POST /analyze/repository  path=%s  depth=%s", req.repo_path, req.depth)
+    # 验证 pipeline_mode 参数
+    valid_modes = ("static_first", "ai_first")
+    if req.pipeline_mode not in valid_modes:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid pipeline_mode: {req.pipeline_mode}. Must be one of: {', '.join(valid_modes)}",
+        )
+
+    logger.info("POST /analyze/repository  path=%s  depth=%s  pipeline_mode=%s", req.repo_path, req.depth, req.pipeline_mode)
 
     # 提交 Celery 任务（git 克隆/缓存检查由任务内部处理，接口立即返回）
     job = celery_analyze.apply_async(
@@ -212,6 +221,7 @@ def analyze_repository(req: AnalyzeRequest):
             "languages": req.languages,
             "depth": req.depth,
             "store_repo_id": req.repo_id,
+            "pipeline_mode": req.pipeline_mode,
         },
     )
     task_id: str = job.id

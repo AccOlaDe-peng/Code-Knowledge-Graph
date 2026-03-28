@@ -14,6 +14,7 @@ const getStatusConfig = (status?: RepoInfo["status"]) => {
         color: "#00d4ff",
         bg: "rgba(0,212,255,0.08)",
         border: "rgba(0,212,255,0.2)",
+        animate: true,
       };
     case "completed":
     case "completed_partial":
@@ -22,6 +23,7 @@ const getStatusConfig = (status?: RepoInfo["status"]) => {
         color: "#00f084",
         bg: "rgba(0,240,132,0.08)",
         border: "rgba(0,240,132,0.2)",
+        animate: false,
       };
     case "failed":
       return {
@@ -29,6 +31,7 @@ const getStatusConfig = (status?: RepoInfo["status"]) => {
         color: "#ff6b6b",
         bg: "rgba(255,107,107,0.08)",
         border: "rgba(255,107,107,0.2)",
+        animate: false,
       };
     case "canceled":
       return {
@@ -36,6 +39,7 @@ const getStatusConfig = (status?: RepoInfo["status"]) => {
         color: "#ffc145",
         bg: "rgba(255,193,69,0.08)",
         border: "rgba(255,193,69,0.2)",
+        animate: false,
       };
     case "pending":
       return {
@@ -43,6 +47,7 @@ const getStatusConfig = (status?: RepoInfo["status"]) => {
         color: "#9bb0c8",
         bg: "rgba(155,176,200,0.08)",
         border: "rgba(155,176,200,0.2)",
+        animate: false,
       };
     default:
       return {
@@ -50,6 +55,7 @@ const getStatusConfig = (status?: RepoInfo["status"]) => {
         color: "#9bb0c8",
         bg: "rgba(155,176,200,0.08)",
         border: "rgba(155,176,200,0.2)",
+        animate: false,
       };
   }
 };
@@ -75,7 +81,8 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
           height: 5,
           borderRadius: "50%",
           background: cfg.color,
-          boxShadow: status === "analyzing" ? `0 0 8px ${cfg.color}` : "none",
+          boxShadow: cfg.animate ? `0 0 8px ${cfg.color}` : "none",
+          animation: cfg.animate ? "statusPulse 2s ease-in-out infinite" : "none",
         }}
       />
       <span

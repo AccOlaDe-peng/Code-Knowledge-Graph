@@ -1,9 +1,11 @@
 import React from 'react'
+import { useRipple, getRippleStyle, usePress } from '../../../core/hooks/useInteraction'
+import type { Ripple } from '../../../core/hooks/useInteraction'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type StatCardProps = {
-  icon: string
+  icon: React.ReactNode | string
   label: string
   value: number | string
   color: string
@@ -21,12 +23,23 @@ const StatCard: React.FC<StatCardProps> = ({
   trend,
   onClick,
 }) => {
+  const { ref, ripples, createRipple } = useRipple<HTMLDivElement>()
+  const { isPressed, handlers } = usePress()
   const formattedValue =
     typeof value === 'number' ? value.toLocaleString() : value
 
+  const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (onClick) {
+      createRipple(e)
+      onClick()
+    }
+  }
+
   return (
     <div
-      onClick={onClick}
+      ref={ref}
+      onClick={handleClick}
+      {...(onClick ? handlers : {})}
       style={{
         background: 'linear-gradient(135deg, var(--s-raised) 0%, rgba(15,18,24,0.8) 100%)',
         border: '1px solid var(--b-faint)',
@@ -38,22 +51,28 @@ const StatCard: React.FC<StatCardProps> = ({
         flex: 1,
         minWidth: 160,
         cursor: onClick ? 'pointer' : 'default',
-        transition: 'all 0.2s',
+        transition: 'var(--transition-normal)',
+        transform: isPressed ? 'scale(0.98)' : 'translateY(0)',
       }}
-      onMouseEnter={e => {
-        if (onClick) {
+      onMouseEnter={(e) => {
+        if (onClick && !isPressed) {
           e.currentTarget.style.borderTopColor = color
           e.currentTarget.style.transform = 'translateY(-3px)'
           e.currentTarget.style.boxShadow = `0 12px 32px ${color}18`
         }
       }}
-      onMouseLeave={e => {
-        if (onClick) {
+      onMouseLeave={(e) => {
+        if (onClick && !isPressed) {
           e.currentTarget.style.transform = 'translateY(0)'
           e.currentTarget.style.boxShadow = 'none'
         }
       }}
     >
+      {/* Ripple effects */}
+      {ripples.map((ripple: Ripple) => (
+        <span key={ripple.id} style={getRippleStyle(ripple, `${color}20`)} />
+      ))}
+
       {/* Glow effect */}
       <div
         style={{
@@ -69,13 +88,17 @@ const StatCard: React.FC<StatCardProps> = ({
       />
 
       <div style={{ position: 'relative', zIndex: 1 }}>
-        <div style={{
-          fontSize: 26,
-          marginBottom: 12,
-          lineHeight: 1,
-          filter: `drop-shadow(0 0 8px ${color}40)`,
-        }}>
-          {icon}
+        <div
+          style={{
+            fontSize: typeof icon === 'string' ? 26 : undefined,
+            marginBottom: 12,
+            lineHeight: 1,
+            filter: `drop-shadow(0 0 8px ${color}40)`,
+            display: 'flex',
+            alignItems: 'center',
+          }}
+        >
+          {typeof icon === 'string' ? icon : icon}
         </div>
         <div
           style={{

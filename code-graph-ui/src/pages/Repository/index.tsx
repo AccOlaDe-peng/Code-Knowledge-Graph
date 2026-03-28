@@ -17,6 +17,8 @@ import {
   RepoDetailDrawer,
 } from "./components";
 import type { RepoFormValues } from "./components/AddRepoModal";
+import { SkeletonTable } from "../../components/ui/Skeleton";
+import { EmptyRepository } from "../../components/ui/EmptyState";
 
 const inferRepoName = (
   source: string | undefined,
@@ -214,6 +216,8 @@ const Repository: React.FC = () => {
     [repos],
   );
 
+  const isLoading = useRepoStore((s) => s.loading);
+
   return (
     <div>
       <div
@@ -311,33 +315,13 @@ const Repository: React.FC = () => {
           </div>
         </div>
 
-        {repos.length === 0 && (
-          <div style={{ padding: "72px 48px", textAlign: "center" }}>
-            <div style={{ fontSize: 56, opacity: 0.06, marginBottom: 20 }}>
-              ⬡
-            </div>
-            <div
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: 14,
-                color: "var(--t-muted)",
-                letterSpacing: "0.04em",
-                marginBottom: 16,
-              }}
-            >
-              暂无仓库
-            </div>
-            <Button
-              type="link"
-              onClick={() => setModalOpen(true)}
-              style={{ fontFamily: "var(--font-ui)", fontSize: 14 }}
-            >
-              添加第一个仓库
-            </Button>
-          </div>
+        {isLoading && <SkeletonTable rows={5} columns={5} />}
+
+        {!isLoading && repos.length === 0 && (
+          <EmptyRepository onAdd={() => setModalOpen(true)} />
         )}
 
-        {repos.length > 0 && (
+        {!isLoading && repos.length > 0 && (
           <div>
             <div
               style={{

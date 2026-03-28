@@ -302,6 +302,7 @@ def analyze_repository(
     tmp_dir: Optional[str] = None,
     depth: str = "standard",
     store_repo_id: Optional[str] = None,
+    pipeline_mode: str = "static_first",
 ) -> dict[str, Any]:
     """全量分析代码仓库，构建并持久化知识图谱（默认启用 AI + RAG）。
 
@@ -312,6 +313,7 @@ def analyze_repository(
         languages:  限定语言，如 ``["python", "typescript"]``，None 自动探测。
         tmp_dir:    已废弃，保留仅用于向后兼容，不再使用。
         depth:      分析深度 (quick | standard | deep)，默认 standard。
+        pipeline_mode: 流水线模式 (static_first | ai_first)，默认 static_first。
 
     Returns::
 
@@ -330,6 +332,7 @@ def analyze_repository(
             "warnings":         [...],
             "analyzed_at":      "2026-03-11T12:00:00+00:00",
             "depth":            "standard",
+            "pipeline_mode":    "static_first",
         }
 
     Raises:
@@ -342,7 +345,12 @@ def analyze_repository(
     if depth not in valid_depths:
         raise ValueError(f"Invalid depth: {depth}. Must be one of: {', '.join(valid_depths)}")
 
-    logger.info("analyze_repository START  repo=%s  task=%s  depth=%s", repo_path, task_id, depth)
+    # 验证 pipeline_mode 参数
+    valid_modes = ("static_first", "ai_first")
+    if pipeline_mode not in valid_modes:
+        raise ValueError(f"Invalid pipeline_mode: {pipeline_mode}. Must be one of: {', '.join(valid_modes)}")
+
+    logger.info("analyze_repository START  repo=%s  task=%s  depth=%s  pipeline_mode=%s", repo_path, task_id, depth, pipeline_mode)
 
     t_start = time.time()
     status_store = get_repo_status_store()
@@ -434,120 +442,206 @@ def analyze_repository(
     })
 
     pipeline, _ = _build_pipeline()
-    try:
-        result = pipeline.analyze(
-            path,
-            repo_name=repo_name,
-            languages=languages,
-            enable_ai=True,
-            enable_rag=True,
-            on_progress=on_progress_callback,
+
+    # 根据 pipeline_mode 选择分析流水线
+    if pipeline_mode == "ai_first":
+        # 使用 AI 优先流水线
+        from backend.pipeline.ai_first_pipeline import AIFirstPipeline
+        from backend.graph.graph_repository import GraphRepository
+        from backend.rag.vector_store import VectorStore
+
+        ai_pipeline = AIFirstPipeline(
+            graph_repo=GraphRepository(),
+            vector_store=VectorStore(),
         )
-    except TaskCanceledError as exc:
-        # 任务被取消，不重试
-        duration = round(time.time() - t_start, 3)
         try:
+            result = ai_pipeline.analyze(
+                path,
+                repo_name=repo_name,
+                enable_rag=True,
+                on_progress=on_progress_callback,
+            )
+            # 转换为 AnalysisPipeline 兼容的结果格式
+            from backend.models.ai_analysis import AIAnalysisResult
+            from backend.graph.graph_builder import BuiltGraph
+
+            built = BuiltGraph(
+                nodes=result.nodes,
+                edges=result.edges,
+                meta={
+                    "node_type_counts": {},
+                    "edge_type_counts": {},
+                },
+            )
+
+            class AIResultWrapper:
+                def __init__(self, r, b):
+                    self.graph_id = r.graph_id
+                    self.repo_name = repo_name
+                    self.repo_path = str(path)
+                    self.node_count = len(r.nodes)
+                    self.edge_count = len(r.edges)
+                    self.built = b
+                    self.circular_deps = []
+                    self.warnings = r.warnings
+                    self.duration_seconds = r.duration_seconds
+
+            result = AIResultWrapper(result, built)
+
+        except TaskCanceledError as exc:
+            # 任务被取消，不重试
+            duration = round(time.time() - t_start, 3)
+            try:
+                on_progress_callback({
+                    "status": "canceled",
+                    "message": "任务已被取消",
+                    "elapsed_seconds": duration,
+                })
+            except Exception:
+                pass
+            status_store.set_canceled(repo_id)
+            logger.info("analyze_repository CANCELED: %s", exc)
+            return {"task_id": task_id, "status": "canceled", "message": str(exc)}
+        except ValueError as exc:
+            duration = round(time.time() - t_start, 3)
             on_progress_callback({
-                "status": "canceled",
-                "message": "任务已被取消",
+                "status": "failed",
+                "error": str(exc),
                 "elapsed_seconds": duration,
             })
-        except Exception:
-            pass
-        status_store.set_canceled(repo_id)
-        logger.info("analyze_repository CANCELED: %s", exc)
-        return {"task_id": task_id, "status": "canceled", "message": str(exc)}
-    except ValueError as exc:
-        # ValueError（如路径不存在）不重试，直接发送 failed 事件
-        duration = round(time.time() - t_start, 3)
-        on_progress_callback({
-            "status": "failed",
-            "error": str(exc),
-            "elapsed_seconds": duration,
-        })
-        status_store.set_failed(repo_id, error=str(exc))
-        # ── 写入 AnalysisStore 历史记录（失败） ───────────────────────
-        from backend.store.analysis_store import get_analysis_store
-        _analysis_store = get_analysis_store()
-        _analysis_store.write_completed(
-            task_id=task_id,
-            repo_id=_analysis_repo_id,
-            depth=depth or "standard",
-            status="failed",
-            error=str(exc),
-            started_at=datetime.fromtimestamp(t_start, tz=timezone.utc).isoformat(),
-            finished_at=datetime.now(timezone.utc).isoformat(),
-        )
-        logger.error("analyze_repository FAILED (bad input): %s", exc)
-        raise
-    except PartialResultError as exc:
-        # 部分结果：保存了部分图谱，发送 completed_partial 事件
-        duration = round(time.time() - t_start, 3)
-        result = exc.result
-        if result is None:
-            logger.error("PartialResultError 未携带 result，无法保存部分图谱")
+            status_store.set_failed(repo_id, error=str(exc))
+            from backend.store.analysis_store import get_analysis_store
+            _analysis_store = get_analysis_store()
+            _analysis_store.write_completed(
+                task_id=task_id,
+                repo_id=_analysis_repo_id,
+                depth=depth or "standard",
+                status="failed",
+                error=str(exc),
+                started_at=datetime.fromtimestamp(t_start, tz=timezone.utc).isoformat(),
+                finished_at=datetime.now(timezone.utc).isoformat(),
+            )
+            logger.error("analyze_repository FAILED (bad input): %s", exc)
             raise
+        except Exception as exc:
+            logger.error("analyze_repository FAILED: %s", exc, exc_info=True)
+            raise self.retry(exc=exc)
+    else:
+        # 使用静态优先流水线
+        try:
+            result = pipeline.analyze(
+                path,
+                repo_name=repo_name,
+                languages=languages,
+                enable_ai=True,
+                enable_rag=True,
+                on_progress=on_progress_callback,
+            )
+        except TaskCanceledError as exc:
+            # 任务被取消，不重试
+            duration = round(time.time() - t_start, 3)
+            try:
+                on_progress_callback({
+                    "status": "canceled",
+                    "message": "任务已被取消",
+                    "elapsed_seconds": duration,
+                })
+            except Exception:
+                pass
+            status_store.set_canceled(repo_id)
+            logger.info("analyze_repository CANCELED: %s", exc)
+            return {"task_id": task_id, "status": "canceled", "message": str(exc)}
+        except ValueError as exc:
+            # ValueError（如路径不存在）不重试，直接发送 failed 事件
+            duration = round(time.time() - t_start, 3)
+            on_progress_callback({
+                "status": "failed",
+                "error": str(exc),
+                "elapsed_seconds": duration,
+            })
+            status_store.set_failed(repo_id, error=str(exc))
+            # ── 写入 AnalysisStore 历史记录（失败） ───────────────────────
+            from backend.store.analysis_store import get_analysis_store
+            _analysis_store = get_analysis_store()
+            _analysis_store.write_completed(
+                task_id=task_id,
+                repo_id=_analysis_repo_id,
+                depth=depth or "standard",
+                status="failed",
+                error=str(exc),
+                started_at=datetime.fromtimestamp(t_start, tz=timezone.utc).isoformat(),
+                finished_at=datetime.now(timezone.utc).isoformat(),
+            )
+            logger.error("analyze_repository FAILED (bad input): %s", exc)
+            raise
+        except PartialResultError as exc:
+            # 部分结果：保存了部分图谱，发送 completed_partial 事件
+            duration = round(time.time() - t_start, 3)
+            result = exc.result
+            if result is None:
+                logger.error("PartialResultError 未携带 result，无法保存部分图谱")
+                raise
 
-        # 更新图谱 meta 标记为 partial
-        from backend.graph.graph_repository import GraphRepository
-        graph_repo = GraphRepository()
-        built = graph_repo.load(result.graph_id)
-        if built is not None:
-            built.meta["analysis_status"] = "partial"
-            built.meta["completed_modules"] = exc.completed_count
-            built.meta["total_modules"] = exc.total_count
-            graph_repo.save(built, repo_name=repo_name)
-            _write_to_graph_storage(result.graph_id, built.nodes, built.edges)
+            # 更新图谱 meta 标记为 partial
+            from backend.graph.graph_repository import GraphRepository
+            graph_repo = GraphRepository()
+            built = graph_repo.load(result.graph_id)
+            if built is not None:
+                built.meta["analysis_status"] = "partial"
+                built.meta["completed_modules"] = exc.completed_count
+                built.meta["total_modules"] = exc.total_count
+                graph_repo.save(built, repo_name=repo_name)
+                _write_to_graph_storage(result.graph_id, built.nodes, built.edges)
 
-        on_progress_callback({
-            "status": "completed_partial",
-            "graph_id": result.graph_id,
-            "node_count": result.node_count,
-            "edge_count": result.edge_count,
-            "completed_modules": exc.completed_count,
-            "total_modules": exc.total_count,
-            "elapsed_seconds": duration,
-            "message": f"已完成 {exc.completed_count}/{exc.total_count} 个模块，因 API 持续限速保存部分结果",
-        })
-        status_store.set_completed(
-            repo_id,
-            graph_id=result.graph_id,
-            node_count=result.node_count,
-            edge_count=result.edge_count,
-            duration_seconds=duration,
-        )
-        # ── 写入 AnalysisStore 历史记录（部分完成） ───────────────────────
-        from backend.store.analysis_store import get_analysis_store
-        _analysis_store = get_analysis_store()
-        _analysis_store.write_completed(
-            task_id=task_id,
-            repo_id=_analysis_repo_id,
-            depth=depth or "standard",
-            status="completed_partial",
-            graph_id=result.graph_id,
-            node_count=result.node_count,
-            edge_count=result.edge_count,
-            started_at=datetime.fromtimestamp(t_start, tz=timezone.utc).isoformat(),
-            finished_at=datetime.now(timezone.utc).isoformat(),
-        )
-        logger.warning(
-            "analyze_repository PARTIAL: graph=%s nodes=%d edges=%d completed=%d/%d",
-            result.graph_id, result.node_count, result.edge_count,
-            exc.completed_count, exc.total_count,
-        )
-        return {
-            "task_id": task_id,
-            "status": "completed_partial",
-            "graph_id": result.graph_id,
-            "node_count": result.node_count,
-            "edge_count": result.edge_count,
-            "completed_modules": exc.completed_count,
-            "total_modules": exc.total_count,
-        }
-    except Exception as exc:
-        # 其他异常会重试：不发送 failed 事件，让前端等待重试结果
-        logger.error("analyze_repository FAILED: %s", exc, exc_info=True)
-        raise self.retry(exc=exc)
+            on_progress_callback({
+                "status": "completed_partial",
+                "graph_id": result.graph_id,
+                "node_count": result.node_count,
+                "edge_count": result.edge_count,
+                "completed_modules": exc.completed_count,
+                "total_modules": exc.total_count,
+                "elapsed_seconds": duration,
+                "message": f"已完成 {exc.completed_count}/{exc.total_count} 个模块，因 API 持续限速保存部分结果",
+            })
+            status_store.set_completed(
+                repo_id,
+                graph_id=result.graph_id,
+                node_count=result.node_count,
+                edge_count=result.edge_count,
+                duration_seconds=duration,
+            )
+            # ── 写入 AnalysisStore 历史记录（部分完成） ───────────────────────
+            from backend.store.analysis_store import get_analysis_store
+            _analysis_store = get_analysis_store()
+            _analysis_store.write_completed(
+                task_id=task_id,
+                repo_id=_analysis_repo_id,
+                depth=depth or "standard",
+                status="completed_partial",
+                graph_id=result.graph_id,
+                node_count=result.node_count,
+                edge_count=result.edge_count,
+                started_at=datetime.fromtimestamp(t_start, tz=timezone.utc).isoformat(),
+                finished_at=datetime.now(timezone.utc).isoformat(),
+            )
+            logger.warning(
+                "analyze_repository PARTIAL: graph=%s nodes=%d edges=%d completed=%d/%d",
+                result.graph_id, result.node_count, result.edge_count,
+                exc.completed_count, exc.total_count,
+            )
+            return {
+                "task_id": task_id,
+                "status": "completed_partial",
+                "graph_id": result.graph_id,
+                "node_count": result.node_count,
+                "edge_count": result.edge_count,
+                "completed_modules": exc.completed_count,
+                "total_modules": exc.total_count,
+            }
+        except Exception as exc:
+            # 其他异常会重试：不发送 failed 事件，让前端等待重试结果
+            logger.error("analyze_repository FAILED: %s", exc, exc_info=True)
+            raise self.retry(exc=exc)
     finally:
         # 清理 Git 克隆的临时目录
         if tmp_dir and Path(tmp_dir).exists():
@@ -615,6 +709,7 @@ def analyze_repository(
         "warnings":         result.warnings,
         "analyzed_at":      datetime.now(timezone.utc).isoformat(),
         "depth":            depth,
+        "pipeline_mode":    pipeline_mode,
     }
     node_types = built.meta.get("node_type_counts", {})
     edge_types = built.meta.get("edge_type_counts", {})

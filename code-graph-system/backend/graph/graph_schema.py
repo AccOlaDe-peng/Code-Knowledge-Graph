@@ -33,6 +33,11 @@ class NodeType(str, Enum):
         DOMAIN          — 顶层业务领域区域（如 OrderManagement / UserManagement）
         BOUNDED_CONTEXT — DDD 有界上下文，包含若干 DOMAIN_ENTITY
         DOMAIN_ENTITY   — DDD 具体实体：aggregate_root / entity / value_object 等
+
+    AI 优先流水线新增类型：
+        ENTITY          — JPA 实体类
+        FIELD           — 实体字段
+        FLOW_NODE       — 流程节点
     """
 
     # ── 静态分析类型 ──────────────────────────────────────────────────
@@ -68,6 +73,11 @@ class NodeType(str, Enum):
     EXTERNAL_API = "ExternalAPI"       # External service / API
     MESSAGE_QUEUE = "MessageQueue"     # Message queue (Kafka, RabbitMQ)
 
+    # ── AI 优先流水线新增类型 ────────────────────────────────────────
+    ENTITY = "Entity"                  # JPA 实体类
+    FIELD = "Field"                    # 实体字段
+    FLOW_NODE = "FlowNode"             # 流程节点
+
 
 class EdgeType(str, Enum):
     """边（关系）类型。
@@ -84,6 +94,14 @@ class EdgeType(str, Enum):
         transforms  — 数据实体间的转换关系
         part_of     — 实体归属于聚合或有界上下文
         contains    — 父子包含关系（与静态共用）
+
+    AI 优先流水线新增关系：
+        maps_to      — Entity 映射 Table
+        has_field    — Entity 包含 Field
+        one_to_one   — 一对一关系
+        one_to_many  — 一对多关系
+        many_to_one  — 多对一关系
+        many_to_many — 多对多关系
     """
 
     # ── 静态分析关系 ──────────────────────────────────────────────────
@@ -119,6 +137,14 @@ class EdgeType(str, Enum):
     # ── 数据血缘关系 ────────────────────────────────────────────────────
     QUERIES = "queries"          # Service queries Repository for data
     FLOW_TO = "flow_to"          # Data flows from one service to another
+
+    # ── AI 优先流水线新增关系 ──────────────────────────────────────────
+    MAPS_TO = "maps_to"          # Entity maps to Table
+    HAS_FIELD = "has_field"      # Entity contains Field
+    ONE_TO_ONE = "one_to_one"    # One-to-one relationship
+    ONE_TO_MANY = "one_to_many"  # One-to-many relationship
+    MANY_TO_ONE = "many_to_one"  # Many-to-one relationship
+    MANY_TO_MANY = "many_to_many"  # Many-to-many relationship
 
 
 # ---------------------------------------------------------------------------
