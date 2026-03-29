@@ -582,7 +582,30 @@ class LLMClient:
                             if hasattr(block, 'type') and block.type == "tool_use"
                         ]
 
-                    if not tool_uses:
+                    # 过滤掉无效的 tool_use（name 为 None 的）
+                    valid_tool_uses = [tu for tu in tool_uses if tu.name is not None]
+
+                    # 如果所有 tool_use 都无效，提取文本内容作为最终消息
+                    if tool_uses and not valid_tool_uses:
+                        logger.warning(
+                            "检测到 %d 个无效 tool_use（name=None），可能是 API 代理兼容性问题",
+                            len(tool_uses),
+                        )
+                        text_content = ""
+                        if response.content:
+                            for block in response.content:
+                                if hasattr(block, 'text'):
+                                    text_content += block.text
+                        if text_content:
+                            return ToolCallLoopResult(
+                                status="completed",
+                                final_message=text_content,
+                                tool_calls=tool_calls,
+                                total_tokens=total_tokens,
+                                iterations=iterations,
+                            )
+
+                    if not valid_tool_uses:
                         # 当响应没有工具调用时，检查是否有文本内容
                         text_content = ""
                         if response.content:
@@ -595,6 +618,9 @@ class LLMClient:
                             errors.append("LLM 响应为空（无工具调用也无文本）")
                         continue
 
+                    # 使用过滤后的有效 tool_use
+                    tool_uses = valid_tool_uses
+
                     # 添加 assistant 消息
                     current_messages.append({"role": "assistant", "content": response.content})
 
@@ -603,17 +629,15 @@ class LLMClient:
                     for tool_use in tool_uses:
                         tool_name = tool_use.name
 
-                        # 调试日志：检查 tool_use 对象结构
+                        # 跳过无效的 tool_use（某些 API 代理返回的格式不完整）
                         if tool_name is None:
-                            logger.warning(
-                                "tool_use.name 为 None，检查响应结构: tool_use=%s, attrs=%s",
-                                tool_use,
-                                dir(tool_use),
+                            logger.debug(
+                                "跳过无效的 tool_use: id=%s, name=%s, input=%s",
+                                getattr(tool_use, 'id', None),
+                                tool_name,
+                                getattr(tool_use, 'input', None),
                             )
-                            # 尝试从其他属性获取名称
-                            if hasattr(tool_use, 'function'):
-                                tool_name = getattr(tool_use.function, 'name', None)
-                                logger.debug("尝试从 function.name 获取: %s", tool_name)
+                            continue
 
                         # 安全提取 tool_input：处理 None 或非 dict 类型
                         raw_input = getattr(tool_use, 'input', None)
