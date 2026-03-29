@@ -130,9 +130,19 @@ class AIFirstPipeline:
 
         if not scan_result.entities:
             # 构建详细警告信息
-            warning_msg = "未识别到任何实体"
-            if scan_result.stats and scan_result.stats.get("elapsed_ms", 0) > 0:
-                warning_msg += f"（分析耗时 {scan_result.stats['elapsed_ms'] // 1000}s）"
+            # 检查是否是模型不支持工具调用的情况（tool_calls 为 0）
+            tool_call_count = scan_result.stats.get("tool_calls", 0) if scan_result.stats else 0
+
+            if tool_call_count == 0:
+                warning_msg = (
+                    "当前模型可能不支持工具调用（function calling），"
+                    "AI 仓库扫描需要此能力。请使用支持工具调用的模型，"
+                    "如 Claude、GPT-4 或智谱 GLM-4，或切换到 static_first 流水线。"
+                )
+            else:
+                warning_msg = "未识别到任何实体"
+                if scan_result.stats and scan_result.stats.get("elapsed_ms", 0) > 0:
+                    warning_msg += f"（分析耗时 {scan_result.stats['elapsed_ms'] // 1000}s）"
 
             logger.warning(
                 "[ai_first_pipeline] 扫描结果为空: entities=%d, services=%d, flows=%d, stats=%s",
@@ -146,7 +156,7 @@ class AIFirstPipeline:
                 on_progress({
                     "step": "ai_repository_scan",
                     "status": "failed",
-                    "message": "AI 仓库扫描未识别到任何实体，可能是代码结构不匹配或工具执行失败",
+                    "message": warning_msg,
                     "log": f"扫描统计: {scan_result.stats}",
                 })
 
@@ -336,16 +346,39 @@ class AIFirstPipeline:
     def _create_llm_client(self) -> LLMClient:
         """创建 LLM 客户端。"""
         provider = os.environ.get("LLM_PROVIDER", self.config.provider)
-        api_key = (
-            os.environ.get("LLM_API_KEY")
-            or os.environ.get("ZHIPU_API_KEY")
-            or os.environ.get("ANTHROPIC_API_KEY")
-            or os.environ.get("OPENAI_API_KEY")
-            or os.environ.get("MINIMAX_API_KEY")
-        )
-        base_url = os.environ.get("LLM_BASE_URL") or os.environ.get(
-            "ANTHROPIC_BASE_URL"
-        )
+
+        # 根据 provider 选择正确的 API Key
+        if provider == "anthropic":
+            api_key = os.environ.get("ANTHROPIC_API_KEY")
+        elif provider == "openai":
+            api_key = os.environ.get("OPENAI_API_KEY")
+        elif provider == "minimax":
+            api_key = os.environ.get("MINIMAX_API_KEY")
+        elif provider == "zhipu":
+            api_key = os.environ.get("ZHIPU_API_KEY")
+        else:
+            # Fallback: 尝试所有可能的 API Key
+            api_key = (
+                os.environ.get("LLM_API_KEY")
+                or os.environ.get("ANTHROPIC_API_KEY")
+                or os.environ.get("OPENAI_API_KEY")
+                or os.environ.get("MINIMAX_API_KEY")
+                or os.environ.get("ZHIPU_API_KEY")
+            )
+
+        # 根据 provider 选择正确的 base_url
+        # 优先级：专用 BASE_URL > LLM_BASE_URL（通用）
+        if provider == "anthropic":
+            base_url = os.environ.get("ANTHROPIC_BASE_URL") or os.environ.get("LLM_BASE_URL")
+        elif provider == "openai":
+            base_url = os.environ.get("OPENAI_BASE_URL") or os.environ.get("LLM_BASE_URL")
+        elif provider == "minimax":
+            base_url = os.environ.get("MINIMAX_BASE_URL") or os.environ.get("LLM_BASE_URL")
+        elif provider == "zhipu":
+            base_url = os.environ.get("ZHIPU_BASE_URL") or os.environ.get("LLM_BASE_URL")
+        else:
+            base_url = os.environ.get("LLM_BASE_URL")
+
         model = os.environ.get("LLM_MODEL", self.config.model)
         return LLMClient(
             provider=provider,

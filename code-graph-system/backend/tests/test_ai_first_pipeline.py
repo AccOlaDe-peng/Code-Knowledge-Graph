@@ -178,7 +178,11 @@ class TestAIRepositoryScanStage:
         """测试空响应情况。"""
         from backend.pipeline.stages.ai_repository_scan import AIRepositoryScanStage
 
-        mock_llm_call.return_value = '{"entities": [], "flows": [], "flow_nodes": [], "services": [], "repositories": [], "topics": []}'
+        # 返回 (response, stats) 元组
+        mock_llm_call.return_value = (
+            '{"entities": [], "flows": [], "flow_nodes": [], "services": [], "repositories": [], "topics": []}',
+            {"status": "completed", "tool_calls": 5},
+        )
 
         stage = AIRepositoryScanStage()
         mock_client = MagicMock()
@@ -449,8 +453,10 @@ class TestAIFirstPipeline:
         """测试无实体时返回空结果。"""
         from backend.pipeline.ai_first_pipeline import AIFirstPipeline
 
-        # Mock 扫描结果为空
-        mock_scan_run.return_value = RepositoryScanResult(entities=[])
+        # Mock 扫描结果为空（但有工具调用，表示模型支持 function calling）
+        mock_result = RepositoryScanResult(entities=[])
+        mock_result.stats = {"tool_calls": 10}  # 有工具调用
+        mock_scan_run.return_value = mock_result
         mock_create_client.return_value = MagicMock()
 
         pipeline = AIFirstPipeline()
@@ -461,7 +467,7 @@ class TestAIFirstPipeline:
         )
 
         assert result.status == "failed"
-        assert "未识别到任何实体" in result.warnings
+        assert "未识别到任何实体" in result.warnings[0]
 
 
 # ─────────────────────────────────────────────────────────────────────────────

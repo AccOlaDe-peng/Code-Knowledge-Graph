@@ -26,6 +26,7 @@ def get_llm_client() -> LLMClient:
     通过环境变量配置：
     - LLM_PROVIDER: 提供商 (anthropic/openai/minimax/ollama/zhipu)
     - ANTHROPIC_API_KEY / OPENAI_API_KEY / MINIMAX_API_KEY 等
+    - LLM_BASE_URL: 通用 base_url（所有 provider 都会读取）
     """
     global _llm_client_instance
 
@@ -40,25 +41,23 @@ def get_llm_client() -> LLMClient:
 
     if provider == "anthropic":
         api_key = os.environ.get("ANTHROPIC_API_KEY")
+        # Anthropic 专用 base_url 优先级：ANTHROPIC_BASE_URL > LLM_BASE_URL
+        base_url = os.environ.get("ANTHROPIC_BASE_URL") or os.environ.get("LLM_BASE_URL")
     elif provider == "openai":
         api_key = os.environ.get("OPENAI_API_KEY")
-        base_url = os.environ.get("OPENAI_BASE_URL")
+        # OpenAI 专用 base_url 优先级：OPENAI_BASE_URL > LLM_BASE_URL
+        base_url = os.environ.get("OPENAI_BASE_URL") or os.environ.get("LLM_BASE_URL")
     elif provider == "minimax":
         api_key = os.environ.get("MINIMAX_API_KEY")
-        base_url = os.environ.get("MINIMAX_BASE_URL", "https://api.minimax.chat/v1")
+        base_url = os.environ.get("MINIMAX_BASE_URL") or os.environ.get("LLM_BASE_URL") or "https://api.minimax.chat/v1"
     elif provider == "ollama":
-        base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+        base_url = os.environ.get("OLLAMA_BASE_URL") or os.environ.get("LLM_BASE_URL") or "http://localhost:11434/v1"
     elif provider == "zhipu":
         api_key = os.environ.get("ZHIPU_API_KEY")
-        base_url = os.environ.get("ZHIPU_BASE_URL", "https://open.bigmodel.cn/api/paas/v4/")
+        base_url = os.environ.get("ZHIPU_BASE_URL") or os.environ.get("LLM_BASE_URL") or "https://open.bigmodel.cn/api/paas/v4/"
 
     # 读取模型名（与主流水线保持一致）
     model = os.environ.get("LLM_MODEL") or None
-
-    # Anthropic 代理也可能需要自定义 base_url
-    # 优先读取 LLM_BASE_URL（通用配置），其次读取 ANTHROPIC_BASE_URL（专用配置）
-    if provider == "anthropic" and not base_url:
-        base_url = os.environ.get("LLM_BASE_URL") or os.environ.get("ANTHROPIC_BASE_URL") or None
 
     _llm_client_instance = LLMClient(
         provider=provider,
@@ -612,6 +611,26 @@ class LLMClient:
                             for block in response.content:
                                 if hasattr(block, 'text'):
                                     text_content += block.text
+
+                        # 如果模型返回了文本但没有工具调用，可能是不支持 function calling
+                        # 在首次迭代检测到此情况时，立即返回明确错误
+                        if text_content and iterations == 1:
+                            logger.warning(
+                                "模型可能不支持 function calling: provider=%s, model=%s, "
+                                "响应包含文本而非工具调用。建议使用支持 function calling 的模型，"
+                                "如 Claude、GPT-4 或智谱 GLM-4。",
+                                self.provider,
+                                self.model,
+                            )
+                            return ToolCallLoopResult(
+                                status="no_tool_support",
+                                final_message=text_content,
+                                tool_calls=tool_calls,
+                                total_tokens=total_tokens,
+                                iterations=iterations,
+                                errors=["模型不支持 function calling，无法执行工具调用"],
+                            )
+
                         if text_content:
                             errors.append(f"LLM 响应没有工具调用，包含文本: {text_content[:200]}")
                         else:
@@ -701,19 +720,31 @@ class LLMClient:
                     openai_messages = [{"role": "system", "content": system}] + current_messages
 
                     # 检查是否支持 function calling（MiniMax、Ollama 等某些提供商不完全支持）
+                    # 注意：MiniMax 原生 API 支持 function calling，但需要正确配置 provider=minimax
                     supports_tools = self.provider not in ("minimax", "ollama")
 
                     logger.debug(
-                        "[tool_call_loop] 发送 OpenAI 请求: model=%s, messages=%d, tools=%d",
+                        "[tool_call_loop] 发送 OpenAI 请求: model=%s, messages=%d, tools=%d, supports_tools=%s",
                         self.model,
                         len(openai_messages),
                         len(tools) if tools else 0,
+                        supports_tools,
                     )
                     if supports_tools and tools:
+                        # 检查 tools 格式：如果已经是完整格式则直接使用，否则包装
+                        # 完整格式: [{"type": "function", "function": {...}}]
+                        # 简化格式: [{"name": "...", "description": "...", "parameters": {...}}]
+                        if tools and tools[0].get("type") == "function":
+                            # 已经是完整格式，直接使用
+                            formatted_tools = tools
+                        else:
+                            # 简化格式，需要包装
+                            formatted_tools = [{"type": "function", "function": t} for t in tools]
+
                         response = client.chat.completions.create(
                             model=self.model,
                             messages=openai_messages,
-                            tools=[{"type": "function", "function": t} for t in tools],
+                            tools=formatted_tools,
                             tool_choice="auto",
                         )
                     else:
@@ -837,6 +868,33 @@ class LLMClient:
                     # 返回错误结果，不再重试
                     return ToolCallLoopResult(
                         status="error",
+                        final_message=None,
+                        tool_calls=tool_calls,
+                        total_tokens=total_tokens,
+                        iterations=iterations,
+                        errors=errors,
+                    )
+
+                # 检查是否是模型引擎错误（通常表示不支持 tools 参数）
+                # 腾讯云代理返回 500 + 'model engine error' 表示不支持 function calling
+                # 或返回 400 + 'function name or parameters is empty' 表示 tools 格式不兼容
+                if "model engine error" in error_msg.lower() or (
+                    "500" in error_msg and "runtime_error" in error_msg
+                ) or (
+                    "invalid params" in error_msg.lower() and "function name" in error_msg.lower()
+                ) or (
+                    "400" in error_msg and "invalid_request_error" in error_msg
+                ):
+                    errors.append(f"API 错误，可能是模型不支持 function calling: {error_msg}")
+                    logger.error(
+                        "tool_call_loop 迭代 %d 出错（API 错误）: %s。"
+                        "这通常表示当前模型/API 代理不支持或不适配 function calling。"
+                        "建议使用支持工具调用的模型，如 Claude、GPT-4 或智谱 GLM-4。",
+                        iterations,
+                        e,
+                    )
+                    return ToolCallLoopResult(
+                        status="no_tool_support",
                         final_message=None,
                         tool_calls=tool_calls,
                         total_tokens=total_tokens,

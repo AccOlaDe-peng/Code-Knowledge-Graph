@@ -252,7 +252,7 @@ class AIRepositoryScanStage(StageBase):
         )
 
         # 调用 LLM（支持 tool call）
-        response = self._call_llm_with_tools(
+        response, llm_stats = self._call_llm_with_tools(
             llm_client=llm_client,
             repo_path=repo_path,
             user_prompt=user_prompt,
@@ -267,7 +267,7 @@ class AIRepositoryScanStage(StageBase):
         if observer:
             observer.emit(StageCompleted.create("ai_repository_scan", elapsed_ms, cache_hit=False))
 
-        # 统计信息
+        # 统计信息（合并 LLM 调用统计）
         stats = {
             "entity_count": len(result.entities),
             "flow_count": len(result.flows),
@@ -275,6 +275,8 @@ class AIRepositoryScanStage(StageBase):
             "repository_count": len(result.repositories),
             "topic_count": len(result.topics),
             "elapsed_ms": elapsed_ms,
+            "tool_calls": llm_stats.get("tool_calls", 0),
+            "llm_status": llm_stats.get("status", "unknown"),
         }
         result.stats = stats
 
@@ -323,8 +325,12 @@ class AIRepositoryScanStage(StageBase):
         llm_client: LLMClient,
         repo_path: Path,
         user_prompt: str,
-    ) -> str:
-        """调用 LLM（支持 tool call）。"""
+    ) -> tuple[str, dict]:
+        """调用 LLM（支持 tool call）。
+
+        Returns:
+            tuple[str, dict]: (响应文本, 统计信息)
+        """
         from backend.agent.tools.file_tools import FileTools
 
         # 创建工具执行器
@@ -377,8 +383,25 @@ class AIRepositoryScanStage(StageBase):
                         result.errors,
                     )
 
+                # 构建统计信息
+                stats = {
+                    "status": result.status,
+                    "tool_calls": len(result.tool_calls),
+                    "iterations": result.iterations,
+                    "total_tokens": result.total_tokens,
+                }
+
                 if result.status == "completed" and result.final_message:
-                    return result.final_message
+                    return result.final_message, stats
+
+                if result.status == "no_tool_support":
+                    logger.error(
+                        "[ai_repository_scan] 模型不支持 function calling: %s, "
+                        "请使用支持工具调用的模型（如 Claude、GPT-4 或智谱 GLM-4）",
+                        llm_client.model,
+                    )
+                    # 返回空结果，但包含统计信息
+                    return '{"entities": [], "flows": [], "flow_nodes": [], "services": [], "repositories": [], "topics": []}', stats
 
                 logger.warning("LLM 调用未完成 (attempt %d): %s", attempt, result.status)
 
@@ -386,7 +409,7 @@ class AIRepositoryScanStage(StageBase):
                 logger.warning("LLM 调用失败 (attempt %d): %s", attempt, e)
 
         # 失败时返回空结果
-        return '{"entities": [], "flows": [], "flow_nodes": [], "services": [], "repositories": [], "topics": []}'
+        return '{"entities": [], "flows": [], "flow_nodes": [], "services": [], "repositories": [], "topics": []}', {"status": "error", "tool_calls": 0}
 
     def _build_tools(self, repo_path: Path) -> list[dict]:
         """构建 LLM 工具定义。"""

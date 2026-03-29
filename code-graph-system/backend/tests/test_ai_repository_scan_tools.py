@@ -157,9 +157,9 @@ class TestEmptyResultWarning:
 
         pipeline = AIFirstPipeline()
 
-        # 模拟 AIRepositoryScanStage 返回空结果
+        # 模拟 AIRepositoryScanStage 返回空结果（但有工具调用）
         mock_scan_result = RepositoryScanResult()
-        mock_scan_result.stats = {"elapsed_ms": 5000, "entity_count": 0}
+        mock_scan_result.stats = {"elapsed_ms": 5000, "entity_count": 0, "tool_calls": 10}
 
         with patch.object(
             AIRepositoryScanStage, "run", return_value=mock_scan_result
@@ -179,3 +179,101 @@ class TestEmptyResultWarning:
         stats_log = next((m for m in log_messages if "扫描结果为空" in m), None)
         assert stats_log is not None
         assert "entities=0" in stats_log
+
+    def test_no_tool_support_warning(self, tmp_path: Path, caplog: pytest.LogCaptureFixture):
+        """验证模型不支持工具调用时的警告。"""
+        from backend.pipeline.ai_first_pipeline import AIFirstPipeline
+        from backend.models.ai_first_analysis import RepositoryScanResult
+
+        pipeline = AIFirstPipeline()
+
+        # 模拟 AIRepositoryScanStage 返回空结果且无工具调用
+        mock_scan_result = RepositoryScanResult()
+        mock_scan_result.stats = {"elapsed_ms": 5000, "entity_count": 0, "tool_calls": 0}
+
+        with patch.object(
+            AIRepositoryScanStage, "run", return_value=mock_scan_result
+        ):
+            with caplog.at_level(logging.WARNING):
+                result = pipeline.analyze(
+                    repo_path=tmp_path,
+                    repo_name="test-repo",
+                )
+
+        # 验证返回失败状态
+        assert result.status == "failed"
+        # 验证警告包含模型不支持的提示
+        assert "不支持工具调用" in result.warnings[0]
+
+
+class TestNoToolSupportDetection:
+    """测试模型不支持 function calling 的检测。"""
+
+    def test_no_tool_support_status_returned(self, tmp_path: Path, caplog: pytest.LogCaptureFixture):
+        """验证当模型不支持 function calling 时返回 no_tool_support 状态。"""
+        from backend.llm.client import LLMClient
+        from backend.llm.types import ToolCallLoopResult
+
+        stage = AIRepositoryScanStage()
+
+        # 创建模拟的 LLM 客户端，模拟返回文本而非工具调用
+        mock_llm = MagicMock()
+        mock_llm.tool_call_loop.return_value = ToolCallLoopResult(
+            status="no_tool_support",
+            final_message="我无法使用工具，但我可以分析...",
+            tool_calls=[],
+            total_tokens=100,
+            iterations=1,
+            errors=["模型不支持 function calling，无法执行工具调用"],
+        )
+        mock_llm.model = "test-model"
+
+        with caplog.at_level(logging.ERROR):
+            response, stats = stage._call_llm_with_tools(
+                llm_client=mock_llm,
+                repo_path=tmp_path,
+                user_prompt="test prompt",
+            )
+
+        # 验证返回空 JSON
+        assert "entities" in response
+        assert response.count("entities") == 1
+
+        # 验证统计信息
+        assert stats["status"] == "no_tool_support"
+        assert stats["tool_calls"] == 0
+
+        # 验证日志包含错误信息
+        assert any("不支持 function calling" in r.message for r in caplog.records)
+
+
+class TestModelEngineError:
+    """测试模型引擎错误（500）的处理。"""
+
+    def test_model_engine_error_returns_no_tool_support(self, tmp_path: Path, caplog: pytest.LogCaptureFixture):
+        """验证模型引擎错误返回 no_tool_support 状态。"""
+        from backend.llm.client import LLMClient
+        from backend.llm.types import ToolCallLoopResult
+
+        stage = AIRepositoryScanStage()
+
+        # 创建模拟的 LLM 客户端，模拟抛出 model engine error
+        mock_llm = MagicMock()
+        mock_llm.tool_call_loop.side_effect = Exception(
+            "Error code: 500 - {'error': {'message': 'model engine error', 'type': 'runtime_error', 'code': '20057'}}"
+        )
+        mock_llm.model = "test-model"
+
+        with caplog.at_level(logging.ERROR):
+            response, stats = stage._call_llm_with_tools(
+                llm_client=mock_llm,
+                repo_path=tmp_path,
+                user_prompt="test prompt",
+            )
+
+        # 验证返回空 JSON
+        assert "entities" in response
+
+        # 验证统计信息
+        assert stats["status"] == "error"  # 因为是在 _call_llm_with_tools 中捕获异常后返回的
+        assert stats["tool_calls"] == 0

@@ -252,8 +252,146 @@ logger.warning(
 [WARNING] 工具执行器未找到: tool_name=list_directory, available_executors=[]
 ```
 
+### 8. 模型兼容性检测（新增）
+
+**问题**：某些 LLM 提供商（如腾讯云 GLM-5 代理）不支持 function calling，导致 `tool_call_loop` 无限循环后返回空结果。
+
+**现象**：
+- 返回文本而非工具调用
+- 或返回 500 错误（`model engine error`）
+
+**文件**：`backend/llm/client.py`
+
+**检测 1：首次响应无工具调用**
+
+```python
+# Anthropic 分支：首次响应无工具调用时检测
+if not valid_tool_uses:
+    text_content = ""
+    if response.content:
+        for block in response.content:
+            if hasattr(block, 'text'):
+                text_content += block.text
+
+    # 如果模型返回了文本但没有工具调用，可能是不支持 function calling
+    if text_content and iterations == 1:
+        logger.warning(
+            "模型可能不支持 function calling: provider=%s, model=%s, "
+            "响应包含文本而非工具调用。建议使用支持 function calling 的模型。",
+            self.provider,
+            self.model,
+        )
+        # 直接返回文本结果，不再循环
+        return ToolCallLoopResult(
+            status="no_tool_support",
+            final_message=text_content,
+            tool_calls=tool_calls,
+            total_tokens=total_tokens,
+            iterations=iterations,
+            errors=["模型不支持 function calling，无法执行工具"],
+        )
+```
+
+**检测 2：API 返回模型引擎错误（500）**
+
+```python
+# 检查是否是模型引擎错误（通常表示不支持 tools 参数）
+# 腾讯云代理返回 500 + 'model engine error' 表示不支持 function calling
+if "model engine error" in error_msg.lower() or (
+    "500" in error_msg and "runtime_error" in error_msg
+):
+    errors.append(f"API 返回模型引擎错误，可能是模型不支持 function calling: {error_msg}")
+    logger.error(
+        "tool_call_loop 迭代 %d 出错（模型引擎错误）: %s。"
+        "这通常表示当前模型/API 代理不支持 function calling。"
+        "建议使用支持工具调用的模型，如 Claude、GPT-4 或智谱 GLM-4。",
+        iterations,
+        e,
+    )
+    return ToolCallLoopResult(
+        status="no_tool_support",
+        final_message=None,
+        tool_calls=tool_calls,
+        total_tokens=total_tokens,
+        iterations=iterations,
+        errors=errors,
+    )
+```
+
+**文件**：`backend/pipeline/stages/ai_repository_scan.py`
+
+处理 `no_tool_support` 状态：
+
+```python
+if result.status == "completed" and result.final_message:
+    return result.final_message
+
+if result.status == "no_tool_support":
+    logger.error(
+        "[ai_repository_scan] 模型不支持 function calling: %s, 请使用支持工具调用的模型",
+        llm_client.model,
+    )
+    # 返回空结果，但包含明确的错误信息
+    return '{"entities": [], "flows": [], "flow_nodes": [], "services": [], "repositories": [], "topics": []}'
+```
+
+### 9. 前端提示改进（新增）
+
+**文件**：`backend/pipeline/ai_first_pipeline.py`
+
+当检测到模型不支持 function calling 时，返回更友好的错误信息：
+
+```python
+if not scan_result.entities:
+    # 检查是否是模型不支持工具调用的情况
+    if scan_result.stats and scan_result.stats.get("tool_calls", 0) == 0:
+        warning_msg = (
+            "当前模型可能不支持工具调用（function calling），"
+            "AI 仓库扫描需要此能力。请使用支持工具调用的模型，"
+            "如 Claude、GPT-4 或智谱 GLM-4。"
+        )
+    else:
+        warning_msg = "未识别到任何实体"
+        if scan_result.stats and scan_result.stats.get("elapsed_ms", 0) > 0:
+            warning_msg += f"（分析耗时 {scan_result.stats['elapsed_ms'] // 1000}s）"
+
+    # ... 其余代码
+```
+
+## 改动文件汇总
+
+| 文件 | 改动类型 | 改动内容 |
+|------|---------|---------|
+| `backend/pipeline/stages/ai_repository_scan.py` | 核心修复 | 注入 `FileTools` 到 `tool_executor_map` |
+| `backend/llm/client.py` | 日志改进 | `_dispatch_tool` 添加警告日志 |
+| `backend/llm/client.py` | 模型兼容性 | 检测模型是否支持 function calling |
+| `backend/llm/client.py` | 日志改进 | `tool_call_loop` 记录工具调用详情 |
+| `backend/pipeline/ai_first_pipeline.py` | 错误传递 | 失败时发送详细错误信息 |
+| `backend/pipeline/ai_first_pipeline.py` | 前端提示 | 模型不支持时的友好提示 |
+| `backend/scheduler/tasks.py` | 日志改进 | 状态更新失败时记录更详细信息 |
+| `backend/tests/test_ai_repository_scan_tools.py` | 新增 | 测试工具执行器注入和日志 |
+
 ## 风险评估
 
 - **改动范围**：中等，涉及 5 个文件
 - **向后兼容**：完全兼容，不改变接口签名
 - **测试覆盖**：新增单元测试验证核心修复
+
+## 模型兼容性说明
+
+`ai_first` 流水线需要 LLM 支持 **function calling**（工具调用）能力。
+
+**支持的模型**：
+- Anthropic Claude 系列（Claude 3.5+）
+- OpenAI GPT-4 / GPT-3.5-turbo
+- 智谱 GLM-4（需使用官方 API `https://open.bigmodel.cn/api/paas/v4/`）
+- 其他兼容 OpenAI API 的模型
+
+**不支持的模型**：
+- 腾讯云 GLM-5 代理（当前配置）
+- 纯文本生成模型
+
+**解决方案**：
+1. 使用 `static_first` 流水线（不依赖 function calling）
+2. 切换到支持 function calling 的模型
+3. 使用智谱官方 API 而非代理
