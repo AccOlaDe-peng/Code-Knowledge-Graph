@@ -9,6 +9,7 @@ import type {
   AnalyzeAsyncResponse,
   AnalysisStatusResponse,
   AnalyzeCancelResponse,
+  PipelineMode,
 } from "../../../types/api";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -125,8 +126,12 @@ export const graphEndpoints = {
     branch?: string;
     languages?: string[];
     depth?: "quick" | "standard" | "deep";
+    pipeline_mode?: PipelineMode;
   }): Promise<AnalyzeAsyncResponse> {
-    return apiClient.post("/analyze/repository", data);
+    return apiClient.post("/analyze/repository", {
+      ...data,
+      pipeline_mode: data.pipeline_mode ?? "static_first",
+    });
   },
 
   /**

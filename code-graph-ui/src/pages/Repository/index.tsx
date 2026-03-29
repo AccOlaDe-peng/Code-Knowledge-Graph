@@ -15,7 +15,7 @@ import { graphEndpoints, repoEndpoints } from "../../core/api/endpoints/graph";
 import { useRepoStore } from "../../store/repoStore";
 import { useGraphStore } from "../../store/graphStore";
 import { usePipelineStore } from "../../store/pipelineStore";
-import type { AnalysisDepth, RepoInfo } from "../../types/api";
+import type { AnalysisDepth, RepoInfo, PipelineMode } from "../../types/api";
 import { useRepoList } from "./hooks/useRepoList";
 import { useAnalysisProgress } from "./hooks/useAnalysisProgress";
 import { DEPTH_OPTIONS } from "./constants";
@@ -60,6 +60,7 @@ const Repository: React.FC = () => {
   const [detailRepoId, setDetailRepoId] = useState<string | null>(null);
   const [analysisConfirmRepo, setAnalysisConfirmRepo] = useState<RepoInfo | null>(null);
   const [analysisDepth, setAnalysisDepth] = useState<AnalysisDepth>("standard");
+  const [pipelineMode, setPipelineMode] = useState<PipelineMode>("static_first");
 
   // UI state
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
@@ -122,7 +123,7 @@ const Repository: React.FC = () => {
   );
 
   const startAnalysis = useCallback(
-    async (repo: RepoInfo, depth: AnalysisDepth = "standard") => {
+    async (repo: RepoInfo, depth: AnalysisDepth = "standard", mode: PipelineMode = "static_first") => {
       if (!repo.repoPath) {
         message.error("缺少仓库路径，无法分析");
         return;
@@ -140,6 +141,7 @@ const Repository: React.FC = () => {
           branch: repo.branch,
           languages: repo.language.length > 0 ? repo.language : undefined,
           depth,
+          pipeline_mode: mode,
         });
 
         updateRepo(repo.repoId, {
@@ -651,7 +653,9 @@ const Repository: React.FC = () => {
       <AnalysisConfirmDialog
         repo={analysisConfirmRepo}
         depth={analysisDepth}
+        pipelineMode={pipelineMode}
         onDepthChange={setAnalysisDepth}
+        onPipelineModeChange={setPipelineMode}
         onStart={startAnalysis}
         onClose={() => setAnalysisConfirmRepo(null)}
       />

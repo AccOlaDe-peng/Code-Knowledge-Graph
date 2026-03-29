@@ -7,15 +7,19 @@ import {
   PlayCircleOutlined,
   CodeOutlined,
   BranchesOutlined as GitBranchOutlined,
+  ToolOutlined,
+  RobotOutlined,
 } from "@ant-design/icons";
 import { DEPTH_OPTIONS } from "../constants";
-import type { AnalysisDepth, RepoInfo } from "../../../types/api";
+import type { AnalysisDepth, RepoInfo, PipelineMode } from "../../../types/api";
 
 interface AnalysisConfirmDialogProps {
   repo: RepoInfo | null;
   depth: AnalysisDepth;
+  pipelineMode: PipelineMode;
   onDepthChange: (depth: AnalysisDepth) => void;
-  onStart: (repo: RepoInfo, depth: AnalysisDepth) => void;
+  onPipelineModeChange: (mode: PipelineMode) => void;
+  onStart: (repo: RepoInfo, depth: AnalysisDepth, pipelineMode: PipelineMode) => void;
   onClose: () => void;
 }
 
@@ -52,16 +56,40 @@ const getDepthConfig = (value: AnalysisDepth) => {
   }
 };
 
+const PIPELINE_MODE_OPTIONS: Array<{
+  value: PipelineMode;
+  label: string;
+  icon: React.ReactNode;
+  description: string;
+  tag?: string;
+}> = [
+  {
+    value: "static_first",
+    label: "静态分析 + AI 增强",
+    icon: <ToolOutlined />,
+    description: "高效率，成本低",
+    tag: "推荐",
+  },
+  {
+    value: "ai_first",
+    label: "纯 AI 分析",
+    icon: <RobotOutlined />,
+    description: "需要模型支持 function calling",
+  },
+];
+
 export const AnalysisConfirmDialog: React.FC<AnalysisConfirmDialogProps> = ({
   repo,
   depth,
+  pipelineMode,
   onDepthChange,
+  onPipelineModeChange,
   onStart,
   onClose,
 }) => {
   const handleStart = () => {
     if (repo) {
-      onStart(repo, depth);
+      onStart(repo, depth, pipelineMode);
       onClose();
     }
   };
@@ -300,6 +328,110 @@ export const AnalysisConfirmDialog: React.FC<AnalysisConfirmDialogProps> = ({
                     transition: "all 0.15s var(--ease-out)",
                   }}
                 />
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Pipeline Mode Selection */}
+      <div style={{ padding: "16px 28px 20px", borderTop: "1px solid var(--b-faint)" }}>
+        <div
+          style={{
+            fontFamily: "var(--font-ui)",
+            fontSize: 12,
+            fontWeight: 500,
+            color: "var(--t-secondary)",
+            marginBottom: 12,
+          }}
+        >
+          选择分析模式
+        </div>
+
+        <div style={{ display: "flex", gap: 10 }}>
+          {PIPELINE_MODE_OPTIONS.map((opt) => {
+            const isSelected = pipelineMode === opt.value;
+            return (
+              <button
+                key={opt.value}
+                onClick={() => onPipelineModeChange(opt.value)}
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "12px 14px",
+                  background: isSelected
+                    ? "rgba(0,212,255,0.08)"
+                    : "var(--s-float)",
+                  border: isSelected
+                    ? "1px solid rgba(0,212,255,0.4)"
+                    : "1px solid var(--b-faint)",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  textAlign: "left",
+                  transition: "all 0.15s ease",
+                }}
+              >
+                <div
+                  style={{
+                    width: 32,
+                    height: 32,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: isSelected
+                      ? "rgba(0,212,255,0.15)"
+                      : "var(--s-overlay)",
+                    borderRadius: 6,
+                    color: isSelected ? "var(--t-cyan)" : "var(--t-muted)",
+                  }}
+                >
+                  {opt.icon}
+                </div>
+                <div>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontFamily: "var(--font-ui)",
+                        fontSize: 13,
+                        fontWeight: 500,
+                        color: isSelected ? "var(--t-cyan)" : "var(--t-primary)",
+                      }}
+                    >
+                      {opt.label}
+                    </span>
+                    {opt.tag && (
+                      <span
+                        style={{
+                          fontSize: 10,
+                          background: "rgba(0,240,132,0.15)",
+                          color: "var(--t-green)",
+                          padding: "1px 5px",
+                          borderRadius: 3,
+                        }}
+                      >
+                        {opt.tag}
+                      </span>
+                    )}
+                  </div>
+                  <div
+                    style={{
+                      fontFamily: "var(--font-ui)",
+                      fontSize: 11,
+                      color: "var(--t-muted)",
+                      marginTop: 2,
+                    }}
+                  >
+                    {opt.description}
+                  </div>
+                </div>
               </button>
             );
           })}
