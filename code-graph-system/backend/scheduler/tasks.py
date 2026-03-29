@@ -642,15 +642,15 @@ def analyze_repository(
             # 其他异常会重试：不发送 failed 事件，让前端等待重试结果
             logger.error("analyze_repository FAILED: %s", exc, exc_info=True)
             raise self.retry(exc=exc)
-    finally:
-        # 清理 Git 克隆的临时目录
-        if tmp_dir and Path(tmp_dir).exists():
-            import shutil
-            try:
-                shutil.rmtree(tmp_dir, ignore_errors=True)
-                logger.info("Cleaned up tmp_dir: %s", tmp_dir)
-            except Exception as exc:
-                logger.warning("Failed to cleanup tmp_dir %s: %s", tmp_dir, exc)
+
+    # 清理 Git 克隆的临时目录（tmp_dir 参数已废弃，此处保留向后兼容）
+    if tmp_dir and Path(tmp_dir).exists():
+        import shutil
+        try:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            logger.info("Cleaned up tmp_dir: %s", tmp_dir)
+        except Exception as exc:
+            logger.warning("Failed to cleanup tmp_dir %s: %s", tmp_dir, exc)
 
     git_commit = _get_git_head(path)
     built = result.built
