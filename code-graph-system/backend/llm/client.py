@@ -573,7 +573,7 @@ class LLMClient:
                     tool_results = []
                     for tool_use in tool_uses:
                         tool_name = tool_use.name
-                        tool_input = dict(tool_use.input)
+                        tool_input = dict(tool_use.input) if tool_use.input else {}
 
                         tool_output = {}
                         success = True
@@ -687,7 +687,8 @@ class LLMClient:
 
                     for tool_call in message.tool_calls:
                         tool_name = tool_call.function.name
-                        tool_input = json.loads(tool_call.function.arguments)
+                        args_str = tool_call.function.arguments or "{}"
+                        tool_input = json.loads(args_str) if args_str.strip() else {}
 
                         tool_output = {}
                         success = True

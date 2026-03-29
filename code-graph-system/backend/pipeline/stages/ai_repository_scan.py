@@ -339,8 +339,6 @@ class AIRepositoryScanStage(StageBase):
                     messages=messages,
                     tools=tools,
                     max_iterations=20,
-                    temperature=self.temperature,
-                    max_tokens=self.max_tokens,
                 )
 
                 if result.status == "completed" and result.final_message:
