@@ -693,7 +693,6 @@ class LLMClient:
                             tool_choice="auto",
                         )
                     else:
-                    else:
                         # 不支持 tools 的提供商，使用普通对话
                         # 将工具描述添加到系统提示
                         tools_desc = "\n\n可用工具:\n" + "\n".join(
