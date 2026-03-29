@@ -20,8 +20,15 @@ code-knowledge-graph/
 
 ```bash
 cd code-graph-system
+
+# Unix/macOS
 python3 -m venv venv
 source venv/bin/activate
+
+# Windows
+python -m venv venv
+venv\Scripts\activate
+
 pip install -r requirements-minimal.txt   # 快速启动（无 AI/向量/Neo4j）
 pip install -r requirements.txt           # 完整功能
 ```
@@ -45,26 +52,23 @@ python -m backend.pipeline.ai_analyze /path/to/repo --pipeline-mode ai_first
 
 # 运行单个测试文件
 pytest backend/tests/test_ai_analysis_models.py -v
-pytest backend/tests/test_module_scanner_agent.py -v
 pytest backend/tests/test_ai_pipeline.py -v
 pytest backend/tests/test_ai_pipeline_e2e.py -v  # 需要 LLM API Key
 pytest backend/tests/test_ai_first_pipeline.py -v  # AI 优先流水线测试
 
-# 运行静态优先流水线测试（Phase 1-6）
-pytest backend/tests/test_phase2_static_analysis.py -v
+# 运行静态优先流水线测试
 pytest backend/tests/test_static_first_pipeline.py -v
-pytest backend/tests/test_phase5_incremental.py -v
-pytest backend/tests/test_phase6_integration.py -v
+pytest backend/tests/test_phase*.py -v
 
-# 运行所有 Phase 测试
-pytest backend/tests/test_phase*.py backend/tests/test_static_first_pipeline.py -v
-
-# 运行所有 Agent 系统测试
+# 运行 Agent 系统测试
 pytest backend/tests/test_agent_orchestrator.py -v
 pytest backend/tests/test_agent_*.py -v
 
 # 运行单个测试函数
 pytest backend/tests/test_ai_pipeline.py::test_scan_repository -v
+
+# 运行所有测试
+pytest backend/tests/ -v
 
 # 检查依赖状态
 python scripts/check_deps.py
@@ -72,6 +76,12 @@ python scripts/check_deps.py
 # Celery Worker（需先启动 Redis）
 celery -A backend.scheduler.celery_app worker --loglevel=info
 celery -A backend.scheduler.celery_app worker --beat --loglevel=info  # Worker + Beat
+
+# Windows Celery Worker（需使用 solo pool）
+celery -A backend.scheduler.celery_app worker --loglevel=info --pool=solo
+# 或使用启动脚本
+.\start-celery-worker.ps1   # PowerShell
+.\start-celery-worker.bat   # CMD
 ```
 
 ## 架构概览
@@ -345,14 +355,23 @@ AI 分析缓存（`backend/ai/cache/`）：commit SHA 不变则跳过 LLM 调用
 
 | 变量                    | 说明                                                 |
 | ----------------------- | ---------------------------------------------------- |
-| `LLM_PROVIDER`          | `anthropic`（默认）/ `openai` / `minimax` / `ollama` |
+| `LLM_PROVIDER`          | `anthropic`（默认）/ `openai` / `minimax` / `ollama` / `zhipu` |
 | `ANTHROPIC_API_KEY`     | LLM_PROVIDER=anthropic 时必须                        |
 | `OPENAI_API_KEY`        | LLM_PROVIDER=openai 时使用                           |
 | `MINIMAX_API_KEY`       | LLM_PROVIDER=minimax 时必须                          |
 | `MINIMAX_GROUP_ID`      | LLM_PROVIDER=minimax 时必须                          |
+| `ZHIPU_API_KEY`         | LLM_PROVIDER=zhipu 时必须                            |
+| `LLM_MODEL`             | 覆盖默认模型名称                                     |
+| `LLM_BASE_URL`          | 自定义 LLM API 端点（优先级最高）                    |
+| `ANTHROPIC_BASE_URL`    | Anthropic API 自定义端点                             |
+| `OPENAI_BASE_URL`       | OpenAI API 自定义端点                                |
+| `OLLAMA_BASE_URL`       | Ollama 端点，默认 `http://localhost:11434/v1`        |
 | `NEO4J_URI`             | 可选，如 `bolt://localhost:7687`                     |
 | `CELERY_BROKER_URL`     | 默认 `redis://localhost:6379/0`                      |
 | `CELERY_RESULT_BACKEND` | 默认 `redis://localhost:6379/1`                      |
+| `AI_DESCRIPTION_CONCURRENCY` | AI 描述生成并发数，默认 3                       |
+| `AI_ENTITY_CONCURRENCY` | AI 实体分析并发数，默认 3                            |
+| `LLM_MAX_CONCURRENCY`   | LLM 最大并发数                                       |
 
 ## 添加新 Agent
 
@@ -470,6 +489,12 @@ import { useAsync, useDebounce } from "@/core/hooks";
 - `tsconfig.app.json` 开启了 `erasableSyntaxOnly: true`，**禁止使用 TypeScript `enum`**，改用 `const` 对象 + `as const`
 - Ant Design `Card` 组件无 `icon` prop
 - `GraphNode` 类型只有 `id`, `type`, `label`, `properties`，**没有 `name` 属性**
+
+### Windows 开发注意事项
+
+- Celery Worker 在 Windows 上需使用 `--pool=solo` 参数
+- 启动脚本：`start-celery-worker.bat`（CMD）或 `start-celery-worker.ps1`（PowerShell）
+- 虚拟环境激活：`venv\Scripts\activate`（非 `source venv/bin/activate`）
 
 ### 设计系统（Mission Control Dark）
 

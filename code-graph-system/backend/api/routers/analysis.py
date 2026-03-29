@@ -107,7 +107,7 @@ class AnalyzeRequest(BaseModel):
     branch:     Optional[str]  = Field(default=None, description="Git 分支名（仅当 repo_path 为 Git URL 时生效）")
     languages:  Optional[list[str]] = Field(default=None, description="限定分析语言，如 ['python', 'typescript']")
     depth:      str            = Field(default="standard", description="分析深度 (quick | standard | deep)")
-    pipeline_mode: str         = Field(default="static_first", description="流水线模式 (static_first | ai_first)")
+    pipeline_mode: str         = Field(default="ai_first", description="流水线模式 (static_first | ai_first)")
 
 
 class AnalyzeAsyncResponse(BaseModel):

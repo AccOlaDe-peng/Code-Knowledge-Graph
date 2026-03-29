@@ -302,7 +302,7 @@ def analyze_repository(
     tmp_dir: Optional[str] = None,
     depth: str = "standard",
     store_repo_id: Optional[str] = None,
-    pipeline_mode: str = "static_first",
+    pipeline_mode: str = "ai_first",
 ) -> dict[str, Any]:
     """全量分析代码仓库，构建并持久化知识图谱（默认启用 AI + RAG）。
 

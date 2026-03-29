@@ -72,7 +72,7 @@ const FieldLineage: React.FC = () => {
         const entityMap = new Map<string, EntityInfo>();
 
         res.nodes.forEach((node: GraphNode) => {
-          if (node.type === 'Entity') {
+          if (node.type === 'Entity' || node.type === 'entity') {
             const entity: EntityInfo = {
               id: node.id,
               name: node.label || node.id.replace('entity:', ''),
@@ -80,9 +80,11 @@ const FieldLineage: React.FC = () => {
               fields: [],
             };
             entityMap.set(node.id, entity);
-          } else if (node.type === 'Field') {
-            // Parse entity name from field ID (format: entity:EntityName.fieldName)
-            const parts = node.id.replace('field:', '').split('.');
+          } else if (node.type === 'Field' || node.type === 'field') {
+            // Parse entity name from field ID (format: entity:EntityName.fieldName or field:EntityName.fieldName)
+            const idParts = node.id.split(':');
+            const fieldPath = idParts.length > 1 ? idParts[1] : node.id;
+            const parts = fieldPath.split('.');
             if (parts.length === 2) {
               const entityId = `entity:${parts[0]}`;
               const entity = entityMap.get(entityId);
@@ -101,7 +103,7 @@ const FieldLineage: React.FC = () => {
 
         setEntities(Array.from(entityMap.values()));
 
-        // Extract lineages
+        // Extract lineages - filter for flow_to edges
         const flowLineages: FlowInfo[] = res.edges
           .filter((edge: GraphEdge) => edge.type === 'flow_to')
           .map((edge: GraphEdge) => ({
@@ -321,8 +323,18 @@ const FieldLineage: React.FC = () => {
             {error}
           </div>
         ) : graphNodes.length === 0 ? (
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
-            <Empty description="暂无血缘数据，请先运行 AI 优先分析" />
+          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100%', gap: 12 }}>
+            <Empty
+              description={
+                <span>
+                  暂无字段血缘数据
+                  <br />
+                  <span style={{ fontSize: 12, color: 'var(--t-muted)' }}>
+                    请使用 AI 优先流水线（pipeline_mode=ai_first）分析仓库
+                  </span>
+                </span>
+              }
+            />
           </div>
         ) : (
           <GraphViewer
