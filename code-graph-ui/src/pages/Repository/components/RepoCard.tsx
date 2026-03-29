@@ -230,7 +230,7 @@ export const RepoCard: React.FC<RepoCardProps> = ({
               gap: 5,
             }}
           >
-            <GitBranchOutlined style={{ fontSize: 11, opacity: 0.7 }} />
+            <BranchesOutlined style={{ fontSize: 11, opacity: 0.7 }} />
             {repo.branch || "默认"}
           </span>
         </Tooltip>

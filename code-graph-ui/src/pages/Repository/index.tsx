@@ -1,14 +1,22 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button, message, Space } from "antd";
-import { PlusOutlined, ReloadOutlined } from "@ant-design/icons";
+import { Button, message, Space, Input, Dropdown, Empty } from "antd";
+import type { MenuProps } from "antd";
+import {
+  PlusOutlined,
+  ReloadOutlined,
+  SearchOutlined,
+  AppstoreOutlined,
+  UnorderedListOutlined,
+  FilterOutlined,
+  SortAscendingOutlined,
+} from "@ant-design/icons";
 import { graphEndpoints, repoEndpoints } from "../../core/api/endpoints/graph";
 import { useRepoStore } from "../../store/repoStore";
 import { useGraphStore } from "../../store/graphStore";
 import { usePipelineStore } from "../../store/pipelineStore";
 import type { AnalysisDepth, RepoInfo } from "../../types/api";
 import { useRepoList } from "./hooks/useRepoList";
-import { useAnalysisProgress } from "./hooks/useAnalysisProgress";
 import { DEPTH_OPTIONS } from "./constants";
 import {
   AddRepoModal,
@@ -17,7 +25,7 @@ import {
   RepoDetailDrawer,
 } from "./components";
 import type { RepoFormValues } from "./components/AddRepoModal";
-import { SkeletonTable } from "../../components/ui/Skeleton";
+import { SkeletonList } from "../../components/ui/Skeleton";
 import { EmptyRepository } from "../../components/ui/EmptyState";
 
 const inferRepoName = (
@@ -30,6 +38,9 @@ const inferRepoName = (
   const last = normalized.split("/").pop() || normalized;
   return last.replace(/\.git$/i, "") || `repo-${Date.now()}`;
 };
+
+type ViewMode = "grid" | "list";
+type SortBy = "name" | "createdAt" | "lastAnalyzedAt" | "status";
 
 const Repository: React.FC = () => {
   const navigate = useNavigate();
@@ -48,6 +59,12 @@ const Repository: React.FC = () => {
   const [detailRepoId, setDetailRepoId] = useState<string | null>(null);
   const [analysisConfirmRepo, setAnalysisConfirmRepo] = useState<RepoInfo | null>(null);
   const [analysisDepth, setAnalysisDepth] = useState<AnalysisDepth>("standard");
+
+  // UI state
+  const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState<SortBy>("lastAnalyzedAt");
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
 
   const detailRepo = useMemo(
     () => repos.find((repo) => repo.repoId === detailRepoId) ?? null,
@@ -81,7 +98,6 @@ const Repository: React.FC = () => {
       const repoName = inferRepoName(repoPath, values.repoName);
 
       if (mode === "create") {
-        // 持久化到后端（POST /repos），与 GET /repos 使用同一存储
         await repoEndpoints.createRepo({
           repo_name: repoName,
           repo_path: repoPath!,
@@ -90,12 +106,9 @@ const Repository: React.FC = () => {
           language: values.languages ?? [],
         });
 
-        // 从后端重新同步，确保列表数据一致
         await syncRepos({ force: true });
         message.success("仓库已保存，可在列表中发起分析");
       } else if (mode === "edit" && editRepo) {
-        // 编辑模式：调用 PUT /repos/:id
-        // TODO: 等待后端实现 PUT /repos/:id
         updateRepo(editRepo.repoId, {
           repoName,
           branch: values.branch,
@@ -198,7 +211,6 @@ const Repository: React.FC = () => {
     async (repo: RepoInfo) => {
       try {
         await repoEndpoints.deleteRepo(repo.repoId);
-        // 删除后重新从后端同步
         await syncRepos({ force: true });
         message.success("仓库已删除");
         if (detailRepoId === repo.repoId) {
@@ -211,6 +223,62 @@ const Repository: React.FC = () => {
     [detailRepoId, syncRepos],
   );
 
+  // Filter and sort repos
+  const filteredRepos = useMemo(() => {
+    let result = [...repos];
+
+    // Search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(
+        (repo) =>
+          repo.repoName.toLowerCase().includes(query) ||
+          repo.language.some((lang) => lang.toLowerCase().includes(query)),
+      );
+    }
+
+    // Status filter
+    if (statusFilter) {
+      result = result.filter((repo) => repo.status === statusFilter);
+    }
+
+    // Sort
+    result.sort((a, b) => {
+      switch (sortBy) {
+        case "name":
+          return a.repoName.localeCompare(b.repoName);
+        case "createdAt":
+          return (
+            new Date(b.createdAt || 0).getTime() -
+            new Date(a.createdAt || 0).getTime()
+          );
+        case "lastAnalyzedAt":
+          return (
+            new Date(b.lastAnalyzedAt || 0).getTime() -
+            new Date(a.lastAnalyzedAt || 0).getTime()
+          );
+        case "status":
+          const statusOrder: Record<string, number> = {
+            analyzing: 0,
+            pending: 1,
+            failed: 2,
+            completed: 3,
+            completed_partial: 4,
+            canceled: 5,
+            saved: 6,
+          };
+          return (
+            (statusOrder[a.status || "saved"] || 99) -
+            (statusOrder[b.status || "saved"] || 99)
+          );
+        default:
+          return 0;
+      }
+    });
+
+    return result;
+  }, [repos, searchQuery, statusFilter, sortBy]);
+
   const existingPaths = useMemo(
     () => repos.map((r) => r.repoPath).filter(Boolean) as string[],
     [repos],
@@ -218,47 +286,118 @@ const Repository: React.FC = () => {
 
   const isLoading = useRepoStore((s) => s.loading);
 
+  // Stats
+  const stats = useMemo(() => {
+    const total = repos.length;
+    const analyzing = repos.filter((r) => r.status === "analyzing").length;
+    const completed = repos.filter(
+      (r) => r.status === "completed" || r.status === "completed_partial",
+    ).length;
+    const failed = repos.filter((r) => r.status === "failed").length;
+    return { total, analyzing, completed, failed };
+  }, [repos]);
+
+  // Dropdown menus
+  const sortMenuItems: MenuProps["items"] = [
+    {
+      key: "lastAnalyzedAt",
+      label: "最近分析",
+      onClick: () => setSortBy("lastAnalyzedAt"),
+    },
+    {
+      key: "name",
+      label: "名称",
+      onClick: () => setSortBy("name"),
+    },
+    {
+      key: "createdAt",
+      label: "创建时间",
+      onClick: () => setSortBy("createdAt"),
+    },
+    {
+      key: "status",
+      label: "状态",
+      onClick: () => setSortBy("status"),
+    },
+  ];
+
+  const filterMenuItems: MenuProps["items"] = [
+    {
+      key: "all",
+      label: "全部",
+      onClick: () => setStatusFilter(null),
+    },
+    { type: "divider" },
+    {
+      key: "analyzing",
+      label: "分析中",
+      onClick: () => setStatusFilter("analyzing"),
+    },
+    {
+      key: "completed",
+      label: "已完成",
+      onClick: () => setStatusFilter("completed"),
+    },
+    {
+      key: "failed",
+      label: "失败",
+      onClick: () => setStatusFilter("failed"),
+    },
+    {
+      key: "saved",
+      label: "未分析",
+      onClick: () => setStatusFilter("saved"),
+    },
+  ];
+
   return (
-    <div>
+    <div style={{ minHeight: "100%" }}>
+      {/* Header */}
       <div
         style={{
           display: "flex",
           alignItems: "flex-end",
           justifyContent: "space-between",
-          marginBottom: 24,
+          marginBottom: 28,
         }}
       >
         <div>
           <div
             style={{
-              fontSize: 12,
+              fontSize: 11,
               fontFamily: "var(--font-mono)",
               color: "var(--t-muted)",
-              letterSpacing: "0.1em",
-              marginBottom: 6,
+              letterSpacing: "0.12em",
+              marginBottom: 8,
+              textTransform: "uppercase",
             }}
           >
             系统 / 仓库
           </div>
-          <h2
+          <h1
             style={{
               margin: 0,
-              fontSize: 28,
+              fontSize: 32,
               fontWeight: 700,
               color: "var(--t-primary)",
               fontFamily: "var(--font-ui)",
-              letterSpacing: "-0.01em",
+              letterSpacing: "-0.02em",
             }}
           >
             仓库管理
-          </h2>
+          </h1>
         </div>
 
-        <Space>
+        <Space size={12}>
           <Button
             icon={<ReloadOutlined />}
             onClick={refreshLocalRepos}
-            style={{ fontFamily: "var(--font-ui)", fontSize: 14 }}
+            style={{
+              fontFamily: "var(--font-ui)",
+              fontSize: 13,
+              height: 36,
+              borderRadius: 6,
+            }}
           >
             刷新
           </Button>
@@ -269,106 +408,226 @@ const Repository: React.FC = () => {
               setEditRepo(null);
               setModalOpen(true);
             }}
-            style={{ fontFamily: "var(--font-ui)", fontSize: 14 }}
+            style={{
+              fontFamily: "var(--font-ui)",
+              fontSize: 13,
+              height: 36,
+              borderRadius: 6,
+              boxShadow: "0 0 20px rgba(0,212,255,0.25)",
+            }}
           >
             添加仓库
           </Button>
         </Space>
       </div>
 
+      {/* Stats Cards */}
       <div
         style={{
-          background: "var(--s-raised)",
-          border: "1px solid var(--b-faint)",
-          borderRadius: "var(--radius-m)",
-          overflow: "hidden",
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+          gap: 16,
+          marginBottom: 28,
         }}
       >
-        <div
-          style={{
-            padding: "16px 24px",
-            borderBottom: "1px solid var(--b-faint)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
-          <div
-            style={{
-              fontFamily: "var(--font-ui)",
-              fontSize: 14,
-              fontWeight: 600,
-              color: "var(--t-secondary)",
-              letterSpacing: "0.01em",
-            }}
-          >
-            仓库列表
-          </div>
-          <div
-            style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: 12,
-              color: "var(--t-muted)",
-            }}
-          >
-            共 {repos.length} 个
-          </div>
-        </div>
-
-        {isLoading && <SkeletonTable rows={5} columns={5} />}
-
-        {!isLoading && repos.length === 0 && (
-          <EmptyRepository onAdd={() => setModalOpen(true)} />
-        )}
-
-        {!isLoading && repos.length > 0 && (
-          <div>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "2fr 1fr 1fr 1.2fr 1.8fr",
-                gap: 16,
-                padding: "14px 24px",
-                background: "var(--s-float)",
-                borderBottom: "1px solid var(--b-faint)",
-              }}
-            >
-              {["名称", "分支", "状态", "最近分析", "操作"].map((header) => (
-                <div
-                  key={header}
-                  style={{
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 12,
-                    fontWeight: 500,
-                    color: "var(--t-muted)",
-                    letterSpacing: "0.02em",
-                  }}
-                >
-                  {header}
-                </div>
-              ))}
-            </div>
-
-            {repos.map((repo) => (
-              <RepoCard
-                key={repo.repoId}
-                repo={repo}
-                isActive={detailRepoId === repo.repoId}
-                onSelect={() => setDetailRepoId(repo.repoId)}
-                onAnalyze={() => {
-                  setAnalysisConfirmRepo(repo);
-                  setAnalysisDepth("standard");
-                }}
-                onCancel={handleCancel}
-                onViewGraph={handleViewGraph}
-                onDelete={handleDelete}
-              />
-            ))}
-          </div>
-        )}
+        <StatCard
+          label="全部仓库"
+          value={stats.total}
+          color="var(--t-cyan)"
+        />
+        <StatCard
+          label="分析中"
+          value={stats.analyzing}
+          color="var(--t-cyan)"
+          highlight={stats.analyzing > 0}
+        />
+        <StatCard
+          label="已完成"
+          value={stats.completed}
+          color="var(--t-green)"
+        />
+        <StatCard
+          label="失败"
+          value={stats.failed}
+          color="var(--t-red)"
+        />
       </div>
 
-      {/* 添加/编辑仓库 Modal */}
+      {/* Toolbar */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 20,
+          gap: 16,
+          flexWrap: "wrap",
+        }}
+      >
+        {/* Search */}
+        <Input
+          placeholder="搜索仓库名称或语言..."
+          prefix={<SearchOutlined style={{ color: "var(--t-muted)" }} />}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          style={{
+            maxWidth: 320,
+            flex: 1,
+            height: 36,
+            borderRadius: 6,
+            fontFamily: "var(--font-ui)",
+          }}
+          allowClear
+        />
+
+        {/* View controls */}
+        <Space size={8}>
+          <Dropdown menu={{ items: filterMenuItems }} trigger={["click"]}>
+            <Button
+              icon={<FilterOutlined />}
+              style={{
+                fontFamily: "var(--font-ui)",
+                fontSize: 12,
+                height: 36,
+                borderRadius: 6,
+              }}
+            >
+              {statusFilter
+                ? (() => {
+                    const labels: Record<string, string> = {
+                      analyzing: "分析中",
+                      completed: "已完成",
+                      failed: "失败",
+                      saved: "未分析",
+                    };
+                    return labels[statusFilter] || "筛选";
+                  })()
+                : "筛选"}
+            </Button>
+          </Dropdown>
+
+          <Dropdown menu={{ items: sortMenuItems }} trigger={["click"]}>
+            <Button
+              icon={<SortAscendingOutlined />}
+              style={{
+                fontFamily: "var(--font-ui)",
+                fontSize: 12,
+                height: 36,
+                borderRadius: 6,
+              }}
+            >
+              {(() => {
+                const labels: Record<SortBy, string> = {
+                  name: "名称",
+                  createdAt: "创建时间",
+                  lastAnalyzedAt: "最近分析",
+                  status: "状态",
+                };
+                return labels[sortBy];
+              })()}
+            </Button>
+          </Dropdown>
+
+          <div
+            style={{
+              display: "flex",
+              background: "var(--s-float)",
+              borderRadius: 6,
+              padding: 2,
+              border: "1px solid var(--b-faint)",
+            }}
+          >
+            <Button
+              type={viewMode === "grid" ? "primary" : "text"}
+              icon={<AppstoreOutlined />}
+              onClick={() => setViewMode("grid")}
+              style={{
+                height: 32,
+                width: 36,
+                borderRadius: 4,
+                padding: 0,
+              }}
+            />
+            <Button
+              type={viewMode === "list" ? "primary" : "text"}
+              icon={<UnorderedListOutlined />}
+              onClick={() => setViewMode("list")}
+              style={{
+                height: 32,
+                width: 36,
+                borderRadius: 4,
+                padding: 0,
+              }}
+            />
+          </div>
+        </Space>
+      </div>
+
+      {/* Content */}
+      {isLoading && <SkeletonList count={4} />}
+
+      {!isLoading && repos.length === 0 && (
+        <div
+          style={{
+            background: "var(--s-raised)",
+            border: "1px solid var(--b-faint)",
+            borderRadius: "var(--radius-m)",
+            padding: "48px 24px",
+          }}
+        >
+          <EmptyRepository onAdd={() => setModalOpen(true)} />
+        </div>
+      )}
+
+      {!isLoading && repos.length > 0 && filteredRepos.length === 0 && (
+        <div
+          style={{
+            background: "var(--s-raised)",
+            border: "1px solid var(--b-faint)",
+            borderRadius: "var(--radius-m)",
+            padding: "48px 24px",
+          }}
+        >
+          <Empty
+            description={
+              <span style={{ color: "var(--t-muted)" }}>
+                未找到匹配的仓库
+              </span>
+            }
+          />
+        </div>
+      )}
+
+      {!isLoading && filteredRepos.length > 0 && (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns:
+              viewMode === "grid"
+                ? "repeat(auto-fill, minmax(340px, 1fr))"
+                : "1fr",
+            gap: 16,
+          }}
+        >
+          {filteredRepos.map((repo) => (
+            <RepoCard
+              key={repo.repoId}
+              repo={repo}
+              isActive={detailRepoId === repo.repoId}
+              onSelect={() => setDetailRepoId(repo.repoId)}
+              onAnalyze={() => {
+                setAnalysisConfirmRepo(repo);
+                setAnalysisDepth("standard");
+              }}
+              onCancel={handleCancel}
+              onViewGraph={handleViewGraph}
+              onDelete={handleDelete}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Add/Edit Modal */}
       <AddRepoModal
         open={modalOpen}
         editRepo={editRepo}
@@ -380,14 +639,14 @@ const Repository: React.FC = () => {
         existingPaths={existingPaths}
       />
 
-      {/* 仓库详情 Drawer */}
+      {/* Detail Drawer */}
       <RepoDetailDrawer
         repo={detailRepo}
         onClose={() => setDetailRepoId(null)}
         onViewGraph={handleViewGraph}
       />
 
-      {/* 分析确认对话框 */}
+      {/* Analysis Confirm Dialog */}
       <AnalysisConfirmDialog
         repo={analysisConfirmRepo}
         depth={analysisDepth}
@@ -398,5 +657,62 @@ const Repository: React.FC = () => {
     </div>
   );
 };
+
+// Stat Card Component
+const StatCard: React.FC<{
+  label: string;
+  value: number;
+  color: string;
+  highlight?: boolean;
+}> = ({ label, value, color, highlight }) => (
+  <div
+    style={{
+      background: highlight
+        ? `linear-gradient(135deg, ${color}15 0%, ${color}08 100%)`
+        : "var(--s-raised)",
+      border: highlight ? `1px solid ${color}30` : "1px solid var(--b-faint)",
+      borderRadius: "var(--radius-m)",
+      padding: "16px 20px",
+      position: "relative",
+      overflow: "hidden",
+      transition: "all 0.2s var(--ease-out)",
+    }}
+  >
+    {highlight && (
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 2,
+          background: color,
+        }}
+      />
+    )}
+    <div
+      style={{
+        fontFamily: "var(--font-mono)",
+        fontSize: 28,
+        fontWeight: 600,
+        color: highlight ? color : "var(--t-primary)",
+        lineHeight: 1,
+        marginBottom: 6,
+      }}
+    >
+      {value}
+    </div>
+    <div
+      style={{
+        fontFamily: "var(--font-ui)",
+        fontSize: 12,
+        color: "var(--t-secondary)",
+        letterSpacing: "0.01em",
+      }}
+    >
+      {label}
+    </div>
+  </div>
+);
 
 export default Repository;
