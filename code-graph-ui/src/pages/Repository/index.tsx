@@ -17,6 +17,7 @@ import { useGraphStore } from "../../store/graphStore";
 import { usePipelineStore } from "../../store/pipelineStore";
 import type { AnalysisDepth, RepoInfo } from "../../types/api";
 import { useRepoList } from "./hooks/useRepoList";
+import { useAnalysisProgress } from "./hooks/useAnalysisProgress";
 import { DEPTH_OPTIONS } from "./constants";
 import {
   AddRepoModal,

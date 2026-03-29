@@ -1,5 +1,10 @@
 import React from "react";
-import { Progress, Timeline } from "antd";
+import { Progress } from "antd";
+import {
+  CheckCircleFilled,
+  LoadingOutlined,
+  ClockCircleOutlined,
+} from "@ant-design/icons";
 import { usePipelineStore } from "../../../store/pipelineStore";
 import type { RepoInfo } from "../../../types/api";
 
@@ -21,94 +26,221 @@ export const AnalysisProgressPanel: React.FC<AnalysisProgressPanelProps> = ({ re
   const currentStageInfo = stages.find((s) => s.key === currentStage);
 
   return (
-    <div>
-      <Progress
-        percent={percent}
-        strokeColor={{ "0%": "#00d4ff", "100%": "#00f084" }}
-        trailColor="var(--s-float)"
-      />
-
+    <div
+      style={{
+        background: "linear-gradient(135deg, rgba(0,212,255,0.06) 0%, rgba(0,212,255,0.02) 100%)",
+        border: "1px solid rgba(0,212,255,0.15)",
+        borderRadius: 8,
+        padding: 16,
+        marginBottom: 16,
+      }}
+    >
+      {/* Header */}
       <div
         style={{
-          marginTop: 10,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
           marginBottom: 12,
-          padding: "10px 12px",
-          background: "rgba(0,212,255,0.06)",
-          border: "1px solid rgba(0,212,255,0.2)",
-          borderRadius: 4,
-          fontFamily: "'IBM Plex Mono'",
         }}
       >
-        <div style={{ fontSize: 11, color: "#00d4ff", marginBottom: 4 }}>
-          当前进度: {step}/{total}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <LoadingOutlined
+            spin
+            style={{ color: "var(--t-cyan)", fontSize: 14 }}
+          />
+          <span
+            style={{
+              fontFamily: "var(--font-ui)",
+              fontSize: 12,
+              fontWeight: 500,
+              color: "var(--t-cyan)",
+            }}
+          >
+            分析进行中
+          </span>
         </div>
-        <div style={{ fontSize: 12, color: "var(--t-secondary)" }}>
+        <span
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: 11,
+            color: "var(--t-muted)",
+          }}
+        >
+          {step}/{total} 阶段
+        </span>
+      </div>
+
+      {/* Progress Bar */}
+      <Progress
+        percent={percent}
+        strokeColor={{
+          "0%": "#00d4ff",
+          "100%": "#00f084",
+        }}
+        trailColor="rgba(0,212,255,0.1)"
+        showInfo={false}
+        size="small"
+        style={{ marginBottom: 12 }}
+      />
+
+      {/* Current Stage Info */}
+      <div
+        style={{
+          padding: "10px 12px",
+          background: "rgba(0,0,0,0.2)",
+          borderRadius: 6,
+          marginBottom: 12,
+        }}
+      >
+        <div
+          style={{
+            fontFamily: "var(--font-ui)",
+            fontSize: 13,
+            fontWeight: 500,
+            color: "var(--t-primary)",
+            marginBottom: 2,
+          }}
+        >
           {currentStageInfo ? currentStageInfo.label : repo.analysisStage || "等待调度"}
         </div>
         {currentStageInfo && (
-          <div style={{ marginTop: 2, fontSize: 10, color: "var(--t-muted)" }}>
+          <div
+            style={{
+              fontFamily: "var(--font-ui)",
+              fontSize: 11,
+              color: "var(--t-muted)",
+            }}
+          >
             {currentStageInfo.description}
           </div>
         )}
         {repo.analysisMessage && (
-          <div style={{ marginTop: 4, fontSize: 11, color: "var(--t-muted)" }}>
+          <div
+            style={{
+              marginTop: 6,
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              color: "var(--t-secondary)",
+              padding: "4px 8px",
+              background: "rgba(0,212,255,0.05)",
+              borderRadius: 4,
+            }}
+          >
             {repo.analysisMessage}
           </div>
         )}
       </div>
 
+      {/* Stages Timeline */}
       <div
         style={{
-          maxHeight: 280,
+          maxHeight: 200,
           overflowY: "auto",
-          padding: "10px 12px",
-          background: "var(--s-float)",
-          border: "1px solid var(--b-faint)",
-          borderRadius: 4,
+          display: "flex",
+          flexDirection: "column",
+          gap: 2,
         }}
       >
-        <Timeline
-          items={stages.map((stage, index) => {
-            const stageIndex = index + 1;
-            const isCompleted = stageIndex < step;
-            const isCurrent = stageIndex === step;
-            const color = isCompleted
-              ? "#00f084"
-              : isCurrent
-                ? "#00d4ff"
-                : "#3d4a5d";
-            return {
-              color,
-              children: (
-                <div>
+        {stages.map((stage, index) => {
+          const stageIndex = index + 1;
+          const isCompleted = stageIndex < step;
+          const isCurrent = stageIndex === step;
+
+          return (
+            <div
+              key={stage.key}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "8px 10px",
+                background: isCurrent
+                  ? "rgba(0,212,255,0.06)"
+                  : "transparent",
+                borderRadius: 4,
+                transition: "background 0.15s ease",
+              }}
+            >
+              {/* Status Icon */}
+              <div
+                style={{
+                  width: 20,
+                  height: 20,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                {isCompleted ? (
+                  <CheckCircleFilled
+                    style={{ fontSize: 14, color: "var(--t-green)" }}
+                  />
+                ) : isCurrent ? (
+                  <LoadingOutlined
+                    spin
+                    style={{ fontSize: 14, color: "var(--t-cyan)" }}
+                  />
+                ) : (
+                  <ClockCircleOutlined
+                    style={{ fontSize: 14, color: "var(--t-muted)", opacity: 0.5 }}
+                  />
+                )}
+              </div>
+
+              {/* Stage Info */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
+                >
                   <span
                     style={{
-                      fontFamily: "'IBM Plex Mono'",
-                      fontSize: 11,
-                      color:
-                        stageIndex <= step
-                          ? "var(--t-secondary)"
-                          : "var(--t-muted)",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 10,
+                      color: "var(--t-muted)",
                     }}
                   >
-                    {stageIndex}. {stage.label}
+                    {String(stageIndex).padStart(2, "0")}
                   </span>
-                  {(isCompleted || isCurrent) && (
-                    <div
-                      style={{
-                        fontSize: 10,
-                        color: "var(--t-muted)",
-                        marginTop: 2,
-                      }}
-                    >
-                      {stage.description}
-                    </div>
-                  )}
+                  <span
+                    style={{
+                      fontFamily: "var(--font-ui)",
+                      fontSize: 12,
+                      color: isCompleted || isCurrent
+                        ? "var(--t-secondary)"
+                        : "var(--t-muted)",
+                    }}
+                  >
+                    {stage.label}
+                  </span>
                 </div>
-              ),
-            };
-          })}
-        />
+                {(isCompleted || isCurrent) && stage.description && (
+                  <div
+                    style={{
+                      fontFamily: "var(--font-ui)",
+                      fontSize: 10,
+                      color: "var(--t-muted)",
+                      marginLeft: 20,
+                      marginTop: 1,
+                    }}
+                  >
+                    {stage.description}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
