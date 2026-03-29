@@ -129,14 +129,34 @@ class AIFirstPipeline:
         )
 
         if not scan_result.entities:
-            logger.warning("未识别到任何实体，跳过后续分析")
+            # 构建详细警告信息
+            warning_msg = "未识别到任何实体"
+            if scan_result.stats and scan_result.stats.get("elapsed_ms", 0) > 0:
+                warning_msg += f"（分析耗时 {scan_result.stats['elapsed_ms'] // 1000}s）"
+
+            logger.warning(
+                "[ai_first_pipeline] 扫描结果为空: entities=%d, services=%d, flows=%d, stats=%s",
+                len(scan_result.entities),
+                len(scan_result.services),
+                len(scan_result.flows),
+                scan_result.stats,
+            )
+
+            if on_progress:
+                on_progress({
+                    "step": "ai_repository_scan",
+                    "status": "failed",
+                    "message": "AI 仓库扫描未识别到任何实体，可能是代码结构不匹配或工具执行失败",
+                    "log": f"扫描统计: {scan_result.stats}",
+                })
+
             return AIAnalysisResult(
                 graph_id="",
                 nodes=[],
                 edges=[],
                 status="failed",
                 failed_modules=[],
-                warnings=["未识别到任何实体"],
+                warnings=[warning_msg],
                 duration_seconds=time.time() - start,
             )
 

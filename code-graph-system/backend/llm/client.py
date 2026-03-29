@@ -188,6 +188,13 @@ def _dispatch_tool(
         return getattr(dedicated, tool_name)(**tool_input)
     if tool_executor is not None and hasattr(tool_executor, tool_name):
         return getattr(tool_executor, tool_name)(**tool_input)
+
+    # 记录警告日志，帮助诊断工具执行器未注入的问题
+    logger.warning(
+        "工具执行器未找到: tool_name=%s, available_executors=%s",
+        tool_name,
+        list(executor_map.keys()) if executor_map else [],
+    )
     raise ValueError(f"No executor found for tool: {tool_name}")
 
 
@@ -573,7 +580,17 @@ class LLMClient:
                     tool_results = []
                     for tool_use in tool_uses:
                         tool_name = tool_use.name
-                        tool_input = dict(tool_use.input) if tool_use.input else {}
+                        # 安全提取 tool_input：处理 None 或非 dict 类型
+                        raw_input = getattr(tool_use, 'input', None)
+                        if raw_input is None:
+                            tool_input = {}
+                        elif isinstance(raw_input, dict):
+                            tool_input = dict(raw_input)
+                        else:
+                            try:
+                                tool_input = dict(raw_input)
+                            except (TypeError, ValueError):
+                                tool_input = {}
 
                         tool_output = {}
                         success = True
@@ -601,6 +618,15 @@ class LLMClient:
                             execution_time_ms=int((time.time() - iteration_start) * 1000),
                             error=error_msg,
                         ))
+
+                        # 记录工具调用详情
+                        logger.debug(
+                            "工具调用: tool=%s, input_keys=%s, success=%s, output_size=%d",
+                            tool_name,
+                            list(tool_input.keys()),
+                            success,
+                            len(json.dumps(tool_output, ensure_ascii=False)),
+                        )
 
                         tool_results.append({
                             "type": "tool_result",
@@ -687,8 +713,12 @@ class LLMClient:
 
                     for tool_call in message.tool_calls:
                         tool_name = tool_call.function.name
-                        args_str = tool_call.function.arguments or "{}"
-                        tool_input = json.loads(args_str) if args_str.strip() else {}
+                        # 安全解析 JSON 参数
+                        args_str = getattr(tool_call.function, 'arguments', None) or "{}"
+                        try:
+                            tool_input = json.loads(args_str) if args_str.strip() else {}
+                        except json.JSONDecodeError:
+                            tool_input = {}
 
                         tool_output = {}
                         success = True
@@ -716,6 +746,15 @@ class LLMClient:
                             execution_time_ms=int((time.time() - iteration_start) * 1000),
                             error=error_msg,
                         ))
+
+                        # 记录工具调用详情
+                        logger.debug(
+                            "工具调用: tool=%s, input_keys=%s, success=%s, output_size=%d",
+                            tool_name,
+                            list(tool_input.keys()),
+                            success,
+                            len(json.dumps(tool_output, ensure_ascii=False)),
+                        )
 
                         current_messages.append({
                             "role": "tool",

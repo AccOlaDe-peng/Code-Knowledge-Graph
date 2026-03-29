@@ -179,7 +179,10 @@ class RepoStatusStore:
         """更新分析进度。"""
         all_data = self._load_all()
         if repo_id not in all_data:
-            logger.warning("仓库不存在，无法更新进度: %s", repo_id)
+            logger.warning(
+                "仓库状态更新失败: repo_id=%s, 可能原因: 未先调用 set_analyzing 或已被清理",
+                repo_id,
+            )
             return None
 
         repo = all_data[repo_id]

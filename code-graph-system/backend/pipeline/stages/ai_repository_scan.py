@@ -325,11 +325,22 @@ class AIRepositoryScanStage(StageBase):
         user_prompt: str,
     ) -> str:
         """调用 LLM（支持 tool call）。"""
+        from backend.agent.tools.file_tools import FileTools
+
+        # 创建工具执行器
+        file_tools = FileTools(str(repo_path))
+
         # 定义工具
         tools = self._build_tools(repo_path)
 
         # 构建消息
         messages = [{"role": "user", "content": user_prompt}]
+
+        # 记录开始日志
+        logger.info(
+            "[ai_repository_scan] 开始 LLM 调用: repo=%s, max_iterations=20",
+            repo_path.name,
+        )
 
         # 调用 LLM
         for attempt in range(self.max_retries + 1):
@@ -339,7 +350,32 @@ class AIRepositoryScanStage(StageBase):
                     messages=messages,
                     tools=tools,
                     max_iterations=20,
+                    tool_executor_map={
+                        "list_directory": file_tools,
+                        "search_code": file_tools,
+                        "read_file": file_tools,
+                    },
                 )
+
+                # 记录工具调用统计
+                tool_stats = {}
+                for tc in result.tool_calls:
+                    tool_stats[tc.tool_name] = tool_stats.get(tc.tool_name, 0) + 1
+
+                logger.info(
+                    "[ai_repository_scan] LLM 调用完成: status=%s, iterations=%d, "
+                    "tool_calls=%s, total_tokens=%d",
+                    result.status,
+                    result.iterations,
+                    tool_stats,
+                    result.total_tokens,
+                )
+
+                if result.errors:
+                    logger.warning(
+                        "[ai_repository_scan] LLM 调用有错误: %s",
+                        result.errors,
+                    )
 
                 if result.status == "completed" and result.final_message:
                     return result.final_message
