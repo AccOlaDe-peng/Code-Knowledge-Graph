@@ -292,7 +292,10 @@ class LLMClient:
         if self.provider == "anthropic":
             try:
                 import anthropic
-                kwargs = {"api_key": self.api_key}
+                kwargs = {
+                    "api_key": self.api_key,
+                    "timeout": 300.0,  # 5 分钟超时
+                }
                 if self.base_url:
                     kwargs["base_url"] = self.base_url
                 self._client = anthropic.Anthropic(**kwargs)
@@ -302,7 +305,10 @@ class LLMClient:
         elif self.provider in ("openai", "minimax"):
             try:
                 import openai
-                kwargs = {"api_key": self.api_key or "dummy"}
+                kwargs = {
+                    "api_key": self.api_key or "dummy",
+                    "timeout": 300.0,  # 5 分钟超时
+                }
                 if self.base_url:
                     kwargs["base_url"] = self.base_url
                 self._client = openai.OpenAI(**kwargs)
@@ -315,6 +321,7 @@ class LLMClient:
                 self._client = openai.OpenAI(
                     api_key="ollama",
                     base_url=self.base_url or "http://localhost:11434/v1",
+                    timeout=300.0,  # 5 分钟超时
                 )
             except ImportError:
                 raise RuntimeError("openai 包未安装（用于 Ollama 兼容接口）")
@@ -323,7 +330,11 @@ class LLMClient:
             try:
                 import openai
                 base_url = self.base_url or "https://open.bigmodel.cn/api/paas/v4/"
-                self._client = openai.OpenAI(api_key=self.api_key, base_url=base_url)
+                self._client = openai.OpenAI(
+                    api_key=self.api_key,
+                    base_url=base_url,
+                    timeout=300.0,  # 5 分钟超时
+                )
             except ImportError:
                 raise RuntimeError("openai 包未安装，请运行: pip install openai")
 
@@ -518,6 +529,12 @@ class LLMClient:
 
             try:
                 if self.provider == "anthropic":
+                    logger.debug(
+                        "[tool_call_loop] 发送 Anthropic 请求: model=%s, messages=%d, tools=%d",
+                        self.model,
+                        len(current_messages),
+                        len(tools) if tools else 0,
+                    )
                     response = client.messages.create(
                         model=self.model,
                         max_tokens=self.max_tokens,
@@ -525,6 +542,10 @@ class LLMClient:
                         system=system,
                         messages=current_messages,
                         tools=tools,
+                    )
+                    logger.debug(
+                        "[tool_call_loop] Anthropic 响应: stop_reason=%s",
+                        response.stop_reason,
                     )
 
                     consecutive_429 = 0  # 成功调用后重置
@@ -644,6 +665,12 @@ class LLMClient:
                     # 检查是否支持 function calling（MiniMax、Ollama 等某些提供商不完全支持）
                     supports_tools = self.provider not in ("minimax", "ollama")
 
+                    logger.debug(
+                        "[tool_call_loop] 发送 OpenAI 请求: model=%s, messages=%d, tools=%d",
+                        self.model,
+                        len(openai_messages),
+                        len(tools) if tools else 0,
+                    )
                     if supports_tools and tools:
                         response = client.chat.completions.create(
                             model=self.model,
@@ -651,6 +678,7 @@ class LLMClient:
                             tools=[{"type": "function", "function": t} for t in tools],
                             tool_choice="auto",
                         )
+                    else:
                     else:
                         # 不支持 tools 的提供商，使用普通对话
                         # 将工具描述添加到系统提示
