@@ -544,8 +544,9 @@ class LLMClient:
                         tools=tools,
                     )
                     logger.debug(
-                        "[tool_call_loop] Anthropic 响应: stop_reason=%s",
+                        "[tool_call_loop] Anthropic 响应: stop_reason=%s, content_types=%s",
                         response.stop_reason,
+                        [type(b).__name__ for b in response.content] if response.content else [],
                     )
 
                     consecutive_429 = 0  # 成功调用后重置
@@ -601,6 +602,19 @@ class LLMClient:
                     tool_results = []
                     for tool_use in tool_uses:
                         tool_name = tool_use.name
+
+                        # 调试日志：检查 tool_use 对象结构
+                        if tool_name is None:
+                            logger.warning(
+                                "tool_use.name 为 None，检查响应结构: tool_use=%s, attrs=%s",
+                                tool_use,
+                                dir(tool_use),
+                            )
+                            # 尝试从其他属性获取名称
+                            if hasattr(tool_use, 'function'):
+                                tool_name = getattr(tool_use.function, 'name', None)
+                                logger.debug("尝试从 function.name 获取: %s", tool_name)
+
                         # 安全提取 tool_input：处理 None 或非 dict 类型
                         raw_input = getattr(tool_use, 'input', None)
                         if raw_input is None:
