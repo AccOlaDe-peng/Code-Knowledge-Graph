@@ -47,6 +47,17 @@ export const EDGE_TYPE_COLORS: Record<string, string> = {
   defines:     '#6b7a9d',
   part_of:     '#6b7a9d',
 
+  // ── AI 优先流水线 - 实体关系 (Purple) ──────────────
+  maps_to:      generateEdgeColor('purple'),    // Entity → Table
+  has_field:    '#8899bb',                       // Entity → Field (细实线)
+  one_to_one:   generateEdgeColor('green'),     // 一对一
+  one_to_many:  generateEdgeColor('green'),     // 一对多
+  many_to_one:  generateEdgeColor('green'),     // 多对一
+  many_to_many: generateEdgeColor('amber'),     // 多对多
+
+  // ── AI 优先流水线 - 数据血缘 (Cyan) ────────────────
+  flow_to:      generateEdgeColor('cyan'),      // 字段血缘
+
   // ── 其他关系 ────────────────────────────────────────
   deployed_on: '#9d7dff',
   routes_to:   '#44aaff',

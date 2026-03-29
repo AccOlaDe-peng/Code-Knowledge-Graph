@@ -40,11 +40,15 @@ python -m backend.pipeline.ai_analyze /path/to/repo
 python -m backend.pipeline.ai_analyze /path/to/repo --name my-project --enable-rag
 python -m backend.pipeline.ai_analyze /path/to/repo --verbose --json
 
+# AI 优先流水线（字段级血缘）
+python -m backend.pipeline.ai_analyze /path/to/repo --pipeline-mode ai_first
+
 # 运行单个测试文件
 pytest backend/tests/test_ai_analysis_models.py -v
 pytest backend/tests/test_module_scanner_agent.py -v
 pytest backend/tests/test_ai_pipeline.py -v
 pytest backend/tests/test_ai_pipeline_e2e.py -v  # 需要 LLM API Key
+pytest backend/tests/test_ai_first_pipeline.py -v  # AI 优先流水线测试
 
 # 运行静态优先流水线测试（Phase 1-6）
 pytest backend/tests/test_phase2_static_analysis.py -v
@@ -100,6 +104,26 @@ celery -A backend.scheduler.celery_app worker --beat --loglevel=info  # Worker +
   → GraphRepository   持久化 JSON / Neo4j
   → GraphRAGEngine    向量化写入 ChromaDB（可选）
 ```
+
+**AI 优先流水线（`pipeline_mode=ai_first`）：**
+
+```
+代码仓库
+  → AIRepositoryScanStage   AI 探索仓库结构，识别实体、流程、服务
+  → AIEntityAnalysisStage   AI 分析实体字段和关系（并行处理）
+  → AIFieldLineageStage     AI 推断字段级数据血缘
+  → AIEntityDescriptionStage AI 生成实体描述和重要性评分
+  → AIGraphBuildStage       构建图谱节点和边
+  → GraphRepository         持久化 JSON / Neo4j
+  → GraphRAGEngine          向量化写入 ChromaDB（可选）
+```
+
+**特点：**
+- 完全由 AI 驱动，无静态分析前置
+- 支持字段级血缘追踪
+- 支持实体重要性评分
+- 产出实体级节点（Entity, Table, Field）
+- 产出关系级边（one_to_one, one_to_many, many_to_many, flow_to）
 
 ### 静态优先流水线（`backend/pipeline/static_first_pipeline.py`）
 
@@ -184,7 +208,9 @@ celery -A backend.scheduler.celery_app worker --beat --loglevel=info  # Worker +
 - 前端（TypeScript）：`source` / `target`
 - 转换函数：`src/api/graphApi.ts` 中的 `rawEdgeToGraphEdge()`
 
-节点类型：`Repository`, `Module`, `File`, `Class`, `Function`, `Component`, `Service`, `API`, `APIEndpoint`, `DataObject`, `DataSource`, `DataSink`, `Table`, `Event`, `EventHandler`, `Topic`, `MessageQueue`, `Pipeline`, `Cluster`, `Database`, `Layer`, `Flow`, `BusinessFlow`, `Domain`, `BoundedContext`, `DomainEntity`, `ExternalAPI`, `Infrastructure`
+节点类型：`Repository`, `Module`, `File`, `Class`, `Function`, `Component`, `Service`, `API`, `APIEndpoint`, `DataObject`, `DataSource`, `DataSink`, `Table`, `Event`, `EventHandler`, `Topic`, `MessageQueue`, `Pipeline`, `Cluster`, `Database`, `Layer`, `Flow`, `BusinessFlow`, `Domain`, `BoundedContext`, `DomainEntity`, `ExternalAPI`, `Infrastructure`, `Entity`, `Field`, `FlowNode`
+
+边类型：`contains`, `imports`, `defines`, `calls`, `depends_on`, `implements`, `reads`, `writes`, `produces`, `consumes`, `publishes`, `subscribes`, `deployed_on`, `uses`, `routes_to`, `triggers`, `belongs_to`, `flow_step`, `transforms`, `part_of`, `async_calls`, `handles`, `extends`, `overrides`, `queries`, `flow_to`, `maps_to`, `has_field`, `one_to_one`, `one_to_many`, `many_to_one`, `many_to_many`
 
 **`BuiltGraph`**（`backend/graph/graph_builder.py`）— 流水线输出容器：
 

@@ -34,6 +34,12 @@ const NODE_COLORS: Record<string, { bg: string; border: string; text: string }> 
   Event:          { bg: NodeTypeColors.Event.bg,          border: NodeTypeColors.Event.primary,          text: NodeTypeColors.Event.text },
   Cluster:        { bg: NodeTypeColors.Cluster.bg,        border: NodeTypeColors.Cluster.primary,        text: NodeTypeColors.Cluster.text },
   Infrastructure: { bg: NodeTypeColors.Infrastructure.bg, border: NodeTypeColors.Infrastructure.primary, text: NodeTypeColors.Infrastructure.text },
+  // AI 优先流水线新增节点类型
+  Entity:         { bg: NodeTypeColors.Entity.bg,         border: NodeTypeColors.Entity.primary,         text: NodeTypeColors.Entity.text },
+  Table:          { bg: NodeTypeColors.Table.bg,          border: NodeTypeColors.Table.primary,          text: NodeTypeColors.Table.text },
+  Field:          { bg: NodeTypeColors.Field.bg,          border: NodeTypeColors.Field.primary,          text: NodeTypeColors.Field.text },
+  Flow:           { bg: NodeTypeColors.Flow.bg,           border: NodeTypeColors.Flow.primary,           text: NodeTypeColors.Flow.text },
+  FlowNode:       { bg: NodeTypeColors.FlowNode.bg,       border: NodeTypeColors.FlowNode.primary,       text: NodeTypeColors.FlowNode.text },
   default:        { bg: '#1a1d26', border: '#6b7a9d', text: '#b0bcd8' },
 }
 
@@ -48,7 +54,31 @@ const EDGE_COLORS: Record<string, string> = {
   consumes:    EdgeTypeColors.consumes,
   publishes:   EdgeTypeColors.publishes,
   subscribes:  EdgeTypeColors.subscribes,
+  // AI 优先流水线新增边类型
+  maps_to:      EdgeTypeColors.maps_to,
+  has_field:    EdgeTypeColors.has_field,
+  one_to_one:   EdgeTypeColors.one_to_one,
+  one_to_many:  EdgeTypeColors.one_to_many,
+  many_to_one:  EdgeTypeColors.many_to_one,
+  many_to_many: EdgeTypeColors.many_to_many,
+  flow_to:      EdgeTypeColors.flow_to,
   default:     '#6b7a9d',
+}
+
+// ─── Edge label mapping ───────────────────────────────────────────────────────
+
+const EDGE_LABELS: Record<string, string> = {
+  one_to_one:   '1:1',
+  one_to_many:  '1:N',
+  many_to_one:  'N:1',
+  many_to_many: 'M:N',
+  maps_to:      '⟼',
+  has_field:    '▹',
+  flow_to:      '→',
+}
+
+function getEdgeLabel(type: string): string {
+  return EDGE_LABELS[type] ?? type
 }
 
 function getNodeColor(type: string) {
@@ -178,6 +208,39 @@ function buildStylesheet(): cytoscape.StylesheetStyle[] {
       selector: 'edge.faded',
       style: { 'opacity': 0.12 },
     },
+    // AI 优先流水线 - maps_to 边样式（虚线）
+    {
+      selector: 'edge[edgeType="maps_to"]',
+      style: {
+        'line-style': 'dashed',
+        'width': 1,
+      },
+    },
+    // AI 优先流水线 - has_field 边样式（细实线）
+    {
+      selector: 'edge[edgeType="has_field"]',
+      style: {
+        'width': 1,
+        'line-color': '#8899bb',
+        'target-arrow-shape': 'none',
+      },
+    },
+    // AI 优先流水线 - 关系边样式（粗实线）
+    {
+      selector: 'edge[edgeType="one_to_one"], edge[edgeType="one_to_many"], edge[edgeType="many_to_one"], edge[edgeType="many_to_many"]',
+      style: {
+        'width': 2,
+      },
+    },
+    // AI 优先流水线 - flow_to 边样式（带箭头）
+    {
+      selector: 'edge[edgeType="flow_to"]',
+      style: {
+        'width': 1.5,
+        'target-arrow-shape': 'triangle',
+        'arrow-scale': 1.2,
+      },
+    },
   ]
 }
 
@@ -231,7 +294,7 @@ const GraphViewer: React.FC<GraphViewerProps> = ({
         source:    e.source,
         target:    e.target,
         edgeColor: getEdgeColor(e.type),
-        edgeLabel: e.type,
+        edgeLabel: getEdgeLabel(e.type),
         edgeType:  e.type,
       },
     }))

@@ -110,6 +110,20 @@ export const IconImpactAnalysis: React.FC<IconProps> = (props) => (
   </IconWrapper>
 )
 
+export const IconFieldLineage: React.FC<IconProps> = (props) => (
+  <IconWrapper {...props}>
+    <path d="M4 12h4" />
+    <path d="M16 12h4" />
+    <circle cx={9} cy={12} r={2} />
+    <circle cx={15} cy={12} r={2} />
+    <path d="M11 12h2" />
+    <path d="M9 10v-2" />
+    <path d="M15 10v-2" />
+    <path d="M9 14v2" />
+    <path d="M15 14v2" />
+  </IconWrapper>
+)
+
 // ─── Node Type Icons ─────────────────────────────────────────────────────────
 
 export const IconModule: React.FC<IconProps> = (props) => (

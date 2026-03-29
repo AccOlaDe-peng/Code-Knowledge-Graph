@@ -13,6 +13,7 @@ const DataLineage   = lazy(() => import('./pages/DataLineage'));
 const EventFlow     = lazy(() => import('./pages/EventFlow'));
 const GraphQuery    = lazy(() => import('./pages/GraphQuery'));
 const ImpactAnalysis = lazy(() => import('./pages/ImpactAnalysis'));
+const FieldLineage  = lazy(() => import('./pages/FieldLineage'));
 
 // New feature modules
 const ArchitectureExplorer = lazy(() => import('./features/architecture'));
@@ -52,6 +53,7 @@ const App: React.FC = () => {
             <Route path="callgraph"       element={wrap(CallGraph)} />
             <Route path="lineage"         element={wrap(DataLineage)} />
             <Route path="eventflow"       element={wrap(EventFlow)} />
+            <Route path="fieldlineage"    element={wrap(FieldLineage)} />
             <Route path="query"           element={wrap(GraphQuery)} />
             <Route path="impact"          element={wrap(ImpactAnalysis)} />
           </Route>

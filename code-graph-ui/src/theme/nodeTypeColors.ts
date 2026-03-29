@@ -39,6 +39,12 @@ export const NODE_TYPE_COLORS: Record<string, NodeTypeColorScheme> = {
   DataSource:   generateNodeColor('purple', 4),
   DataSink:     generateNodeColor('purple', 5),
 
+  // ── AI 优先流水线 - 实体层 (Purple) ────────────────
+  Entity:       generateNodeColor('purple', 6),  // JPA 实体类
+
+  // ── AI 优先流水线 - 字段层 (Cyan 变体) ─────────────
+  Field:        generateNodeColor(190, 3),  // 浅蓝色
+
   // ── 事件/流程层 (Amber) ─────────────────────────────
   Event:        generateNodeColor('amber', 0),
   Topic:        generateNodeColor('amber', 1),
@@ -47,6 +53,9 @@ export const NODE_TYPE_COLORS: Record<string, NodeTypeColorScheme> = {
   Flow:         generateNodeColor('amber', 4),
   BusinessFlow: generateNodeColor('amber', 5),
   Pipeline:     generateNodeColor('amber', 6),
+
+  // ── AI 优先流水线 - 流程节点层 (Green 变体) ────────
+  FlowNode:     generateNodeColor(150, 4),  // 浅绿色
 
   // ── 架构层 (Blue) ───────────────────────────────────
   Layer:            generateNodeColor('blue', 0),

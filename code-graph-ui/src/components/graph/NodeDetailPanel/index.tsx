@@ -24,20 +24,34 @@ const TYPE_META: Record<string, { color: string; bg: string; symbol: string }> =
   Event:          { color: '#ffcc44', bg: 'rgba(255,204,68,0.08)',  symbol: '⚡' },
   Cluster:        { color: '#44aaff', bg: 'rgba(68,170,255,0.08)',  symbol: '⊕' },
   Infrastructure: { color: '#888899', bg: 'rgba(136,136,153,0.08)', symbol: '⚙' },
+  // AI 优先流水线新增节点类型
+  Entity:         { color: '#b08eff', bg: 'rgba(176,142,255,0.08)', symbol: '▢' },
+  Table:          { color: '#9d7dff', bg: 'rgba(157,125,255,0.08)', symbol: '⊞' },
+  Field:          { color: '#88ccff', bg: 'rgba(136,204,255,0.08)', symbol: 'Field' },
+  Flow:           { color: '#ffcc44', bg: 'rgba(255,204,68,0.08)',  symbol: '⟳' },
+  FlowNode:       { color: '#88dd88', bg: 'rgba(136,221,136,0.08)', symbol: '◉' },
   default:        { color: '#4a5068', bg: 'rgba(74,80,104,0.08)',   symbol: '●' },
 }
 
 const EDGE_COLORS: Record<string, string> = {
-  calls:      '#00f084',
-  depends_on: '#00d4ff',
-  imports:    '#b08eff',
-  contains:   '#4a5068',
-  reads:      '#ffc145',
-  writes:     '#ff6b6b',
-  produces:   '#ffcc44',
-  consumes:   '#ff9955',
-  publishes:  '#44aaff',
-  subscribes: '#7ed957',
+  calls:       '#00f084',
+  depends_on:  '#00d4ff',
+  imports:     '#b08eff',
+  contains:    '#4a5068',
+  reads:       '#ffc145',
+  writes:      '#ff6b6b',
+  produces:    '#ffcc44',
+  consumes:    '#ff9955',
+  publishes:   '#44aaff',
+  subscribes:  '#7ed957',
+  // AI 优先流水线新增边类型
+  maps_to:      '#b08eff',
+  has_field:    '#8899bb',
+  one_to_one:   '#00f084',
+  one_to_many:  '#00f084',
+  many_to_one:  '#00f084',
+  many_to_many: '#ffcc44',
+  flow_to:      '#00d4ff',
 }
 
 function getTypeMeta(type: string) {
@@ -67,6 +81,351 @@ type RelatedNode = {
   node:     GraphNode
   edgeType: string
   dir:      'in' | 'out'
+}
+
+// ─── Entity Details Component ──────────────────────────────────────────────────
+
+const EntityDetails: React.FC<{ node: GraphNode }> = ({ node }) => {
+  const props = node.properties
+  const importanceScore = props.importance_score ?? 5
+  const importanceColor = importanceScore >= 8 ? '#00f084' : importanceScore >= 5 ? '#ffc145' : '#ff6b6b'
+
+  return (
+    <>
+      {/* Table name */}
+      {props.table_name && (
+        <>
+          <SectionLabel>映射表名</SectionLabel>
+          <div style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 12,
+            color: 'var(--t-primary)',
+            background: 'var(--s-raised)',
+            border: '1px solid var(--b-faint)',
+            borderRadius: 4,
+            padding: '8px 12px',
+          }}>
+            {props.table_name}
+          </div>
+        </>
+      )}
+
+      {/* Primary key */}
+      {props.primary_key && (
+        <>
+          <Divider />
+          <SectionLabel>主键字段</SectionLabel>
+          <div style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11,
+            color: '#00d4ff',
+            background: 'rgba(0,212,255,0.08)',
+            border: '1px solid rgba(0,212,255,0.2)',
+            borderRadius: 4,
+            padding: '6px 10px',
+          }}>
+            🔑 {props.primary_key}
+          </div>
+        </>
+      )}
+
+      {/* Core fields */}
+      {props.core_fields && Array.isArray(props.core_fields) && props.core_fields.length > 0 && (
+        <>
+          <Divider />
+          <SectionLabel>核心字段</SectionLabel>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {props.core_fields.map((f: string, i: number) => (
+              <span key={i} style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: 9,
+                color: 'var(--t-secondary)',
+                background: 'var(--s-raised)',
+                border: '1px solid var(--b-faint)',
+                borderRadius: 3,
+                padding: '3px 8px',
+              }}>
+                {f}
+              </span>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Importance score */}
+      <Divider />
+      <SectionLabel>重要性评分</SectionLabel>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{
+          width: 40,
+          height: 40,
+          borderRadius: '50%',
+          background: `${importanceColor}22`,
+          border: `2px solid ${importanceColor}`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontFamily: 'var(--font-mono)',
+          fontSize: 16,
+          fontWeight: 600,
+          color: importanceColor,
+        }}>
+          {importanceScore}
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--t-secondary)' }}>
+            {importanceScore >= 8 ? '核心实体' : importanceScore >= 5 ? '重要实体' : '辅助实体'}
+          </div>
+          {props.importance_reason && (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--t-muted)', marginTop: 4 }}>
+              {props.importance_reason}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Description */}
+      {props.description && (
+        <>
+          <Divider />
+          <SectionLabel>描述</SectionLabel>
+          <div style={{
+            fontFamily: 'var(--font-ui)',
+            fontSize: 12,
+            color: 'var(--t-secondary)',
+            lineHeight: 1.6,
+          }}>
+            {props.description}
+          </div>
+        </>
+      )}
+
+      {/* Role in system */}
+      {props.role_in_system && (
+        <>
+          <Divider />
+          <SectionLabel>系统角色</SectionLabel>
+          <div style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 10,
+            color: 'var(--t-secondary)',
+            background: 'var(--s-raised)',
+            border: '1px solid var(--b-faint)',
+            borderRadius: 4,
+            padding: '8px 12px',
+          }}>
+            {props.role_in_system}
+          </div>
+        </>
+      )}
+    </>
+  )
+}
+
+// ─── Field Details Component ───────────────────────────────────────────────────
+
+const FieldDetails: React.FC<{ node: GraphNode }> = ({ node }) => {
+  const props = node.properties
+
+  return (
+    <>
+      {/* Field type */}
+      {props.type && (
+        <>
+          <SectionLabel>字段类型</SectionLabel>
+          <div style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 12,
+            color: '#b08eff',
+            background: 'rgba(176,142,255,0.08)',
+            border: '1px solid rgba(176,142,255,0.2)',
+            borderRadius: 4,
+            padding: '6px 10px',
+          }}>
+            {props.type}
+          </div>
+        </>
+      )}
+
+      {/* Column name */}
+      {props.column_name && (
+        <>
+          <Divider />
+          <SectionLabel>数据库列名</SectionLabel>
+          <div style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11,
+            color: 'var(--t-secondary)',
+            background: 'var(--s-raised)',
+            border: '1px solid var(--b-faint)',
+            borderRadius: 4,
+            padding: '6px 10px',
+          }}>
+            {props.column_name}
+          </div>
+        </>
+      )}
+
+      {/* Field flags */}
+      <Divider />
+      <SectionLabel>字段属性</SectionLabel>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {props.is_primary_key && (
+          <span style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 9,
+            color: '#00d4ff',
+            background: 'rgba(0,212,255,0.1)',
+            border: '1px solid rgba(0,212,255,0.3)',
+            borderRadius: 3,
+            padding: '4px 8px',
+          }}>
+            🔑 主键
+          </span>
+        )}
+        {props.is_foreign_key && (
+          <span style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 9,
+            color: '#ffc145',
+            background: 'rgba(255,193,69,0.1)',
+            border: '1px solid rgba(255,193,69,0.3)',
+            borderRadius: 3,
+            padding: '4px 8px',
+          }}>
+            🔗 外键
+          </span>
+        )}
+        {props.is_nullable === false && (
+          <span style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 9,
+            color: '#ff6b6b',
+            background: 'rgba(255,107,107,0.1)',
+            border: '1px solid rgba(255,107,107,0.3)',
+            borderRadius: 3,
+            padding: '4px 8px',
+          }}>
+            NOT NULL
+          </span>
+        )}
+      </div>
+
+      {/* Foreign key reference */}
+      {props.is_foreign_key && props.references_entity && (
+        <>
+          <Divider />
+          <SectionLabel>外键引用</SectionLabel>
+          <div style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 10,
+            color: 'var(--t-secondary)',
+            background: 'var(--s-raised)',
+            border: '1px solid var(--b-faint)',
+            borderRadius: 4,
+            padding: '8px 12px',
+          }}>
+            → {props.references_entity}.{props.references_field || 'id'}
+          </div>
+        </>
+      )}
+
+      {/* Business meaning */}
+      {props.business_meaning && (
+        <>
+          <Divider />
+          <SectionLabel>业务含义</SectionLabel>
+          <div style={{
+            fontFamily: 'var(--font-ui)',
+            fontSize: 11,
+            color: 'var(--t-secondary)',
+            lineHeight: 1.5,
+          }}>
+            {props.business_meaning}
+          </div>
+        </>
+      )}
+
+      {/* Description */}
+      {props.description && (
+        <>
+          <Divider />
+          <SectionLabel>描述</SectionLabel>
+          <div style={{
+            fontFamily: 'var(--font-ui)',
+            fontSize: 11,
+            color: 'var(--t-secondary)',
+            lineHeight: 1.5,
+          }}>
+            {props.description}
+          </div>
+        </>
+      )}
+    </>
+  )
+}
+
+// ─── Flow Details Component ────────────────────────────────────────────────────
+
+const FlowDetails: React.FC<{ node: GraphNode }> = ({ node }) => {
+  const props = node.properties
+
+  return (
+    <>
+      {/* Flow type */}
+      {props.flow_type && (
+        <>
+          <SectionLabel>流程类型</SectionLabel>
+          <div style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11,
+            color: '#ffcc44',
+            background: 'rgba(255,204,68,0.08)',
+            border: '1px solid rgba(255,204,68,0.2)',
+            borderRadius: 4,
+            padding: '6px 10px',
+          }}>
+            {props.flow_type}
+          </div>
+        </>
+      )}
+
+      {/* Flow key */}
+      {props.key && (
+        <>
+          <Divider />
+          <SectionLabel>流程标识</SectionLabel>
+          <div style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11,
+            color: 'var(--t-secondary)',
+            background: 'var(--s-raised)',
+            border: '1px solid var(--b-faint)',
+            borderRadius: 4,
+            padding: '6px 10px',
+          }}>
+            {props.key}
+          </div>
+        </>
+      )}
+
+      {/* Description */}
+      {props.description && (
+        <>
+          <Divider />
+          <SectionLabel>描述</SectionLabel>
+          <div style={{
+            fontFamily: 'var(--font-ui)',
+            fontSize: 12,
+            color: 'var(--t-secondary)',
+            lineHeight: 1.6,
+          }}>
+            {props.description}
+          </div>
+        </>
+      )}
+    </>
+  )
 }
 
 // ─── NodeDetailPanel ──────────────────────────────────────────────────────────
@@ -186,7 +545,17 @@ const NodeDetailPanel: React.FC<NodeDetailPanelProps> = ({ node, edges = [], all
           </div>
 
           {/* ── Properties ───────────────────────────────────── */}
-          {propEntries.length > 0 && (
+          {/* Entity 类型特殊展示 */}
+          {node.type === 'Entity' && <EntityDetails node={node} />}
+
+          {/* Field 类型特殊展示 */}
+          {node.type === 'Field' && <FieldDetails node={node} />}
+
+          {/* Flow 类型特殊展示 */}
+          {node.type === 'Flow' && <FlowDetails node={node} />}
+
+          {/* 其他类型通用属性展示 */}
+          {!['Entity', 'Field', 'Flow'].includes(node.type) && propEntries.length > 0 && (
             <>
               <Divider />
               <SectionLabel>属性</SectionLabel>
