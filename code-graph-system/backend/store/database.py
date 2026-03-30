@@ -109,10 +109,16 @@ def migrate_from_json(db: Database, json_path: str) -> None:
         node_count   = entry.get("node_count", 0)
         edge_count   = entry.get("edge_count", 0)
 
-        # 插入 Repo（已存在则忽略；同时按 path 去重，避免与 POST /repos 创建的记录重复）
-        path_exists = db.execute_one("SELECT id FROM repo WHERE path=?", (repo_path,))
-        if path_exists:
-            logger.debug("迁移跳过 repo_id=%s，路径已存在（已有 id=%s）", repo_id, path_exists["id"])
+        # 插入 Repo（已存在则忽略；同时按 path 或 name 去重，避免与 POST /repos 创建的记录重复）
+        # 优先按 path 检查，path 为空时按 name 检查
+        existing = None
+        if repo_path:
+            existing = db.execute_one("SELECT id FROM repo WHERE path=?", (repo_path,))
+        if existing is None and repo_name:
+            existing = db.execute_one("SELECT id FROM repo WHERE name=?", (repo_name,))
+        if existing:
+            logger.debug("迁移跳过 repo_id=%s，已存在（id=%s, path=%s, name=%s）",
+                         repo_id, existing["id"], repo_path, repo_name)
             migrated += 1
             continue
         db.execute(

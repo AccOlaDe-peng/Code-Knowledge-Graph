@@ -75,13 +75,46 @@ STAGE_REGISTRY: list[dict] = [
 
 @router.get("/repos", tags=["仓库"])
 def list_repos():
-    """列出所有仓库（含最近一次分析摘要）。"""
+    """列出所有仓库（含最近一次分析摘要）。
+
+    去重逻辑：
+    - 优先按非空 path 去重
+    - path 为空时按 name 去重
+    - 同一 key 的多条记录，保留最新更新的那条
+    """
     store = get_repo_store()
     analysis_store = get_analysis_store()
     repos = store.list_all()
 
-    result = []
+    # 两轮去重：先按非空 path，再按 name（针对空 path 的记录）
+    by_path: dict[str, dict] = {}
+    no_path: list[dict] = []
+
     for repo in repos:
+        path = repo.get("path", "")
+        if path:
+            existing = by_path.get(path)
+            if existing is None or repo.get("updated_at", "") > existing.get("updated_at", ""):
+                by_path[path] = repo
+        else:
+            no_path.append(repo)
+
+    # 对无 path 的记录，按 name 去重
+    by_name: dict[str, dict] = {}
+    for repo in no_path:
+        name = repo.get("name", "")
+        # 如果已有同名的 path 记录，跳过（优先保留有路径的）
+        if name and any(r.get("name") == name for r in by_path.values()):
+            continue
+        existing = by_name.get(name)
+        if existing is None or repo.get("updated_at", "") > existing.get("updated_at", ""):
+            by_name[name] = repo
+
+    # 合并结果
+    deduped = list(by_path.values()) + list(by_name.values())
+
+    result = []
+    for repo in deduped:
         latest = analysis_store.get_latest(repo["id"])
         # 将 latest_analysis.graph_id 提升到顶层，供前端 graphApi.ts 映射 graphId 用
         graph_id = (latest or {}).get("graph_id")

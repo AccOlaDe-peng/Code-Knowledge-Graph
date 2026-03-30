@@ -33,6 +33,9 @@ router = APIRouter()
 # 使用 graph_schema 中定义的血缘边类型
 _LINEAGE_EDGE_TYPES = LINEAGE_EDGE_TYPES
 
+# 架构图存储路径
+_ARCHITECTURE_STORAGE_DIR = Path("./data/graphs")
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -1713,7 +1716,7 @@ def get_architecture(repo_id: str) -> dict[str, Any]:
     """
     获取分层架构图数据。
 
-    从 `data/graphs/{repo_id}-architecture.json` 加载自定义分层架构数据。
+    从 `data/graphs/{repo_id}-architecture.json` 或 `data/graphs/{repo_name}-architecture.json` 加载自定义分层架构数据。
     如果文件不存在，返回 404。
 
     返回格式：
@@ -1731,15 +1734,57 @@ def get_architecture(repo_id: str) -> dict[str, Any]:
         "moduleDependencies": { ... }
     }
     """
-    # 构建架构文件路径
-    storage_dir = Path(_DEFAULT_STORAGE_DIR)
-    arch_file = storage_dir / f"{repo_id}-architecture.json"
+    # 尝试多种命名方式查找架构文件
+    # 1. 直接用 repo_id
+    # 2. 从 repo_id 中提取 repo_name（如 "repo-xxx-adms" -> "adms"）
+    # 3. 从 GraphStorage 获取 repo_name
 
-    if not arch_file.exists():
-        raise HTTPException(
-            status_code=404,
-            detail=f"架构图文件不存在: {repo_id}-architecture.json",
-        )
+    candidate_names = [repo_id]
+
+    # 尝试从 GraphStorage 获取 repo_name
+    try:
+        storage = get_graph_storage()
+        repos = storage.list_repos()
+        for repo in repos:
+            if repo.repo_id == repo_id and repo.name:
+                candidate_names.append(repo.name)
+                break
+    except Exception:
+        pass
+
+    # 尝试从 repo_id 中提取 name（格式：repo-timestamp-name）
+    if repo_id.startswith("repo-"):
+        parts = repo_id.split("-", 2)
+        if len(parts) >= 3:
+            candidate_names.append(parts[2])
+
+    # 按优先级查找文件
+    for name in candidate_names:
+        arch_file = _ARCHITECTURE_STORAGE_DIR / f"{name}-architecture.json"
+        if arch_file.exists():
+            try:
+                with open(arch_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                logger.info(f"加载架构图: {arch_file}")
+                return data
+            except json.JSONDecodeError as e:
+                logger.exception("架构图 JSON 解析失败: %s", arch_file)
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"架构图 JSON 解析失败: {e}",
+                )
+            except Exception as e:
+                logger.exception("读取架构图文件失败: %s", arch_file)
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"读取架构图文件失败: {e}",
+                )
+
+    # 所有候选文件都不存在
+    raise HTTPException(
+        status_code=404,
+        detail=f"架构图文件不存在: {repo_id}-architecture.json",
+    )
 
     try:
         with open(arch_file, "r", encoding="utf-8") as f:

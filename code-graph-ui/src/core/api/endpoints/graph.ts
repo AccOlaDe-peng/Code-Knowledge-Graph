@@ -157,6 +157,14 @@ export const graphEndpoints = {
   streamAnalysisProgress(taskId: string): EventSource {
     return new EventSource(`${API_BASE_URL}/analyze/stream/${taskId}`);
   },
+
+  /**
+   * GET /graph/architecture/{repo_id}
+   * Get layered architecture data
+   */
+  async getArchitecture(repoId: string): Promise<Record<string, unknown>> {
+    return apiClient.get(`/graph/architecture/${repoId}`);
+  },
 };
 
 export default graphEndpoints;
@@ -226,13 +234,5 @@ export const repoEndpoints = {
    */
   async getPipelineStages(): Promise<{ stages: { key: string; label: string; description: string }[]; total: number }> {
     return apiClient.get("/api/pipeline/stages");
-  },
-
-  /**
-   * GET /graph/architecture/{repo_id}
-   * Get layered architecture data
-   */
-  async getArchitecture(repoId: string): Promise<Record<string, unknown>> {
-    return apiClient.get(`/graph/architecture/${repoId}`);
   },
 };
