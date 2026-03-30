@@ -120,12 +120,14 @@ from backend.api.routers import analysis as analysis_router
 from backend.api.routers import graphs as graphs_router
 from backend.api.routers import query as query_router
 from backend.api.routers import domains as domains_router
+from backend.api.routers import data_lineage as data_lineage_router
 
 app.include_router(repos_router.router)
 app.include_router(analysis_router.router)
 app.include_router(graphs_router.router)
 app.include_router(query_router.router)
 app.include_router(domains_router.router)
+app.include_router(data_lineage_router.router)
 
 
 # ---------------------------------------------------------------------------

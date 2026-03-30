@@ -3,8 +3,8 @@ import { useSearchParams } from 'react-router-dom'
 import { Alert, Spin, Button, message } from 'antd'
 import { useRepoStore } from '../../store/repoStore'
 import { useGraphEngineStore } from '../../graph-engine/store/graphEngineStore'
-import { createGraphLoader, GraphLoader } from '../../graph-engine/loader/GraphLoader'
-import { ArchitectureCanvas } from '../../components/graph/ArchitectureCanvas'
+// import { createGraphLoader, GraphLoader } from '../../graph-engine/loader/GraphLoader'
+// import { ArchitectureCanvas } from '../../components/graph/ArchitectureCanvas'
 import RepoSelector from '../../components/ui/RepoSelector'
 import LayeredArchitecture from '../../components/graph/LayeredArchitecture'
 import { graphEndpoints } from '../../core/api'
@@ -17,13 +17,13 @@ const ArchitectureExplorer: React.FC = () => {
   const repos         = useRepoStore(s => s.repos)
   const setActiveRepo = useRepoStore(s => s.setActiveRepo)
 
-  const initGraph        = useGraphEngineStore(s => s.initGraph)
   const setLoadingStatus = useGraphEngineStore(s => s.setLoadingStatus)
   const setLoadingError  = useGraphEngineStore(s => s.setLoadingError)
   const loadingStatus    = useGraphEngineStore(s => s.loading.status)
   const loadingError     = useGraphEngineStore(s => s.loading.error)
 
-  const loaderRef = useRef<GraphLoader | null>(null)
+  // const loaderRef = useRef<GraphLoader | null>(null)
+  const loaderRef = useRef<unknown>(null)
 
   // 分层架构数据状态
   const [layeredData, setLayeredData] = useState<ArchitectureData | null>(null)
@@ -72,57 +72,57 @@ const ArchitectureExplorer: React.FC = () => {
     loadLayeredArchitecture()
   }, [activeRepo?.repoId])
 
-  // ── 仓库切换：初始化 GraphLoader 并加载（仅当无分层架构数据时）──────────────
-  useEffect(() => {
-    const currentRepoId = activeRepo?.repoId
-    if (!currentRepoId) return
+  // ── 仓库切换：初始化 GraphLoader 并加载（已禁用，仅使用分层架构）────────────
+  // useEffect(() => {
+  //   const currentRepoId = activeRepo?.repoId
+  //   if (!currentRepoId) return
 
-    // 如果有分层架构数据，不需要加载标准图谱
-    if (layeredData) return
+  //   // 如果有分层架构数据，不需要加载标准图谱
+  //   if (layeredData) return
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const analysisTimestamp = (activeRepo as any)?.latestAnalysis?.lastAnalyzedAt ?? ''
+  //   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  //   const analysisTimestamp = (activeRepo as any)?.latestAnalysis?.lastAnalyzedAt ?? ''
 
-    if (loaderRef.current && useGraphEngineStore.getState().repoId === currentRepoId) {
-      loaderRef.current.invalidateCache(analysisTimestamp)
-    } else {
-      loaderRef.current = createGraphLoader(currentRepoId, analysisTimestamp)
-    }
+  //   if (loaderRef.current && useGraphEngineStore.getState().repoId === currentRepoId) {
+  //     ;(loaderRef.current as GraphLoader).invalidateCache(analysisTimestamp)
+  //   } else {
+  //     loaderRef.current = createGraphLoader(currentRepoId, analysisTimestamp)
+  //   }
 
-    initGraph(currentRepoId)
-    setLoadingStatus('loading')
+  //   initGraph(currentRepoId)
+  //   setLoadingStatus('loading')
 
-    loaderRef.current
-      .loadInitial()
-      .then(result => {
-        // 将初始节点/边通过 CustomEvent 发送给 ArchitectureCanvas
-        window.dispatchEvent(new CustomEvent('graphloader:merge', {
-          detail: { nodes: result.nodes, edges: result.edges },
-        }))
-        // 初始加载完成后触发 dagre 层次布局（节点默认堆叠在原点）
-        window.dispatchEvent(new CustomEvent('architecturecanvas:dagre-layout'))
-        setLoadingStatus('idle')
-      })
-      .catch((err: unknown) => {
-        setLoadingError(String(err))
-      })
-  }, [activeRepo?.repoId, layeredData]) // eslint-disable-line react-hooks/exhaustive-deps
+  //   ;(loaderRef.current as GraphLoader)
+  //     .loadInitial()
+  //     .then(result => {
+  //       // 将初始节点/边通过 CustomEvent 发送给 ArchitectureCanvas
+  //       window.dispatchEvent(new CustomEvent('graphloader:merge', {
+  //         detail: { nodes: result.nodes, edges: result.edges },
+  //       }))
+  //       // 初始加载完成后触发 dagre 层次布局（节点默认堆叠在原点）
+  //       window.dispatchEvent(new CustomEvent('architecturecanvas:dagre-layout'))
+  //       setLoadingStatus('idle')
+  //     })
+  //     .catch((err: unknown) => {
+  //       setLoadingError(String(err))
+  //     })
+  // }, [activeRepo?.repoId, layeredData]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── 展开/折叠回调 ────────────────────────────────────────────────────────
-  const handleNodeExpand = useCallback(async (nodeId: string) => {
-    if (!loaderRef.current) return
-    try {
-      const result = await loaderRef.current.expandNode(nodeId)
-      if (result?.has_more) {
-        void message.info(`已展示前 ${result.node_count} 个子节点（还有更多）`)
-      }
-    } catch (err) {
-      void message.error(`展开失败: ${err}`)
-    }
+  // ── 展开/折叠回调（已禁用）─────────────────────────────────────────────────
+  const handleNodeExpand = useCallback(async (_nodeId: string) => {
+    // if (!loaderRef.current) return
+    // try {
+    //   const result = await (loaderRef.current as GraphLoader).expandNode(nodeId)
+    //   if (result?.has_more) {
+    //     void message.info(`已展示前 ${result.node_count} 个子节点（还有更多）`)
+    //   }
+    // } catch (err) {
+    //   void message.error(`展开失败: ${err}`)
+    // }
   }, [])
 
-  const handleNodeCollapse = useCallback((nodeId: string) => {
-    loaderRef.current?.collapseNode(nodeId)
+  const handleNodeCollapse = useCallback((_nodeId: string) => {
+    // (loaderRef.current as GraphLoader)?.collapseNode(nodeId)
   }, [])
 
   const handleRelayout = useCallback(() => {
@@ -150,26 +150,37 @@ const ArchitectureExplorer: React.FC = () => {
       )
     }
 
-    // 降级到标准图谱视图
+    // 无分层架构数据时显示提示
     return (
-      <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-        {isLoading && (
-          <div style={{
-            position: 'absolute', inset: 0, display: 'flex',
-            alignItems: 'center', justifyContent: 'center',
-            background: 'rgba(7,9,13,0.6)', zIndex: 10,
-          }}>
-            <Spin tip="加载架构图..." />
-          </div>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {isLoading ? (
+          <Spin tip="加载架构图..." />
+        ) : (
+          <Alert type="info" message="该仓库暂无分层架构数据" showIcon />
         )}
-        <ArchitectureCanvas
-          key={activeRepo.repoId}
-          onNodeExpand={handleNodeExpand}
-          onNodeCollapse={handleNodeCollapse}
-          height="100%"
-        />
       </div>
     )
+
+    // 降级到标准图谱视图（已禁用）
+    // return (
+    //   <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+    //     {isLoading && (
+    //       <div style={{
+    //         position: 'absolute', inset: 0, display: 'flex',
+    //         alignItems: 'center', justifyContent: 'center',
+    //         background: 'rgba(7,9,13,0.6)', zIndex: 10,
+    //       }}>
+    //         <Spin tip="加载架构图..." />
+    //       </div>
+    //     )}
+    //     <ArchitectureCanvas
+    //       key={activeRepo.repoId}
+    //       onNodeExpand={handleNodeExpand}
+    //       onNodeCollapse={handleNodeCollapse}
+    //       height="100%"
+    //     />
+    //   </div>
+    // )
   }
 
   return (

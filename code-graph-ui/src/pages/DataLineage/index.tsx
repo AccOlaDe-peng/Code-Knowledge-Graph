@@ -1,185 +1,77 @@
 /**
  * DataLineage - 数据血缘主页面。
  *
- * 支持两种视图模式：
- * - 技术架构视图：按技术模块聚合（adms-api, adms-repository...）
- * - 业务领域视图：按业务领域聚合（drs, mdm, frs...）
- *
- * 三层渐进式视图：
- * - 层级 1: 主图（模块/领域）
- * - 层级 2: 内部视图（Service）
- * - 层级 3: 详细血缘（Function）
+ * 使用 data-lineage.json 作为数据源：
+ * - 首屏展示模块依赖图
+ * - 点击模块展开详情面板
+ * - 详情面板包含：实体、业务流程、功能三个 Tab
  */
 import React, { useEffect, useState, useCallback } from "react";
 import { ReactFlowProvider } from "reactflow";
 import "reactflow/dist/style.css";
-import { Spin, Button, Tooltip, Input, Tag } from "antd";
-import {
-  SearchOutlined,
-  ReloadOutlined,
-} from "@ant-design/icons";
-import { useLineageLevel, useLineageNavigation, useViewMode, useDomainConfig, useDomainInteraction } from "../../store/lineageStore";
-import { useRepoStore } from "../../store/repoStore";
-import { graphApi } from "../../api/graphApi";
-import { domainApi } from "../../api/domainApi";
-import RepoSelector from "../../components/ui/RepoSelector";
-import ModuleView from "./components/ModuleView";
-import ServiceView from "./components/ServiceView";
-import DetailView from "./components/DetailView";
-import BusinessDomainView from "./components/BusinessDomainView";
-import DomainDetailView from "./components/DomainDetailView";
-import ViewModeSelector from "./components/ViewModeSelector";
-import DomainConfigPanel from "./components/DomainConfigPanel";
-import type { ModuleInfo, DomainInfo } from "../../store/lineageStore";
-import type { GraphNode } from "../../types/graph";
-import type { BusinessDomainNode } from "./utils/domainAggregation";
+import { Spin, Button, Tooltip } from "antd";
+import { ReloadOutlined, InfoCircleOutlined } from "@ant-design/icons";
+import { getDataLineage } from "../../api/dataLineageApi";
+import ModuleGraph from "./components/ModuleGraph";
+import ModuleDetailPanel from "./components/ModuleDetailPanel";
+import type { DataLineageJSON, Module } from "./types/dataLineage";
 
-// ─── 类型定义 ────────────────────────────────────────────────────────────────
-
-interface RawNode {
-  id: string;
-  type: string;
-  name?: string;
-  properties?: Record<string, unknown>;
-}
-
-interface RawEdge {
-  from: string;
-  to: string;
-  type: string;
-  properties?: Record<string, unknown>;
-}
-
-// ─── 内部组件 ────────────────────────────────────────────────────────────────
+// ─── 主组件 ──────────────────────────────────────────────────────────────────
 
 const DataLineageInner: React.FC = () => {
-  const { selectedModule, selectedService, isModuleView, isServiceView, isDetailView } = useLineageLevel();
-  const { navigateToModule, navigateToService, navigateBack, reset } = useLineageNavigation();
-  const { isBusinessView, isTechView } = useViewMode();
-  const { domainConfig, inferredDomains, domainLoading, setDomainConfig, setInferredDomains, setDomainLoading } = useDomainConfig();
-  const {
-    selectedDomain,
-    domainLevel,
-    navigateToDomain,
-    navigateFromDomain,
-  } = useDomainInteraction();
-  const { activeRepo } = useRepoStore();
-
   // 数据状态
-  const [nodes, setNodes] = useState<RawNode[]>([]);
-  const [edges, setEdges] = useState<RawEdge[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<DataLineageJSON | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
 
-  // 加载模块级数据
-  useEffect(() => {
-    if (!activeRepo?.repoId || !isModuleView) return;
+  // UI 状态
+  const [selectedModule, setSelectedModule] = useState<Module | null>(null);
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
 
+  // 加载数据
+  const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
 
-    // 加载完整血缘数据，前端聚合为模块级
-    graphApi
-      .getLineageView(activeRepo.repoId, { includeCalls: true })
-      .then((res) => {
-        setNodes(res.nodes);
-        setEdges(res.edges);
-        setLoading(false);
-      })
-      .catch((err) => {
-        setError(String(err));
-        setLoading(false);
-      });
-  }, [activeRepo?.repoId, isModuleView]);
+    try {
+      const result = await getDataLineage();
+      setData(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "加载数据失败");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  // 加载领域配置（业务视图模式）
   useEffect(() => {
-    if (!activeRepo?.repoId || !isBusinessView) return;
-
-    setDomainLoading(true);
-    Promise.all([
-      domainApi.getDomainConfig(activeRepo.repoId),
-      domainApi.inferDomains(activeRepo.repoId),
-    ])
-      .then(([config, inferred]) => {
-        setDomainConfig(config);
-        setInferredDomains(inferred);
-        setDomainLoading(false);
-      })
-      .catch((err) => {
-        console.error("加载领域配置失败:", err);
-        setDomainLoading(false);
-      });
-  }, [activeRepo?.repoId, isBusinessView, setDomainConfig, setInferredDomains, setDomainLoading]);
+    loadData();
+  }, [loadData]);
 
   // 处理模块点击
-  const handleModuleClick = useCallback(
-    (_moduleId: string, module: ModuleInfo) => {
-      navigateToModule(module);
-    },
-    [navigateToModule]
-  );
-
-  // 处理服务点击
-  const handleServiceClick = useCallback(
-    (serviceId: string, service: GraphNode) => {
-      navigateToService({
-        id: serviceId,
-        name: service.label || serviceId.split(":").pop() || serviceId,
-        type: service.type,
-      });
-    },
-    [navigateToService]
-  );
-
-  // 处理领域双击（进入子图）
-  const handleDomainDoubleClick = useCallback(
-    (_domainId: string, domain: BusinessDomainNode) => {
-      const domainInfo: DomainInfo = {
-        id: domain.id,
-        key: domain.key,
-        name: domain.name,
-        color: domain.color,
-        nodeCount: domain.nodeCount,
-        serviceCount: domain.services.length,
-        controllerCount: domain.controllers.length,
-        repositoryCount: domain.repositories.length,
-        crossDomainCalls: 0,
-        nodeIds: domain.nodeIds,
-      };
-      navigateToDomain(domainInfo);
-    },
-    [navigateToDomain]
-  );
-
-  // 从领域子图返回
-  const handleDomainBack = useCallback(() => {
-    navigateFromDomain();
-  }, [navigateFromDomain]);
+  const handleModuleClick = useCallback((module: Module) => {
+    setSelectedModule((prev) =>
+      prev?.id === module.id ? null : module
+    );
+    if (selectedModule?.id !== module.id) {
+      setPanelCollapsed(false);
+    }
+  }, [selectedModule?.id]);
 
   // 重置视图
   const handleReset = useCallback(() => {
-    reset();
-    setSearchQuery("");
-  }, [reset]);
+    setSelectedModule(null);
+    setPanelCollapsed(false);
+  }, []);
 
-  // 获取标题
-  const getTitle = () => {
-    if (isDetailView && selectedService) {
-      return selectedService.name;
-    }
-    if (isServiceView && selectedModule) {
-      return selectedModule.name;
-    }
-    return "数据血缘";
-  };
-
-  // 获取节点和边计数
-  const stats = {
-    nodeCount: nodes.length,
-    edgeCount: edges.length,
-  };
+  // 统计信息
+  const stats = data
+    ? {
+        moduleCount: data.modules.length,
+        entityCount: data.modules.reduce((sum, m) => sum + m.entities.length, 0),
+        flowCount: data.modules.reduce((sum, m) => sum + m.businessFlows.length, 0),
+        dependencyCount: data.moduleDependencies.dependencies.length,
+      }
+    : null;
 
   return (
     <div
@@ -201,7 +93,6 @@ const DataLineageInner: React.FC = () => {
           background: "rgba(6,8,12,0.97)",
           backdropFilter: "blur(12px)",
           flexShrink: 0,
-          flexWrap: "wrap",
         }}
       >
         {/* 标题 */}
@@ -224,145 +115,106 @@ const DataLineageInner: React.FC = () => {
               letterSpacing: "0.04em",
             }}
           >
-            {getTitle()}
+            数据血缘
           </span>
         </div>
 
-        {/* 层级指示器 */}
-        <div style={{ display: "flex", gap: 6 }}>
-          <Tag
-            color={isModuleView ? "#b08eff" : "#1a2535"}
-            style={{ fontFamily: "var(--font-mono)", fontSize: 11, margin: 0, padding: '3px 10px' }}
-          >
-            模块
-          </Tag>
-          {selectedModule && (
-            <Tag
-              color={isServiceView ? "#00d4ff" : "#1a2535"}
-              style={{ fontFamily: "var(--font-mono)", fontSize: 11, margin: 0, padding: '3px 10px' }}
-            >
-              服务
-            </Tag>
-          )}
-          {selectedService && (
-            <Tag
-              color={isDetailView ? "#00f084" : "#1a2535"}
-              style={{ fontFamily: "var(--font-mono)", fontSize: 11, margin: 0, padding: '3px 10px' }}
-            >
-              详情
-            </Tag>
-          )}
-        </div>
-
-        {/* 返回按钮 */}
-        {(isServiceView || isDetailView) && (
-          <Button
-            size="small"
-            onClick={navigateBack}
-            style={{
-              background: "var(--s-float)",
-              border: "1px solid var(--b-subtle)",
-              color: "#a8b8d8",
-              fontFamily: "var(--font-ui)",
-              fontSize: 12,
-            }}
-          >
-            ← 返回
-          </Button>
-        )}
-
-        {/* 仓库选择器 */}
-        <RepoSelector showStats={false} width={200} />
-
-        {/* 视图模式选择器 */}
-        <ViewModeSelector />
-
-        {/* 领域配置（仅业务视图模式） */}
-        {isBusinessView && activeRepo && (
-          <DomainConfigPanel
-            repoId={activeRepo.repoId}
-            domains={domainConfig?.domains || []}
-            inferredDomains={inferredDomains}
-            loading={domainLoading}
-            onDomainsChange={(domains) => setDomainConfig(
-              domainConfig
-                ? { ...domainConfig, domains }
-                : { repoId: activeRepo.repoId, version: 1, lastModified: new Date().toISOString(), domains }
-            )}
-            onInferredDomainsChange={setInferredDomains}
-          />
-        )}
-
         {/* 统计 */}
-        {isModuleView && (
+        {stats && (
           <div style={{ display: "flex", gap: 20, marginRight: "auto" }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
               <span
                 style={{
                   fontFamily: "var(--font-mono)",
-                  fontSize: 18,
+                  fontSize: 16,
                   fontWeight: 700,
                   color: "#b08eff",
                 }}
               >
-                {stats.nodeCount.toLocaleString()}
+                {stats.moduleCount}
               </span>
               <span
                 style={{
                   fontFamily: "var(--font-ui)",
-                  fontSize: 12,
+                  fontSize: 11,
                   color: "#7888a8",
-                  letterSpacing: "0.02em",
                 }}
               >
-                节点
+                模块
               </span>
             </div>
             <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
               <span
                 style={{
                   fontFamily: "var(--font-mono)",
-                  fontSize: 18,
+                  fontSize: 16,
                   fontWeight: 700,
                   color: "#00d4ff",
                 }}
               >
-                {stats.edgeCount.toLocaleString()}
+                {stats.entityCount}
               </span>
               <span
                 style={{
                   fontFamily: "var(--font-ui)",
-                  fontSize: 12,
+                  fontSize: 11,
                   color: "#7888a8",
-                  letterSpacing: "0.02em",
                 }}
               >
-                关系
+                实体
+              </span>
+            </div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+              <span
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 16,
+                  fontWeight: 700,
+                  color: "#ffc145",
+                }}
+              >
+                {stats.flowCount}
+              </span>
+              <span
+                style={{
+                  fontFamily: "var(--font-ui)",
+                  fontSize: 11,
+                  color: "#7888a8",
+                }}
+              >
+                业务流程
+              </span>
+            </div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+              <span
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 16,
+                  fontWeight: 700,
+                  color: "#00f084",
+                }}
+              >
+                {stats.dependencyCount}
+              </span>
+              <span
+                style={{
+                  fontFamily: "var(--font-ui)",
+                  fontSize: 11,
+                  color: "#7888a8",
+                }}
+              >
+                依赖关系
               </span>
             </div>
           </div>
         )}
 
-        {/* 搜索（仅模块视图） */}
-        {isModuleView && (
-          <Input
-            prefix={<SearchOutlined style={{ color: "#7888a8", fontSize: 13 }} />}
-            placeholder="搜索节点..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{
-              width: 180,
-              background: "var(--s-float)",
-              border: "1px solid var(--b-subtle)",
-              borderRadius: 4,
-              color: "var(--t-primary)",
-              fontFamily: "var(--font-mono)",
-              fontSize: 13,
-            }}
-            allowClear
-          />
-        )}
+        {/* 信息提示 */}
+        <Tooltip title={data?.meta.description || ""}>
+          <InfoCircleOutlined style={{ color: "#5a6a8a", fontSize: 14 }} />
+        </Tooltip>
 
+        {/* 重置按钮 */}
         <Tooltip title="重置视图">
           <Button
             icon={<ReloadOutlined />}
@@ -384,6 +236,7 @@ const DataLineageInner: React.FC = () => {
           display: "flex",
           position: "relative",
           overflow: "hidden",
+          flexDirection: "column",
         }}
       >
         {/* 加载状态 */}
@@ -428,94 +281,41 @@ const DataLineageInner: React.FC = () => {
             }}
           >
             <div style={{ color: "#ff6b6b", fontSize: 28 }}>⚠️</div>
-            <div style={{ color: "#ff6b6b", fontFamily: "var(--font-mono)", fontSize: 13 }}>
+            <div
+              style={{
+                color: "#ff6b6b",
+                fontFamily: "var(--font-mono)",
+                fontSize: 13,
+              }}
+            >
               加载失败: {error}
             </div>
-            <Button onClick={handleReset} size="small">
+            <Button onClick={loadData} size="small">
               重试
             </Button>
           </div>
         )}
 
-        {/* 未选择仓库 */}
-        {!activeRepo && !loading && !error && (
-          <div
-            style={{
-              flex: 1,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 48, opacity: 0.06, marginBottom: 16 }}>◈</div>
-              <div
-                style={{
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 14,
-                  color: "#7888a8",
-                  letterSpacing: "0.04em",
-                }}
-              >
-                请从顶栏选择一个仓库
-              </div>
+        {/* 主视图 */}
+        {data && !loading && !error && (
+          <>
+            {/* 模块依赖图 */}
+            <div style={{ flex: 1, position: "relative" }}>
+              <ModuleGraph
+                modules={data.modules}
+                dependencies={data.moduleDependencies.dependencies}
+                selectedModuleId={selectedModule?.id}
+                onModuleClick={handleModuleClick}
+              />
             </div>
-          </div>
-        )}
 
-        {/* 层级 1a: 模块主图 - 技术架构视图 */}
-        {activeRepo && isModuleView && isTechView && !loading && !error && (
-          <ModuleView
-            repoId={activeRepo.repoId}
-            nodes={nodes}
-            edges={edges}
-            loading={loading}
-            onModuleClick={handleModuleClick}
-          />
-        )}
-
-        {/* 层级 1b: 业务领域视图 - 主图 */}
-        {activeRepo && isModuleView && isBusinessView && domainLevel === "main" && !loading && !error && (
-          <BusinessDomainView
-            nodes={nodes}
-            edges={edges}
-            domains={domainConfig?.domains || []}
-            inferredDomains={inferredDomains}
-            loading={loading}
-            onDomainDoubleClick={handleDomainDoubleClick}
-          />
-        )}
-
-        {/* 层级 1c: 业务领域视图 - 子图 */}
-        {activeRepo && isModuleView && isBusinessView && domainLevel === "subgraph" && selectedDomain && !error && (
-          <DomainDetailView
-            repoId={activeRepo.repoId}
-            domain={selectedDomain}
-            allNodes={nodes}
-            allEdges={edges}
-            onBack={handleDomainBack}
-          />
-        )}
-
-        {/* 层级 2: 模块内视图 */}
-        {activeRepo && isServiceView && selectedModule && !error && (
-          <ServiceView
-            repoId={activeRepo.repoId}
-            moduleId={selectedModule.id}
-            module={selectedModule}
-            onBack={navigateBack}
-            onServiceClick={handleServiceClick}
-          />
-        )}
-
-        {/* 层级 3: 详细血缘 */}
-        {activeRepo && isDetailView && selectedService && !error && (
-          <DetailView
-            repoId={activeRepo.repoId}
-            serviceId={selectedService.id}
-            serviceName={selectedService.name}
-            onBack={navigateBack}
-          />
+            {/* 模块详情面板 */}
+            <ModuleDetailPanel
+              module={selectedModule}
+              collapsed={panelCollapsed}
+              onCollapseChange={setPanelCollapsed}
+            />
+          </>
         )}
       </div>
     </div>
