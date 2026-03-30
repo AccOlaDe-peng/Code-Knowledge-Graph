@@ -98,9 +98,6 @@ class AIPipeline:
         self._rag_engine = rag_engine
         self._enable_optimization = enable_optimization
         self._enable_static_first = enable_static_first
-        self._vector_store = vector_store
-        self._rag_engine = rag_engine
-        self._enable_optimization = enable_optimization
 
     def analyze(
         self,
@@ -109,6 +106,7 @@ class AIPipeline:
         repo_name: str = "",
         enable_rag: bool = False,
         on_progress: Optional[Callable[[dict], None]] = None,
+        pipeline_mode: Optional[str] = None,
     ) -> AIAnalysisResult:
         """执行 AI 分析流水线。
 
@@ -117,6 +115,12 @@ class AIPipeline:
             repo_name: 仓库名称（用于生成图谱 ID）
             enable_rag: 是否启用向量化（Step 6）
             on_progress: 进度回调函数
+            pipeline_mode: 流水线模式：
+                - None: 根据实例配置选择（默认）
+                - "static_first": 静态优先流水线
+                - "ai_first": AI 优先流水线
+                - "multi_agent": 多 Agent 协作流水线
+                - "optimized": 优化流水线
 
         Returns:
             AIAnalysisResult 包含图谱和分析状态
@@ -133,8 +137,42 @@ class AIPipeline:
         if not repo_path.is_dir():
             raise ValueError(f"路径不是目录: {repo_path}")
 
+        # 多 Agent 协作流水线
+        if pipeline_mode == "multi_agent":
+            from backend.pipeline.multi_agent_pipeline import MultiAgentPipeline
+
+            multi_agent = MultiAgentPipeline(
+                config=self.config,
+                graph_repo=self._repo,
+                vector_store=self._vector_store,
+                rag_engine=self._rag_engine,
+            )
+            return multi_agent.analyze(
+                repo_path,
+                repo_name=repo_name,
+                enable_rag=enable_rag,
+                on_progress=on_progress,
+            )
+
+        # AI 优先流水线
+        if pipeline_mode == "ai_first":
+            from backend.pipeline.ai_first_pipeline import AIFirstPipeline
+
+            ai_first = AIFirstPipeline(
+                config=self.config,
+                graph_repo=self._repo,
+                vector_store=self._vector_store,
+                rag_engine=self._rag_engine,
+            )
+            return ai_first.analyze(
+                repo_path,
+                repo_name=repo_name,
+                enable_rag=enable_rag,
+                on_progress=on_progress,
+            )
+
         # 使用静态优先流水线（推荐）
-        if self._enable_static_first and not self._enable_optimization:
+        if (self._enable_static_first or pipeline_mode == "static_first") and not self._enable_optimization:
             from backend.pipeline.static_first_pipeline import StaticFirstPipeline
 
             static_first = StaticFirstPipeline(
