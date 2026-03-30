@@ -1701,3 +1701,59 @@ def _calculate_trace_confidence(
         avg_confidence = min(1.0, avg_confidence + 0.05)
 
     return round(avg_confidence, 2)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 分层架构图 API
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/graph/architecture/{repo_id}", tags=["图谱视图"])
+def get_architecture(repo_id: str) -> dict[str, Any]:
+    """
+    获取分层架构图数据。
+
+    从 `data/graphs/{repo_id}-architecture.json` 加载自定义分层架构数据。
+    如果文件不存在，返回 404。
+
+    返回格式：
+    {
+        "name": "ADMS",
+        "fullName": "ActiveIO Data Management System",
+        "layers": [
+            {
+                "id": "presentation",
+                "name": "表现层",
+                "nodes": [...]
+            }
+        ],
+        "dataFlow": { ... },
+        "moduleDependencies": { ... }
+    }
+    """
+    # 构建架构文件路径
+    storage_dir = Path(_DEFAULT_STORAGE_DIR)
+    arch_file = storage_dir / f"{repo_id}-architecture.json"
+
+    if not arch_file.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"架构图文件不存在: {repo_id}-architecture.json",
+        )
+
+    try:
+        with open(arch_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data
+    except json.JSONDecodeError as e:
+        logger.exception("架构图 JSON 解析失败: %s", arch_file)
+        raise HTTPException(
+            status_code=500,
+            detail=f"架构图 JSON 解析失败: {e}",
+        )
+    except Exception as e:
+        logger.exception("读取架构图文件失败: %s", arch_file)
+        raise HTTPException(
+            status_code=500,
+            detail=f"读取架构图文件失败: {e}",
+        )
