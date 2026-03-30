@@ -1736,27 +1736,37 @@ def get_architecture(repo_id: str) -> dict[str, Any]:
     """
     # 尝试多种命名方式查找架构文件
     # 1. 直接用 repo_id
-    # 2. 从 repo_id 中提取 repo_name（如 "repo-xxx-adms" -> "adms"）
-    # 3. 从 GraphStorage 获取 repo_name
+    # 2. 从 repo_id 中提取可能的名称（如 "repo-xxx-adms" -> "adms"）
+    # 3. 从 repo_store 获取 repo_name 和 graph_id
 
     candidate_names = [repo_id]
 
-    # 尝试从 GraphStorage 获取 repo_name
-    try:
-        storage = get_graph_storage()
-        repos = storage.list_repos()
-        for repo in repos:
-            if repo.repo_id == repo_id and repo.name:
-                candidate_names.append(repo.name)
-                break
-    except Exception:
-        pass
-
-    # 尝试从 repo_id 中提取 name（格式：repo-timestamp-name）
+    # 从 repo_id 中提取 name（格式：repo-timestamp-name）
     if repo_id.startswith("repo-"):
         parts = repo_id.split("-", 2)
         if len(parts) >= 3:
             candidate_names.append(parts[2])
+
+    # 从 repo_store 获取 repo_name 和 graph_id
+    try:
+        from backend.store.repo_store import get_repo_store
+        from backend.store.analysis_store import get_analysis_store
+
+        repo_store = get_repo_store()
+        repo_info = repo_store.get(repo_id)
+
+        if repo_info:
+            # 添加 repo_name
+            if repo_info.get("name"):
+                candidate_names.append(repo_info["name"])
+
+            # 从 latest_analysis 获取 graph_id
+            analysis_store = get_analysis_store()
+            latest = analysis_store.get_latest(repo_id)
+            if latest and latest.get("graph_id"):
+                candidate_names.append(latest["graph_id"])
+    except Exception:
+        pass
 
     # 按优先级查找文件
     for name in candidate_names:
@@ -1786,19 +1796,3 @@ def get_architecture(repo_id: str) -> dict[str, Any]:
         detail=f"架构图文件不存在: {repo_id}-architecture.json",
     )
 
-    try:
-        with open(arch_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data
-    except json.JSONDecodeError as e:
-        logger.exception("架构图 JSON 解析失败: %s", arch_file)
-        raise HTTPException(
-            status_code=500,
-            detail=f"架构图 JSON 解析失败: {e}",
-        )
-    except Exception as e:
-        logger.exception("读取架构图文件失败: %s", arch_file)
-        raise HTTPException(
-            status_code=500,
-            detail=f"读取架构图文件失败: {e}",
-        )
