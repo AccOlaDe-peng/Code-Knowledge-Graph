@@ -101,13 +101,18 @@ const DataLineageInner: React.FC = () => {
     setSelectedModule(null);
 
     try {
+      console.log('[DataLineage] Loading data for repo:', repoId);
       const result = await graphEndpoints.getLineageModules(repoId);
+      console.log('[DataLineage] API result:', result);
       // 转换数据格式
       const transformedModules = result.modules.map(transformModule);
       const transformedDeps = result.edges.map(transformEdge);
+      console.log('[DataLineage] Transformed modules:', transformedModules.length, 'deps:', transformedDeps.length);
+      console.log('[DataLineage] First module:', transformedModules[0]);
       setModules(transformedModules);
       setDependencies(transformedDeps);
     } catch (err) {
+      console.error('[DataLineage] Error:', err);
       setError(err instanceof Error ? err.message : "加载数据失败");
       setModules([]);
       setDependencies([]);
@@ -121,6 +126,8 @@ const DataLineageInner: React.FC = () => {
   useEffect(() => {
     // 使用 graphId 调用 API（后端 API 参数名是 repo_id，但实际接受 graphId）
     const repoId = activeRepo?.graphId || activeRepo?.repoId;
+    console.log('[DataLineage] activeRepo changed:', activeRepo);
+    console.log('[DataLineage] Will load repoId:', repoId);
     if (repoId) {
       loadData(repoId);
     } else {
@@ -160,10 +167,15 @@ const DataLineageInner: React.FC = () => {
   return (
     <div
       style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: "#07090d",
+        zIndex: 1,
         display: "flex",
         flexDirection: "column",
-        height: "100%",
-        background: "#07090d",
       }}
     >
       {/* 工具栏 */}
@@ -177,6 +189,7 @@ const DataLineageInner: React.FC = () => {
           background: "rgba(6,8,12,0.97)",
           backdropFilter: "blur(12px)",
           flexShrink: 0,
+          height: 52,
         }}
       >
         {/* 标题 */}
@@ -294,18 +307,21 @@ const DataLineageInner: React.FC = () => {
       {/* 主内容区 */}
       <div
         style={{
-          flex: 1,
+          position: "absolute",
+          top: 52,
+          left: 0,
+          right: 0,
+          bottom: 0,
           display: "flex",
-          position: "relative",
           overflow: "hidden",
-          flexDirection: "column",
         }}
       >
         {/* 未选择仓库提示 */}
         {!activeRepo && !loading && (
           <div
             style={{
-              flex: 1,
+              position: "absolute",
+              inset: 0,
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
@@ -360,7 +376,8 @@ const DataLineageInner: React.FC = () => {
         {error && !loading && activeRepo && (
           <div
             style={{
-              flex: 1,
+              position: "absolute",
+              inset: 0,
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
@@ -388,7 +405,8 @@ const DataLineageInner: React.FC = () => {
         {!loading && !error && activeRepo && modules.length === 0 && (
           <div
             style={{
-              flex: 1,
+              position: "absolute",
+              inset: 0,
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
@@ -414,7 +432,13 @@ const DataLineageInner: React.FC = () => {
         {activeRepo && modules.length > 0 && !loading && !error && (
           <>
             {/* 模块依赖图 */}
-            <div style={{ flex: 1, position: "relative" }}>
+            <div style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 320,
+              bottom: 0,
+            }}>
               <ModuleGraph
                 modules={modules}
                 dependencies={dependencies}
