@@ -110,7 +110,7 @@ const RepoSelector: React.FC<RepoSelectorProps> = ({
             onChange={handleChange}
             variant="borderless"
             popupMatchSelectWidth={false}
-            options={repos.filter((r) => r.graphId && r.status !== 'analyzing').map((r) => ({
+            options={repos.filter((r) => r.graphId && r.status !== 'analyzing' && r.status !== 'pending').map((r) => ({
               value: r.graphId,
               label: (
                 <span

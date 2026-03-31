@@ -2,8 +2,8 @@ import { apiClient } from "../client";
 import type {
   GraphListResponse,
   GraphDetailResponse,
-  CallGraphResponse,
   LineageGraphResponse,
+  LineageModulesResponse,
   EventsGraphResponse,
   ServicesGraphResponse,
   AnalyzeAsyncResponse,
@@ -28,35 +28,39 @@ export const graphEndpoints = {
     const raw: { repos: Record<string, unknown>[] } =
       await apiClient.get("/repos");
     return {
-      graphs: (raw.repos ?? []).map((g) => ({
-        repoId: g.repo_id as string,
-        graphId: g.repo_id as string,
-        repoName: g.repo_name as string,
-        language: (g.languages ?? g.language ?? []) as string[],
-        createdAt: g.created_at as string,
-        updatedAt: (g.updated_at ?? g.created_at) as string,
-        nodeCount: g.node_count as number,
-        edgeCount: g.edge_count as number,
-        gitCommit: g.git_commit as string | undefined,
-        sourceMode: (g.source_mode ?? "local") as "local" | "git" | "zip",
-        repoPath: g.repo_path as string | undefined,
-        status:
-          (g.status as string | undefined as
-            | "saved"
-            | "analyzing"
-            | "completed"
-            | "failed"
-            | "canceled"
-            | undefined) ?? "completed",
-        taskId: g.task_id as string | undefined,
-        analysisStage: g.stage as string | undefined,
-        analysisStep: g.step as number | undefined,
-        analysisTotal: g.total as number | undefined,
-        analysisMessage: g.message as string | undefined,
-        error: g.error as string | undefined,
-        branch: g.branch as string | undefined,
-        lastAnalyzedAt: g.updated_at as string | undefined,
-      })),
+      graphs: (raw.repos ?? []).map((g) => {
+        // 从 latest_analysis 中获取更多信息
+        const latest = g.latest_analysis as Record<string, unknown> | undefined;
+        return {
+          repoId: g.id as string,
+          graphId: (g.graph_id || latest?.graph_id) as string,
+          repoName: g.name as string,
+          language: (g.languages ?? g.language ?? []) as string[],
+          createdAt: g.created_at as string,
+          updatedAt: (g.updated_at ?? g.created_at) as string,
+          nodeCount: (latest?.node_count ?? g.node_count ?? 0) as number,
+          edgeCount: (latest?.edge_count ?? g.edge_count ?? 0) as number,
+          gitCommit: (latest?.git_commit ?? g.git_commit) as string | undefined,
+          sourceMode: (g.source_mode ?? "local") as "local" | "git" | "zip",
+          repoPath: g.path as string | undefined,
+          status:
+            (latest?.status as string | undefined as
+              | "saved"
+              | "analyzing"
+              | "completed"
+              | "failed"
+              | "canceled"
+              | undefined) ?? "completed",
+          taskId: latest?.id as string | undefined,
+          analysisStage: latest?.stage as string | undefined,
+          analysisStep: latest?.step as number | undefined,
+          analysisTotal: latest?.total as number | undefined,
+          analysisMessage: latest?.message as string | undefined,
+          error: latest?.error as string | undefined,
+          branch: g.branch as string | undefined,
+          lastAnalyzedAt: latest?.finished_at as string | undefined,
+        };
+      }),
     };
   },
 
@@ -69,19 +73,19 @@ export const graphEndpoints = {
   },
 
   /**
-   * GET /graph/call?repo_id={id}
-   * Get call graph (Function/API nodes + calls edges)
-   */
-  async getCallGraph(repoId: string): Promise<CallGraphResponse> {
-    return apiClient.get("/graph/call", { params: { repo_id: repoId } });
-  },
-
-  /**
    * GET /graph/lineage?repo_id={id}
    * Get data lineage graph
    */
   async getLineageGraph(repoId: string): Promise<LineageGraphResponse> {
     return apiClient.get("/graph/lineage", { params: { repo_id: repoId } });
+  },
+
+  /**
+   * GET /graph/lineage/modules?repo_id={id}
+   * Get module-level lineage graph
+   */
+  async getLineageModules(repoId: string): Promise<LineageModulesResponse> {
+    return apiClient.get("/graph/lineage/modules", { params: { repo_id: repoId } });
   },
 
   /**

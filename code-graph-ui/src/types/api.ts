@@ -81,11 +81,38 @@ export type GraphDetailResponse = Graph & {
 
 // ─── Graph View Responses (all extend Graph) ──────────────────────────────────
 
-/** GET /callgraph — Function/API nodes + calls edges */
-export type CallGraphResponse = Graph & { graphId: string };
-
 /** GET /lineage — depends_on / reads / writes / produces / consumes */
 export type LineageGraphResponse = Graph & { graphId: string };
+
+/** GET /graph/lineage/modules — module-level lineage */
+export type LineageModule = {
+  id: string;
+  name: string;
+  service_count: number;
+  controller_count: number;
+  repository_count: number;
+  cross_module_calls: number;
+  services: Array<{ id: string; name: string }>;
+  controllers: Array<{ id: string; name: string }>;
+  repositories: Array<{ id: string; name: string }>;
+  databases: Array<{ id: string; name: string }>;
+};
+
+export type LineageModuleEdge = {
+  from: string;
+  to: string;
+  type: string;
+  service_pairs: string[][];
+  call_count: number;
+};
+
+export type LineageModulesResponse = {
+  repo_id: string;
+  module_count: number;
+  edge_count: number;
+  modules: LineageModule[];
+  edges: LineageModuleEdge[];
+};
 
 /** GET /events — publishes / subscribes / produces / consumes */
 export type EventsGraphResponse = Graph & { graphId: string };

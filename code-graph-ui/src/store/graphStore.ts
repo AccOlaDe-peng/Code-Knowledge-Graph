@@ -20,7 +20,6 @@ type GraphStore = {
   selectedNode:  GraphNode | null
 
   // Graph views
-  callGraph:    AsyncSlice<Graph>
   lineageGraph: AsyncSlice<Graph>
   eventGraph:   AsyncSlice<Graph>
   moduleGraph:  AsyncSlice<Graph>   // NEW: /graph/module (contains + imports)
@@ -31,7 +30,6 @@ type GraphStore = {
   setSelectedNode:  (node: GraphNode | null) => void
 
   // Actions — async loaders
-  loadCallGraph:   (repoId: string) => Promise<void>
   loadLineage:     (repoId: string) => Promise<void>
   loadEvents:      (repoId: string) => Promise<void>
   loadModuleGraph: (repoId: string) => Promise<void>  // NEW
@@ -47,7 +45,6 @@ export const useGraphStore = create<GraphStore>((set) => ({
   activeGraphId: null,
   selectedNode:  null,
 
-  callGraph:    idle(),
   lineageGraph: idle(),
   eventGraph:   idle(),
   moduleGraph:  idle(),
@@ -60,21 +57,6 @@ export const useGraphStore = create<GraphStore>((set) => ({
   setSelectedNode: (node) => set({ selectedNode: node }),
 
   // ── Loaders ─────────────────────────────────────────────────────────────────
-
-  // Uses new /graph/call endpoint (GraphStorage-backed, lowercase node types)
-  loadCallGraph: async (repoId) => {
-    set({ callGraph: { data: null, loading: true, error: null } })
-    try {
-      const res = await graphApi.getCallView(repoId)
-      const graph = {
-        nodes: res.nodes.map(rawNodeToGraphNode),
-        edges: res.edges.map(rawEdgeToGraphEdge),
-      }
-      set({ callGraph: { data: graph, loading: false, error: null } })
-    } catch (e) {
-      set({ callGraph: { data: null, loading: false, error: String(e) } })
-    }
-  },
 
   loadLineage: async (repoId) => {
     set({ lineageGraph: { data: null, loading: true, error: null } })
@@ -134,7 +116,6 @@ export const useGraphStore = create<GraphStore>((set) => ({
 
   clearGraphs: () =>
     set({
-      callGraph:    idle(),
       lineageGraph: idle(),
       eventGraph:   idle(),
       moduleGraph:  idle(),

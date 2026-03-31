@@ -120,28 +120,6 @@ export const graphApi = {
   },
 
   /**
-   * GET /graph/call — 调用图视图
-   */
-  getCallView(
-    repoId: string,
-    nodeId?: string,
-    depth?: number,
-  ): Promise<{
-    repo_id: string;
-    node_count: number;
-    edge_count: number;
-    nodes: RawNode[];
-    edges: RawEdge[];
-  }> {
-    return httpClient.get("/graph/call", {
-      params: {
-        repo_id: repoId,
-        ...(nodeId ? { node_id: nodeId, depth } : {}),
-      },
-    });
-  },
-
-  /**
    * GET /graph/lineage — 血缘视图
    */
   getLineageView(

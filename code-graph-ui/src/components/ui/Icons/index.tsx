@@ -61,17 +61,6 @@ export const IconArchitecture: React.FC<IconProps> = (props) => (
   </IconWrapper>
 )
 
-export const IconCallGraph: React.FC<IconProps> = (props) => (
-  <IconWrapper {...props}>
-    <circle cx={6} cy={6} r={3} />
-    <circle cx={18} cy={6} r={3} />
-    <circle cx={12} cy={18} r={3} />
-    <path d="M8.5 7.5L10 16" />
-    <path d="M15.5 7.5L14 16" />
-    <path d="M9 6h6" />
-  </IconWrapper>
-)
-
 export const IconDataLineage: React.FC<IconProps> = (props) => (
   <IconWrapper {...props}>
     <path d="M4 4h6v6H4z" />

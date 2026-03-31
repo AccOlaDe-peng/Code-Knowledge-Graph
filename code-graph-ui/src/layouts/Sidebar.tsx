@@ -4,7 +4,6 @@ import {
   IconDashboard,
   IconRepository,
   IconArchitecture,
-  IconCallGraph,
   IconDataLineage,
   IconEventFlow,
   IconQuery,
@@ -39,12 +38,6 @@ const NAV_ITEMS: NavItem[] = [
     icon: <IconArchitecture size={18} />,
     label: "架构图",
     description: "模块架构视图",
-  },
-  {
-    path: "/callgraph",
-    icon: <IconCallGraph size={18} />,
-    label: "调用图",
-    description: "函数调用关系",
   },
   {
     path: "/lineage",
