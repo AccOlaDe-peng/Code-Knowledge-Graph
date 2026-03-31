@@ -7,7 +7,6 @@ import {
   IconDataLineage,
   IconEventFlow,
   IconQuery,
-  IconImpactAnalysis,
   IconCollapse,
   IconExpand,
 } from "../components/ui/Icons";
@@ -57,12 +56,6 @@ const NAV_ITEMS: NavItem[] = [
     icon: <IconQuery size={18} />,
     label: "AI 查询",
     description: "智能代码问答",
-  },
-  {
-    path: "/impact",
-    icon: <IconImpactAnalysis size={18} />,
-    label: "影响分析",
-    description: "变更影响评估",
   },
 ];
 

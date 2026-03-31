@@ -88,17 +88,6 @@ export const IconQuery: React.FC<IconProps> = (props) => (
   </IconWrapper>
 )
 
-export const IconImpactAnalysis: React.FC<IconProps> = (props) => (
-  <IconWrapper {...props}>
-    <circle cx={12} cy={12} r={3} />
-    <circle cx={12} cy={12} r={8} strokeDasharray="4 4" />
-    <line x1="12" y1="2" x2="12" y2="4" />
-    <line x1="12" y1="20" x2="12" y2="22" />
-    <line x1="2" y1="12" x2="4" y2="12" />
-    <line x1="20" y1="12" x2="22" y2="12" />
-  </IconWrapper>
-)
-
 export const IconFieldLineage: React.FC<IconProps> = (props) => (
   <IconWrapper {...props}>
     <path d="M4 12h4" />
