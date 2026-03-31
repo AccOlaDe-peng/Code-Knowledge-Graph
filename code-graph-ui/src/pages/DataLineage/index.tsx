@@ -9,67 +9,14 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { ReactFlowProvider } from "reactflow";
 import "reactflow/dist/style.css";
-import { Spin, Button, Tooltip, Empty } from "antd";
-import { ReloadOutlined, InfoCircleOutlined, InboxOutlined } from "@ant-design/icons";
+import { Spin, Button, Tooltip } from "antd";
+import { ReloadOutlined, InboxOutlined } from "@ant-design/icons";
 import RepoSelector from "../../components/ui/RepoSelector";
-import { graphEndpoints } from "../../core/api";
 import { useRepoStore } from "../../store/repoStore";
+import { getDataLineage } from "../../api/dataLineageApi";
 import ModuleGraph from "./components/ModuleGraph";
 import ModuleDetailPanel from "./components/ModuleDetailPanel";
-import type { Module, ModuleDependency } from "./types/dataLineage";
-import type { LineageModule, LineageModuleEdge } from "../../types/api";
-
-// ─── 数据转换函数 ──────────────────────────────────────────────────────────────
-
-/** 将后端 LineageModule 转换为前端 Module 格式 */
-function transformModule(m: LineageModule, index: number): Module {
-  // 根据索引分配颜色
-  const colors = ["#b08eff", "#00d4ff", "#00f084", "#ffc145", "#ff6b9d", "#36f7c8"];
-  const color = colors[index % colors.length];
-
-  // 根据 service 数量估算布局位置
-  const cols = Math.ceil(Math.sqrt(m.service_count || 1));
-  const row = Math.floor(index / cols);
-  const col = index % cols;
-
-  return {
-    id: m.id,
-    name: m.name,
-    fullName: m.name,
-    description: `${m.name} 模块 - ${m.service_count} 个服务`,
-    icon: "module",
-    position: { x: col * 280, y: row * 150 },
-    color,
-    entities: [], // 暂不展示实体
-    businessFlows: [], // 暂不展示业务流程
-    subFunctions: m.services.map((s, i) => ({
-      id: s.id,
-      name: s.name,
-      description: `${s.name} 服务`,
-      apiEndpoint: "",
-      inputSource: [],
-      outputTarget: [],
-      relatedEntities: [],
-      relatedServices: [],
-      relatedDAO: [],
-    })),
-  };
-}
-
-/** 将后端 LineageModuleEdge 转换为前端 ModuleDependency 格式 */
-function transformEdge(e: LineageModuleEdge): ModuleDependency {
-  const typeMap: Record<string, ModuleDependency["type"]> = {
-    flow_to: "data",
-    calls: "service",
-    depends_on: "config",
-  };
-  return {
-    from: e.from,
-    to: e.to,
-    type: typeMap[e.type] || "data",
-    description: `${e.call_count || 0} 次调用`,
-  };
-}
+import type { Module, ModuleDependency, DataLineageJSON } from "./types/dataLineage";
 
 // ─── 主组件 ──────────────────────────────────────────────────────────────────
 
@@ -91,7 +38,7 @@ const DataLineageInner: React.FC = () => {
   const loadingRef = useRef(false);
 
   // 加载数据
-  const loadData = useCallback(async (repoId: string) => {
+  const loadData = useCallback(async (repoName: string) => {
     // 防止并发重复请求
     if (loadingRef.current) return;
     loadingRef.current = true;
@@ -101,16 +48,13 @@ const DataLineageInner: React.FC = () => {
     setSelectedModule(null);
 
     try {
-      console.log('[DataLineage] Loading data for repo:', repoId);
-      const result = await graphEndpoints.getLineageModules(repoId);
-      console.log('[DataLineage] API result:', result);
-      // 转换数据格式
-      const transformedModules = result.modules.map(transformModule);
-      const transformedDeps = result.edges.map(transformEdge);
-      console.log('[DataLineage] Transformed modules:', transformedModules.length, 'deps:', transformedDeps.length);
-      console.log('[DataLineage] First module:', transformedModules[0]);
-      setModules(transformedModules);
-      setDependencies(transformedDeps);
+      // 从仓库名称提取前缀（按 - 或 _ 分割取第一部分，转小写）
+      const namePrefix = repoName.split(/[-_]/)[0].toLowerCase();
+      const result: DataLineageJSON = await getDataLineage(namePrefix);
+
+      // 直接使用返回的数据结构
+      setModules(result.modules || []);
+      setDependencies(result.moduleDependencies?.dependencies || []);
     } catch (err) {
       console.error('[DataLineage] Error:', err);
       setError(err instanceof Error ? err.message : "加载数据失败");
@@ -124,19 +68,16 @@ const DataLineageInner: React.FC = () => {
 
   // 监听仓库变化
   useEffect(() => {
-    // 使用 graphId 调用 API（后端 API 参数名是 repo_id，但实际接受 graphId）
-    const repoId = activeRepo?.graphId || activeRepo?.repoId;
-    console.log('[DataLineage] activeRepo changed:', activeRepo);
-    console.log('[DataLineage] Will load repoId:', repoId);
-    if (repoId) {
-      loadData(repoId);
+    const repoName = activeRepo?.repoName;
+    if (repoName) {
+      loadData(repoName);
     } else {
       // 没有选中仓库时清空数据
       setModules([]);
       setDependencies([]);
       setSelectedModule(null);
     }
-  }, [activeRepo?.graphId, activeRepo?.repoId, loadData]);
+  }, [activeRepo?.repoName, loadData]);
 
   // 处理模块点击
   const handleModuleClick = useCallback((module: Module) => {
@@ -307,12 +248,9 @@ const DataLineageInner: React.FC = () => {
       {/* 主内容区 */}
       <div
         style={{
-          position: "absolute",
-          top: 52,
-          left: 0,
-          right: 0,
-          bottom: 0,
+          flex: 1,
           display: "flex",
+          flexDirection: "column",
           overflow: "hidden",
         }}
       >
@@ -320,8 +258,7 @@ const DataLineageInner: React.FC = () => {
         {!activeRepo && !loading && (
           <div
             style={{
-              position: "absolute",
-              inset: 0,
+              flex: 1,
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
@@ -347,8 +284,7 @@ const DataLineageInner: React.FC = () => {
         {loading && activeRepo && (
           <div
             style={{
-              position: "absolute",
-              inset: 0,
+              flex: 1,
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
@@ -376,8 +312,7 @@ const DataLineageInner: React.FC = () => {
         {error && !loading && activeRepo && (
           <div
             style={{
-              position: "absolute",
-              inset: 0,
+              flex: 1,
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
@@ -395,7 +330,7 @@ const DataLineageInner: React.FC = () => {
             >
               加载失败: {error}
             </div>
-            <Button onClick={() => activeRepo && loadData(activeRepo.graphId || activeRepo.repoId)} size="small">
+            <Button onClick={() => activeRepo && loadData(activeRepo.repoName || '')} size="small">
               重试
             </Button>
           </div>
@@ -405,8 +340,7 @@ const DataLineageInner: React.FC = () => {
         {!loading && !error && activeRepo && modules.length === 0 && (
           <div
             style={{
-              position: "absolute",
-              inset: 0,
+              flex: 1,
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
@@ -433,11 +367,8 @@ const DataLineageInner: React.FC = () => {
           <>
             {/* 模块依赖图 */}
             <div style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 320,
-              bottom: 0,
+              flex: 1,
+              minHeight: 0,
             }}>
               <ModuleGraph
                 modules={modules}
@@ -446,14 +377,16 @@ const DataLineageInner: React.FC = () => {
                 onModuleClick={handleModuleClick}
               />
             </div>
-
-            {/* 模块详情面板 */}
-            <ModuleDetailPanel
-              module={selectedModule}
-              collapsed={panelCollapsed}
-              onCollapseChange={setPanelCollapsed}
-            />
           </>
+        )}
+
+        {/* 模块详情面板（底部）- 始终显示 */}
+        {activeRepo && modules.length > 0 && !loading && !error && (
+          <ModuleDetailPanel
+            module={selectedModule}
+            collapsed={panelCollapsed}
+            onCollapseChange={setPanelCollapsed}
+          />
         )}
       </div>
     </div>

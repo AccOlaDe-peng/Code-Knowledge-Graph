@@ -7,11 +7,11 @@
  * - 描述和来源文件
  */
 import React, { useState } from "react";
-import { Tag } from "antd";
 import {
   TableOutlined,
   FileTextOutlined,
   DownOutlined,
+  FieldStringOutlined,
 } from "@ant-design/icons";
 import type { Entity } from "../../types/dataLineage";
 
@@ -19,22 +19,24 @@ import type { Entity } from "../../types/dataLineage";
 
 interface EntityTabProps {
   entities: Entity[];
+  moduleColor: string;
 }
 
 // ─── 主组件 ──────────────────────────────────────────────────────────────────
 
-const EntityTab: React.FC<EntityTabProps> = ({ entities }) => {
+const EntityTab: React.FC<EntityTabProps> = ({ entities, moduleColor }) => {
   if (!entities.length) {
     return (
       <div
         style={{
           textAlign: "center",
-          padding: 24,
-          color: "#5a6a8a",
-          fontFamily: "'IBM Plex Mono'",
+          padding: 40,
+          color: "#4a5a7a",
+          fontFamily: "'IBM Plex Mono', monospace",
           fontSize: 11,
         }}
       >
+        <TableOutlined style={{ fontSize: 32, opacity: 0.3, marginBottom: 12, display: "block" }} />
         暂无实体数据
       </div>
     );
@@ -43,7 +45,7 @@ const EntityTab: React.FC<EntityTabProps> = ({ entities }) => {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {entities.map((entity) => (
-        <EntityCard key={entity.id} entity={entity} />
+        <EntityCard key={entity.id} entity={entity} moduleColor={moduleColor} />
       ))}
     </div>
   );
@@ -51,16 +53,20 @@ const EntityTab: React.FC<EntityTabProps> = ({ entities }) => {
 
 // ─── 实体卡片 ────────────────────────────────────────────────────────────────
 
-const EntityCard: React.FC<{ entity: Entity }> = ({ entity }) => {
+const EntityCard: React.FC<{ entity: Entity; moduleColor: string }> = ({
+  entity,
+  moduleColor,
+}) => {
   const [expanded, setExpanded] = useState(false);
 
   return (
     <div
       style={{
-        background: "rgba(20, 30, 45, 0.5)",
-        border: "1px solid var(--b-subtle)",
-        borderRadius: 6,
+        background: "rgba(16, 22, 32, 0.5)",
+        border: "1px solid rgba(255,255,255,0.04)",
+        borderRadius: 8,
         overflow: "hidden",
+        transition: "border-color 0.15s ease",
       }}
     >
       {/* 头部 */}
@@ -70,43 +76,72 @@ const EntityCard: React.FC<{ entity: Entity }> = ({ entity }) => {
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          padding: "10px 12px",
+          padding: "12px 14px",
           cursor: "pointer",
+          background: expanded ? `${moduleColor}06` : "transparent",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <TableOutlined style={{ color: "#b08eff", fontSize: 14 }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {/* 图标 */}
+          <div
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 6,
+              background: `${moduleColor}12`,
+              border: `1px solid ${moduleColor}25`,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <TableOutlined style={{ color: moduleColor, fontSize: 13 }} />
+          </div>
+
           <div>
-            <span
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span
+                style={{
+                  fontFamily: "'IBM Plex Mono', monospace",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: "#d0e0f0",
+                }}
+              >
+                {entity.name}
+              </span>
+              <span
+                style={{
+                  fontFamily: "'IBM Plex Mono', monospace",
+                  fontSize: 10,
+                  color: moduleColor,
+                  padding: "2px 8px",
+                  background: `${moduleColor}12`,
+                  borderRadius: 4,
+                }}
+              >
+                {entity.tableName}
+              </span>
+            </div>
+            <div
               style={{
-                fontFamily: "'IBM Plex Mono'",
-                fontSize: 12,
-                fontWeight: 600,
-                color: "#d0e0f0",
-              }}
-            >
-              {entity.name}
-            </span>
-            <Tag
-              style={{
-                marginLeft: 8,
-                background: "rgba(176, 142, 255, 0.15)",
-                border: "none",
-                fontFamily: "'IBM Plex Mono'",
+                fontFamily: "'IBM Plex Mono', monospace",
                 fontSize: 10,
-                color: "#b08eff",
+                color: "#5a6a8a",
+                marginTop: 2,
               }}
             >
-              {entity.tableName}
-            </Tag>
+              {entity.fields.length} 字段
+            </div>
           </div>
         </div>
+
         <DownOutlined
           style={{
             fontSize: 10,
             color: "#5a6a8a",
             transform: expanded ? "rotate(180deg)" : "none",
-            transition: "transform 0.2s",
+            transition: "transform 0.2s ease",
           }}
         />
       </div>
@@ -115,56 +150,70 @@ const EntityCard: React.FC<{ entity: Entity }> = ({ entity }) => {
       {expanded && (
         <div
           style={{
-            padding: "0 12px 12px",
-            borderTop: "1px solid var(--b-subtle)",
+            padding: "0 14px 14px",
+            borderTop: "1px solid rgba(255,255,255,0.03)",
           }}
         >
           {/* 描述 */}
           <div
             style={{
-              marginTop: 8,
-              fontFamily: "'IBM Plex Mono'",
+              marginTop: 10,
+              fontFamily: "'IBM Plex Mono', monospace",
               fontSize: 10,
-              color: "#7888a8",
-              lineHeight: 1.5,
+              color: "#7a8aaa",
+              lineHeight: 1.6,
             }}
           >
             {entity.description}
           </div>
 
           {/* 字段列表 */}
-          <div style={{ marginTop: 10 }}>
+          <div style={{ marginTop: 12 }}>
             <div
               style={{
-                fontFamily: "'IBM Plex Mono'",
-                fontSize: 10,
-                color: "#5a6a8a",
-                marginBottom: 6,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                marginBottom: 8,
               }}
             >
-              字段 ({entity.fields.length})
+              <FieldStringOutlined style={{ fontSize: 11, color: "#00d4ff" }} />
+              <span
+                style={{
+                  fontFamily: "'IBM Plex Mono', monospace",
+                  fontSize: 10,
+                  color: "#5a6a8a",
+                }}
+              >
+                字段定义
+              </span>
             </div>
             <div
               style={{
                 display: "flex",
                 flexWrap: "wrap",
                 gap: 4,
+                padding: "8px 10px",
+                background: "rgba(0, 212, 255, 0.03)",
+                borderRadius: 6,
+                border: "1px solid rgba(0, 212, 255, 0.08)",
               }}
             >
               {entity.fields.map((field) => (
-                <Tag
+                <span
                   key={field}
                   style={{
-                    background: "rgba(0, 212, 255, 0.08)",
-                    border: "1px solid rgba(0, 212, 255, 0.2)",
-                    fontFamily: "'IBM Plex Mono'",
-                    fontSize: 9,
+                    fontFamily: "'IBM Plex Mono', monospace",
+                    fontSize: 10,
                     color: "#00d4ff",
-                    margin: 0,
+                    padding: "3px 8px",
+                    background: "rgba(0, 212, 255, 0.08)",
+                    borderRadius: 4,
+                    border: "1px solid rgba(0, 212, 255, 0.12)",
                   }}
                 >
                   {field}
-                </Tag>
+                </span>
               ))}
             </div>
           </div>
@@ -172,22 +221,25 @@ const EntityCard: React.FC<{ entity: Entity }> = ({ entity }) => {
           {/* 来源文件 */}
           <div
             style={{
-              marginTop: 10,
+              marginTop: 12,
               display: "flex",
               alignItems: "center",
-              gap: 6,
+              gap: 8,
+              padding: "8px 10px",
+              background: "rgba(255,255,255,0.02)",
+              borderRadius: 6,
             }}
           >
-            <FileTextOutlined style={{ fontSize: 10, color: "#5a6a8a" }} />
+            <FileTextOutlined style={{ fontSize: 11, color: "#5a6a8a" }} />
             <span
               style={{
-                fontFamily: "'IBM Plex Mono'",
+                fontFamily: "'IBM Plex Mono', monospace",
                 fontSize: 9,
-                color: "#5a6a8a",
+                color: "#6a7a9a",
               }}
               title={entity.sourceFile}
             >
-              {entity.sourceFile.split("/").pop()}
+              {entity.sourceFile}
             </span>
           </div>
         </div>

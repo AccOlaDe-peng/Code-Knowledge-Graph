@@ -6,7 +6,7 @@
  * - 边 = 模块间依赖关系
  * - 支持点击选中模块
  */
-import React, { useEffect, useMemo, useCallback, useState, useRef } from "react";
+import React, { useEffect, useMemo, useCallback } from "react";
 import ReactFlow, {
   Background,
   BackgroundVariant,
@@ -100,11 +100,8 @@ const ModuleGraph: React.FC<ModuleGraphProps> = ({
   // 构建 ReactFlow 节点和边
   useEffect(() => {
     if (!modules.length) {
-      console.log('[ModuleGraph] No modules to render');
       return;
     }
-
-    console.log('[ModuleGraph] Building graph with', modules.length, 'modules and', dependencies.length, 'edges');
 
     // 创建节点
     const flowNodes: Node[] = modules.map((module) => ({
@@ -150,12 +147,8 @@ const ModuleGraph: React.FC<ModuleGraphProps> = ({
       };
     });
 
-    console.log('[ModuleGraph] flowNodes:', flowNodes.length, 'flowEdges:', flowEdges.length);
-    console.log('[ModuleGraph] First node:', flowNodes[0]);
-
     // 应用布局
     const laidNodes = applyDagreLayout(flowNodes, flowEdges);
-    console.log('[ModuleGraph] laidNodes:', laidNodes.length);
 
     setRfNodes(laidNodes);
     setRfEdges(flowEdges);
@@ -203,16 +196,10 @@ const ModuleGraph: React.FC<ModuleGraphProps> = ({
 
   return (
     <div style={{
-      position: "absolute",
-      inset: 0,
       width: "100%",
       height: "100%",
       background: "#0a0f18"
     }}>
-      {/* 调试信息 */}
-      <div style={{ position: "absolute", top: 10, left: 10, zIndex: 1000, background: "rgba(0,0,0,0.8)", padding: 8, borderRadius: 4, fontSize: 10, color: "#0f0" }}>
-        Nodes: {rfNodes.length}, Edges: {rfEdges.length}
-      </div>
       <ReactFlow
         nodes={rfNodes}
         edges={rfEdges}
