@@ -111,6 +111,7 @@ export interface ModuleDependency {
   to: string;
   type: ModuleDependencyType;
   description: string;
+  detail?: string;
 }
 
 export interface ModuleDependencies {
