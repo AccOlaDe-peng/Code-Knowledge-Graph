@@ -5,6 +5,7 @@ import {
   IconRepository,
   IconArchitecture,
   IconDataLineage,
+  IconCallGraph,
   IconCollapse,
   IconExpand,
 } from "../components/ui/Icons";
@@ -41,6 +42,12 @@ const NAV_ITEMS: NavItem[] = [
     icon: <IconDataLineage size={18} />,
     label: "数据血缘",
     description: "数据流向追踪",
+  },
+  {
+    path: "/callgraph",
+    icon: <IconCallGraph size={18} />,
+    label: "调用图",
+    description: "函数调用关系",
   },
   // { path: '/fieldlineage',  icon: <IconFieldLineage size={18} />, label: '字段血缘', description: '字段级数据流转' },
 ];

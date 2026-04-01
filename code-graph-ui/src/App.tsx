@@ -10,6 +10,7 @@ const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Repository = lazy(() => import("./pages/Repository"));
 const DataLineage = lazy(() => import("./pages/DataLineage"));
 const FieldLineage = lazy(() => import("./pages/FieldLineage"));
+const FunctionCallGraph = lazy(() => import("./pages/FunctionCallGraph"));
 
 // New feature modules
 const ArchitectureExplorer = lazy(() => import("./features/architecture"));
@@ -59,6 +60,7 @@ const App: React.FC = () => {
             <Route path="architecture" element={wrap(ArchitectureExplorer)} />
             <Route path="lineage" element={wrap(DataLineage)} />
             <Route path="fieldlineage" element={wrap(FieldLineage)} />
+            <Route path="callgraph" element={wrap(FunctionCallGraph)} />
           </Route>
         </Routes>
       </BrowserRouter>

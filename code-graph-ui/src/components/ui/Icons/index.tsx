@@ -102,6 +102,20 @@ export const IconFieldLineage: React.FC<IconProps> = (props) => (
   </IconWrapper>
 )
 
+export const IconCallGraph: React.FC<IconProps> = (props) => (
+  <IconWrapper {...props}>
+    <circle cx={6} cy={6} r={2.5} />
+    <circle cx={18} cy={6} r={2.5} />
+    <circle cx={6} cy={18} r={2.5} />
+    <circle cx={18} cy={18} r={2.5} />
+    <circle cx={12} cy={12} r={3} />
+    <path d="M8.5 7.5L10 10" />
+    <path d="M15.5 7.5L14 10" />
+    <path d="M8.5 16.5L10 14" />
+    <path d="M15.5 16.5L14 14" />
+  </IconWrapper>
+)
+
 // ─── Node Type Icons ─────────────────────────────────────────────────────────
 
 export const IconModule: React.FC<IconProps> = (props) => (
