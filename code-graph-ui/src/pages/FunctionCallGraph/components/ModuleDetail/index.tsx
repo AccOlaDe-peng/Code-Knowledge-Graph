@@ -200,13 +200,28 @@ const ModuleDetail: React.FC = () => {
   // 按热度排序后的函数列表
   const sortedFunctions = useMemo(() => sortByHeat(filteredFunctions), [filteredFunctions]);
 
-  // 基础函数列表（热点函数）
+  // 中间节点（既有 callers 又有 callees 的函数，优先显示）
+  const middleNodes = useMemo(() => {
+    return sortedFunctions.filter((f) => f.callerCount > 0 && f.calleeCount > 0);
+  }, [sortedFunctions]);
+
+  // 基础函数列表（优先中间节点，再补充热点函数）
   const baseFunctions = useMemo(() => {
     if (showAllFunctions) {
       return sortedFunctions;
     }
-    return sortedFunctions.slice(0, hotFunctionsLimit);
-  }, [sortedFunctions, showAllFunctions, hotFunctionsLimit]);
+
+    // 优先选择中间节点（最多占 2/3）
+    const middleNodeLimit = Math.floor(hotFunctionsLimit * 0.67);
+    const selectedMiddle = middleNodes.slice(0, middleNodeLimit);
+
+    // 再补充其他热点函数
+    const selectedIds = new Set(selectedMiddle.map((f) => f.id));
+    const remaining = sortedFunctions.filter((f) => !selectedIds.has(f.id));
+    const remainingCount = hotFunctionsLimit - selectedMiddle.length;
+
+    return [...selectedMiddle, ...remaining.slice(0, remainingCount)];
+  }, [sortedFunctions, middleNodes, showAllFunctions, hotFunctionsLimit]);
 
   // 计算图中应该显示的函数（基础 + 展开的调用链）
   const displayedFunctions = useMemo(() => {
@@ -317,6 +332,43 @@ const ModuleDetail: React.FC = () => {
     setNodes(initialNodes);
     setEdges(initialEdges);
   }, [initialNodes, initialEdges, setNodes, setEdges]);
+
+  // 模块切换时自动展开前几个中间节点的调用链
+  useEffect(() => {
+    if (!currentModule || !callersIndex || !calleesIndex || !funcInfoIndex) return;
+
+    // 重置展开状态
+    setExpandedFuncIds(new Set());
+    expandDepthRef.current.clear();
+
+    // 找前 5 个中间节点并自动展开
+    const topMiddleNodes = middleNodes.slice(0, 5);
+    const newExpanded = new Set<string>();
+
+    for (const func of topMiddleNodes) {
+      // 展开调用者
+      const callers = callersIndex.get(func.id) ?? [];
+      for (const chain of callers.slice(0, 3)) {
+        if (funcInfoIndex.has(chain.sourceFunctionId)) {
+          newExpanded.add(chain.sourceFunctionId);
+          expandDepthRef.current.set(chain.sourceFunctionId, 1);
+        }
+      }
+
+      // 展开被调用者
+      const callees = calleesIndex.get(func.id) ?? [];
+      for (const chain of callees.slice(0, 5)) {
+        if (funcInfoIndex.has(chain.targetFunctionId)) {
+          newExpanded.add(chain.targetFunctionId);
+          expandDepthRef.current.set(chain.targetFunctionId, 1);
+        }
+      }
+    }
+
+    if (newExpanded.size > 0) {
+      setExpandedFuncIds(newExpanded);
+    }
+  }, [currentModule?.id, middleNodes, callersIndex, calleesIndex, funcInfoIndex]);
 
   // 点击节点展开调用链
   const onNodeClick = useCallback(

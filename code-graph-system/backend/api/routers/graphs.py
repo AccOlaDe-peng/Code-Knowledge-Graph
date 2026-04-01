@@ -1918,39 +1918,68 @@ def get_function_call_graph(repo_id: str = Query(..., description="仓库 ID")) 
     # 合并调用链：内部调用链 + 跨模块调用链
     call_chains = []
 
+    # 统计每个函数的 callerCount 和 calleeCount
+    func_caller_count: dict[str, int] = {}
+    func_callee_count: dict[str, int] = {}
+
     # 1. 模块内部调用链
     for module in modules:
         module_id = module.get("id", "")
         module_name = module.get("name", "")
         for chain in module.get("internalCallChains", []):
+            caller_id = chain.get("callerId", "")
+            callee_id = chain.get("calleeId", "")
+
             # 转换为统一格式
             call_chains.append({
                 "sourceModule": module_name,
                 "sourceModuleId": module_id,
-                "sourceFunctionId": chain.get("callerId", ""),
+                "sourceFunctionId": caller_id,
                 "sourceFunctionName": chain.get("callerName", ""),
                 "targetModule": module_name,
                 "targetModuleId": module_id,
-                "targetFunctionId": chain.get("calleeId", ""),
+                "targetFunctionId": callee_id,
                 "targetFunctionName": chain.get("calleeName", ""),
                 "callType": chain.get("callType", "direct"),
                 "sourceLine": chain.get("sourceLine", 0),
             })
 
+            # 统计 callerCount 和 calleeCount
+            if callee_id:
+                func_caller_count[callee_id] = func_caller_count.get(callee_id, 0) + 1
+            if caller_id:
+                func_callee_count[caller_id] = func_callee_count.get(caller_id, 0) + 1
+
     # 2. 跨模块调用链
     for chain in raw_data.get("crossModuleCalls", []):
+        source_id = chain.get("sourceFunctionId", "")
+        target_id = chain.get("targetFunctionId", "")
+
         call_chains.append({
             "sourceModule": chain.get("sourceModule", ""),
             "sourceModuleId": chain.get("sourceModuleId", ""),
-            "sourceFunctionId": chain.get("sourceFunctionId", ""),
+            "sourceFunctionId": source_id,
             "sourceFunctionName": chain.get("sourceFunctionName", ""),
             "targetModule": chain.get("targetModule", ""),
             "targetModuleId": chain.get("targetModuleId", ""),
-            "targetFunctionId": chain.get("targetFunctionId", ""),
+            "targetFunctionId": target_id,
             "targetFunctionName": chain.get("targetFunctionName", ""),
             "callType": chain.get("callType", "direct"),
             "sourceLine": chain.get("sourceLine", 0),
         })
+
+        # 统计 callerCount 和 calleeCount
+        if target_id:
+            func_caller_count[target_id] = func_caller_count.get(target_id, 0) + 1
+        if source_id:
+            func_callee_count[source_id] = func_callee_count.get(source_id, 0) + 1
+
+    # 更新模块中函数的 callerCount 和 calleeCount
+    for module in modules:
+        for func in module.get("functions", []):
+            func_id = func.get("id", "")
+            func["callerCount"] = func_caller_count.get(func_id, 0)
+            func["calleeCount"] = func_callee_count.get(func_id, 0)
 
     # 计算模块间调用统计
     module_calls = _compute_module_calls(modules, call_chains)
