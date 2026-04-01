@@ -1738,3 +1738,353 @@ def get_architecture(repo_id: str) -> dict[str, Any]:
         detail=f"架构图文件不存在: {repo_id}-architecture.json",
     )
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 函数调用图 API
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class ModuleCall(BaseModel):
+    """模块间调用统计"""
+    from_module_id: str = Field(..., alias="from")
+    to_module_id: str = Field(..., alias="to")
+    count: int
+
+    class Config:
+        populate_by_name = True
+
+
+class FunctionCallGraphResponse(BaseModel):
+    """函数调用图完整数据响应"""
+    repo_id: str
+    project_name: str
+    total_modules: int
+    total_functions: int
+    total_call_chains: int
+    modules: list[dict]
+    call_chains: list[dict]
+    module_calls: list[ModuleCall]
+
+
+class PathNode(BaseModel):
+    """路径上的节点"""
+    id: str
+    name: str
+    type: str
+    module_id: str
+    module_name: str
+
+
+class PathEdge(BaseModel):
+    """路径上的边"""
+    source_function_id: str
+    target_function_id: str
+    call_type: str
+
+
+class TracedPath(BaseModel):
+    """追踪到的路径"""
+    nodes: list[PathNode]
+    edges: list[PathEdge]
+    length: int
+
+
+class PathTraceResponse(BaseModel):
+    """路径追踪响应"""
+    found: bool
+    paths: list[TracedPath]
+    max_depth_reached: bool = False
+
+
+def _find_function_call_graph_file(repo_id: str) -> Path | None:
+    """查找函数调用图文件。
+
+    查找顺序：
+    1. {repo_id}-function-call-graph.json
+    2. 从 repo_id 中提取名称（如 "repo-xxx-adms" -> "adms-function-call-graph.json"）
+    3. 从 repo_store 获取 repo_name
+    """
+    candidate_names = [repo_id]
+
+    # 从 repo_id 中提取 name（格式：repo-timestamp-name）
+    if repo_id.startswith("repo-"):
+        parts = repo_id.split("-", 2)
+        if len(parts) >= 3:
+            candidate_names.append(parts[2])
+
+    # 从 repo_store 获取 repo_name
+    try:
+        from backend.store.repo_store import get_repo_store
+        from backend.store.analysis_store import get_analysis_store
+
+        repo_store = get_repo_store()
+        repo_info = repo_store.get(repo_id)
+
+        if repo_info:
+            if repo_info.get("name"):
+                candidate_names.append(repo_info["name"])
+
+            analysis_store = get_analysis_store()
+            latest = analysis_store.get_latest(repo_id)
+            if latest and latest.get("graph_id"):
+                candidate_names.append(latest["graph_id"])
+    except Exception:
+        pass
+
+    # 按优先级查找文件
+    for name in candidate_names:
+        file_path = _ARCHITECTURE_STORAGE_DIR / f"{name}-function-call-graph.json"
+        if file_path.exists():
+            return file_path
+
+    return None
+
+
+def _compute_module_calls(modules: list[dict], call_chains: list[dict]) -> list[dict]:
+    """计算模块间调用统计"""
+    # 构建函数到模块的映射
+    func_to_module: dict[str, str] = {}
+    for module in modules:
+        module_id = module.get("id", "")
+        for func in module.get("functions", []):
+            func_id = func.get("id", "")
+            if func_id:
+                func_to_module[func_id] = module_id
+
+    # 统计模块间调用
+    module_call_counts: dict[tuple[str, str], int] = {}
+    for chain in call_chains:
+        source_func = chain.get("sourceFunctionId", "")
+        target_func = chain.get("targetFunctionId", "")
+
+        source_module = func_to_module.get(source_func)
+        target_module = func_to_module.get(target_func)
+
+        if source_module and target_module and source_module != target_module:
+            key = (source_module, target_module)
+            module_call_counts[key] = module_call_counts.get(key, 0) + 1
+
+    # 转换为列表格式
+    result = [
+        {"from": src, "to": tgt, "count": count}
+        for (src, tgt), count in module_call_counts.items()
+    ]
+
+    # 按调用次数降序排序
+    result.sort(key=lambda x: x["count"], reverse=True)
+
+    return result
+
+
+@router.get("/graph/function-call", tags=["图谱视图"])
+def get_function_call_graph(repo_id: str = Query(..., description="仓库 ID")) -> FunctionCallGraphResponse:
+    """
+    获取函数调用图完整数据。
+
+    从 `data/graphs/{repo_id}-function-call-graph.json` 加载函数调用图数据。
+    返回模块列表、函数列表、调用链列表以及模块间调用统计。
+
+    返回格式：
+    {
+        "repo_id": "adms",
+        "project_name": "adms",
+        "total_modules": 15,
+        "total_functions": 23037,
+        "total_call_chains": 40075,
+        "modules": [...],
+        "call_chains": [...],
+        "module_calls": [{ "from": "mod_001", "to": "mod_002", "count": 150 }]
+    }
+    """
+    file_path = _find_function_call_graph_file(repo_id)
+
+    if file_path is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"函数调用图文件不存在: {repo_id}-function-call-graph.json，请先分析仓库生成调用图",
+        )
+
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except json.JSONDecodeError as e:
+        logger.exception("函数调用图 JSON 解析失败: %s", file_path)
+        raise HTTPException(
+            status_code=500,
+            detail=f"函数调用图 JSON 解析失败: {e}",
+        )
+    except Exception as e:
+        logger.exception("读取函数调用图文件失败: %s", file_path)
+        raise HTTPException(
+            status_code=500,
+            detail=f"读取函数调用图文件失败: {e}",
+        )
+
+    # 提取数据
+    modules = data.get("modules", [])
+    call_chains = data.get("callChains", [])
+
+    # 计算模块间调用统计
+    module_calls = _compute_module_calls(modules, call_chains)
+
+    return FunctionCallGraphResponse(
+        repo_id=repo_id,
+        project_name=data.get("projectName", repo_id),
+        total_modules=data.get("totalModules", len(modules)),
+        total_functions=data.get("totalFunctions", 0),
+        total_call_chains=data.get("totalCallChains", len(call_chains)),
+        modules=modules,
+        call_chains=call_chains,
+        module_calls=[ModuleCall(**mc) for mc in module_calls],
+    )
+
+
+@router.get("/graph/function-call/path", tags=["图谱视图"])
+def trace_function_path(
+    repo_id: str = Query(..., description="仓库 ID"),
+    from_func: str = Query(..., description="起点函数 ID"),
+    to_func: str = Query(..., description="终点函数 ID"),
+    max_depth: int = Query(10, ge=1, le=20, description="最大搜索深度"),
+    max_paths: int = Query(5, ge=1, le=10, description="最大返回路径数"),
+) -> PathTraceResponse:
+    """
+    追踪两个函数之间的调用路径。
+
+    使用 BFS 算法查找从起点函数到终点函数的调用路径。
+    支持返回多条路径（按路径长度排序）。
+
+    返回格式：
+    {
+        "found": true,
+        "paths": [
+            {
+                "nodes": [{ "id": "func_001", "name": "getUser", ... }],
+                "edges": [{ "source_function_id": "func_001", "target_function_id": "func_002", ... }],
+                "length": 3
+            }
+        ],
+        "max_depth_reached": false
+    }
+    """
+    file_path = _find_function_call_graph_file(repo_id)
+
+    if file_path is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"函数调用图文件不存在: {repo_id}-function-call-graph.json",
+        )
+
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        logger.exception("读取函数调用图文件失败: %s", file_path)
+        raise HTTPException(
+            status_code=500,
+            detail=f"读取函数调用图文件失败: {e}",
+        )
+
+    modules = data.get("modules", [])
+    call_chains = data.get("callChains", [])
+
+    # 构建函数信息映射
+    func_info: dict[str, dict] = {}
+    for module in modules:
+        module_id = module.get("id", "")
+        module_name = module.get("name", "")
+        for func in module.get("functions", []):
+            func_id = func.get("id", "")
+            if func_id:
+                func_info[func_id] = {
+                    "id": func_id,
+                    "name": func.get("name", ""),
+                    "type": func.get("type", "function"),
+                    "module_id": module_id,
+                    "module_name": module_name,
+                }
+
+    # 检查起点和终点是否存在
+    if from_func not in func_info:
+        raise HTTPException(
+            status_code=404,
+            detail=f"起点函数不存在: {from_func}",
+        )
+    if to_func not in func_info:
+        raise HTTPException(
+            status_code=404,
+            detail=f"终点函数不存在: {to_func}",
+        )
+
+    # 构建调用图邻接表
+    callees: dict[str, list[tuple[str, dict]]] = {}  # func_id -> [(target_func_id, call_chain)]
+    for chain in call_chains:
+        source = chain.get("sourceFunctionId", "")
+        target = chain.get("targetFunctionId", "")
+        if source and target:
+            if source not in callees:
+                callees[source] = []
+            callees[source].append((target, chain))
+
+    # BFS 搜索路径
+    found_paths: list[list[str]] = []
+    queue: deque[tuple[str, list[str], set[str]]] = deque([(from_func, [from_func], {from_func})])
+    max_depth_reached = False
+
+    while queue and len(found_paths) < max_paths:
+        current, path, visited = queue.popleft()
+
+        if len(path) > max_depth:
+            max_depth_reached = True
+            continue
+
+        if current == to_func:
+            found_paths.append(path)
+            continue
+
+        # 扩展邻居节点
+        for next_func, _ in callees.get(current, []):
+            if next_func not in visited:
+                new_visited = visited | {next_func}
+                new_path = path + [next_func]
+                queue.append((next_func, new_path, new_visited))
+
+    # 构建响应
+    paths: list[TracedPath] = []
+    for path in found_paths:
+        nodes: list[PathNode] = []
+        edges: list[PathEdge] = []
+
+        for func_id in path:
+            info = func_info.get(func_id, {})
+            nodes.append(PathNode(
+                id=func_id,
+                name=info.get("name", func_id),
+                type=info.get("type", "function"),
+                module_id=info.get("module_id", ""),
+                module_name=info.get("module_name", ""),
+            ))
+
+        # 构建边
+        for i in range(len(path) - 1):
+            source = path[i]
+            target = path[i + 1]
+            # 查找调用类型
+            call_type = "direct"
+            for chain in call_chains:
+                if chain.get("sourceFunctionId") == source and chain.get("targetFunctionId") == target:
+                    call_type = chain.get("callType", "direct")
+                    break
+            edges.append(PathEdge(
+                source_function_id=source,
+                target_function_id=target,
+                call_type=call_type,
+            ))
+
+        paths.append(TracedPath(nodes=nodes, edges=edges, length=len(path) - 1))
+
+    return PathTraceResponse(
+        found=len(paths) > 0,
+        paths=paths,
+        max_depth_reached=max_depth_reached,
+    )
+
