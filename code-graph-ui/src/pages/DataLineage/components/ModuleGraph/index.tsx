@@ -5,6 +5,12 @@
  * - 节点 = 模块
  * - 边 = 模块间依赖关系
  * - 支持点击选中模块
+ *
+ * v2.0 - 高对比度设计优化：
+ * - 边宽度从 2 提升到 2.5-3
+ * - 边透明度从 0.85 提升到 0.95
+ * - 背景点阵颜色提亮
+ * - 标签背景优化
  */
 import React, { useEffect, useMemo, useCallback } from "react";
 import ReactFlow, {
@@ -18,10 +24,12 @@ import ReactFlow, {
   type Node,
   type Edge,
   type NodeTypes,
+  type EdgeTypes,
 } from "reactflow";
 import "reactflow/dist/style.css";
 import dagre from "dagre";
 import ModuleNode from "./ModuleNode";
+import DependencyEdge from "./DependencyEdge";
 import type { Module, ModuleDependency } from "../../types/dataLineage";
 
 // ─── 类型定义 ────────────────────────────────────────────────────────────────
@@ -33,20 +41,24 @@ interface ModuleGraphProps {
   onModuleClick?: (module: Module) => void;
 }
 
-// ─── 节点类型注册 ────────────────────────────────────────────────────────────
+// ─── 节点/边类型注册 ──────────────────────────────────────────────────────────
 
 const nodeTypes: NodeTypes = {
   module: ModuleNode,
 };
 
-// ─── 边样式配置 ──────────────────────────────────────────────────────────────
+const edgeTypes: EdgeTypes = {
+  dependency: DependencyEdge,
+};
 
-const EDGE_STYLES: Record<string, { color: string; dash: string | undefined }> = {
-  data: { color: "#00d4ff", dash: undefined },
-  config: { color: "#b08eff", dash: "5,5" },
-  service: { color: "#00f084", dash: undefined },
-  auth: { color: "#ffc145", dash: "2,2" },
-  aggregate: { color: "#7888a8", dash: undefined },
+// ─── 边样式配置 - 高对比度版本 ──────────────────────────────────────────────
+
+const EDGE_STYLES: Record<string, { color: string; dash: string | undefined; width: number }> = {
+  data:    { color: "#00d4ff", dash: undefined,  width: 3 },     // 青色 - 加粗
+  config:  { color: "#ff66cc", dash: "6,4",       width: 2.5 },   // Magenta 虚线
+  service: { color: "#00f084", dash: undefined,  width: 3 },     // 绿色 - 加粗
+  auth:    { color: "#ffc145", dash: "3,3",       width: 2.5 },   // 琥珀色虚线
+  aggregate: { color: "#88aacc", dash: undefined, width: 2 },  // Silver
 };
 
 // ─── 布局函数 ────────────────────────────────────────────────────────────────
@@ -60,14 +72,14 @@ function applyDagreLayout(
   g.setDefaultEdgeLabel(() => ({}));
   g.setGraph({
     rankdir: direction,
-    nodesep: 80,
-    ranksep: 120,
-    marginx: 40,
-    marginy: 40,
+    nodesep: 90,   // 从 80 提升
+    ranksep: 140,  // 从 120 提升
+    marginx: 50,
+    marginy: 50,
   });
 
   nodes.forEach((n) => {
-    g.setNode(n.id, { width: 200, height: 70 });
+    g.setNode(n.id, { width: 220, height: 80 });  // 稍微增大节点尺寸
   });
 
   edges.forEach((e) => g.setEdge(e.source, e.target));
@@ -75,7 +87,7 @@ function applyDagreLayout(
 
   return nodes.map((n) => {
     const pos = g.node(n.id);
-    return { ...n, position: { x: pos.x - 100, y: pos.y - 35 } };
+    return { ...n, position: { x: pos.x - 110, y: pos.y - 40 } };
   });
 }
 
@@ -103,6 +115,10 @@ const ModuleGraph: React.FC<ModuleGraphProps> = ({
       return;
     }
 
+    // 构建模块映射（用于边组件显示名称）
+    const modMap = new Map<string, Module>();
+    modules.forEach((m) => modMap.set(m.id, m));
+
     // 创建节点
     const flowNodes: Node[] = modules.map((module) => ({
       id: module.id,
@@ -114,36 +130,31 @@ const ModuleGraph: React.FC<ModuleGraphProps> = ({
       },
     }));
 
-    // 创建边
+    // 创建边 - 高对比度版本
+    // 注意：JSON 中 from/to 表示依赖关系（from 依赖 to）
+    // 但可视化时我们需要展示数据流向（to → from，即被依赖方 → 依赖方）
     const flowEdges: Edge[] = dependencies.map((dep) => {
       const style = EDGE_STYLES[dep.type] || EDGE_STYLES.data;
 
       return {
         id: `${dep.from}--${dep.type}--${dep.to}`,
-        source: dep.from,
-        target: dep.to,
-        type: "smoothstep",
+        source: dep.to,    // 数据来源（被依赖方）
+        target: dep.from,  // 数据去向（依赖方）
+        type: "dependency",  // 使用自定义边类型
         animated: dep.type === "data" || dep.type === "service",
-        label: dep.type,
-        labelStyle: {
-          fontFamily: "'IBM Plex Mono'",
-          fontSize: 9,
-          fill: style.color,
-        },
-        labelBgStyle: { fill: "#07090d", fillOpacity: 0.9 },
         style: {
           stroke: style.color,
-          strokeWidth: 2,
+          strokeWidth: style.width,
           strokeDasharray: style.dash,
-          opacity: 0.85,
+          opacity: 0.95,
         },
         markerEnd: {
           type: MarkerType.ArrowClosed,
           color: style.color,
-          width: 12,
-          height: 12,
+          width: 14,
+          height: 14,
         },
-        data: { dependency: dep },
+        data: { dependency: dep, moduleMap: modMap },
       };
     });
 
@@ -181,7 +192,7 @@ const ModuleGraph: React.FC<ModuleGraphProps> = ({
           <div style={{ fontSize: 40, opacity: 0.06, marginBottom: 12 }}>◈</div>
           <div
             style={{
-              fontFamily: "'IBM Plex Mono'",
+              fontFamily: "'JetBrains Mono', 'IBM Plex Mono'",
               fontSize: 11,
               color: "#2a4a6a",
               letterSpacing: "0.1em",
@@ -198,7 +209,7 @@ const ModuleGraph: React.FC<ModuleGraphProps> = ({
     <div style={{
       width: "100%",
       height: "100%",
-      background: "#0a0f18"
+      background: "linear-gradient(180deg, #080c14 0%, #0a0f18 100%)"  // 渐变背景
     }}>
       <ReactFlow
         nodes={rfNodes}
@@ -207,6 +218,7 @@ const ModuleGraph: React.FC<ModuleGraphProps> = ({
         onEdgesChange={onEdgesChange}
         onNodeClick={handleNodeClick}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         fitView
         minZoom={0.2}
         maxZoom={1.5}
@@ -214,17 +226,25 @@ const ModuleGraph: React.FC<ModuleGraphProps> = ({
       >
         <Background
           variant={BackgroundVariant.Dots}
-          gap={30}
-          size={0.7}
-          color="#0d1520"
+          gap={32}
+          size={1}
+          color="#152030"  // 从 #0d1520 提亮
         />
         <Controls
-          style={{ background: "#080e16", border: "1px solid #1a2535" }}
+          style={{
+            background: "rgba(10, 15, 24, 0.95)",
+            border: "1px solid #1a2840",
+            borderRadius: 8,
+          }}
         />
         <MiniMap
-          style={{ background: "#07090d", border: "1px solid #1a2535" }}
+          style={{
+            background: "rgba(7, 9, 13, 0.95)",
+            border: "1px solid #1a2840",
+            borderRadius: 8,
+          }}
           nodeColor="#b08eff"
-          maskColor="rgba(7,9,13,0.75)"
+          maskColor="rgba(7, 9, 13, 0.8)"
         />
       </ReactFlow>
     </div>

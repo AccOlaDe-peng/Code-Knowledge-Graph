@@ -1,13 +1,15 @@
 /**
  * 边类型颜色映射
  *
+ * v3.0 颜色方案 - 高对比度设计
+ *
  * 分组策略：
  * - Green: 调用关系 - calls, async_calls, handles
  * - Cyan: 依赖关系 - depends_on, imports, uses
- * - Purple: 数据关系 - reads, writes, transforms
+ * - Magenta: 数据关系 - reads, writes, transforms（替代紫色）
  * - Amber: 事件关系 - produces, consumes, publishes, subscribes
  * - Blue: 架构关系 - belongs_to, flow_step, implements
- * - Gray: 包含关系 - contains, defines, part_of
+ * - Silver: 包含关系 - contains, defines, part_of（替代灰色）
  */
 
 import { generateEdgeColor } from './colorGenerator'
@@ -26,10 +28,10 @@ export const EDGE_TYPE_COLORS: Record<string, string> = {
   imports:     generateEdgeColor('cyan'),
   uses:        generateEdgeColor('cyan'),
 
-  // ── 数据关系 (Purple) ───────────────────────────────
-  reads:       generateEdgeColor('purple'),
-  writes:      generateEdgeColor('purple'),
-  transforms:  generateEdgeColor('purple'),
+  // ── 数据关系 (Magenta - 替代紫色，更亮) ────────────
+  reads:       generateEdgeColor('magenta'),
+  writes:      generateEdgeColor('magenta'),
+  transforms:  generateEdgeColor('magenta'),
 
   // ── 事件关系 (Amber) ────────────────────────────────
   produces:    generateEdgeColor('amber'),
@@ -42,31 +44,32 @@ export const EDGE_TYPE_COLORS: Record<string, string> = {
   flow_step:   generateEdgeColor('blue'),
   implements:  generateEdgeColor('blue'),
 
-  // ── 包含关系 (Gray) ────────────────────────────────
-  contains:    '#6b7a9d',
-  defines:     '#6b7a9d',
-  part_of:     '#6b7a9d',
+  // ── 包含关系 (Silver - 替代灰色，更明亮) ──────────
+  contains:    '#88aacc',   // 银蓝色，清晰可见
+  defines:     '#88aacc',
+  part_of:     '#88aacc',
 
-  // ── AI 优先流水线 - 实体关系 (Purple) ──────────────
-  maps_to:      generateEdgeColor('purple'),    // Entity → Table
-  has_field:    '#8899bb',                       // Entity → Field (细实线)
-  one_to_one:   generateEdgeColor('green'),     // 一对一
-  one_to_many:  generateEdgeColor('green'),     // 一对多
-  many_to_one:  generateEdgeColor('green'),     // 多对一
-  many_to_many: generateEdgeColor('amber'),     // 多对多
+  // ── AI 优先流水线 - 实体关系 (Magenta) ─────────────
+  maps_to:      generateEdgeColor('magenta'),
+  has_field:    '#99bbdd',                    // 浅银蓝色
+  one_to_one:   generateEdgeColor('green'),
+  one_to_many:  generateEdgeColor('green'),
+  many_to_one:  generateEdgeColor('green'),
+  many_to_many: generateEdgeColor('amber'),
 
   // ── AI 优先流水线 - 数据血缘 (Cyan) ────────────────
-  flow_to:      generateEdgeColor('cyan'),      // 字段血缘
+  flow_to:      generateEdgeColor('cyan'),
 
   // ── 其他关系 ────────────────────────────────────────
-  deployed_on: '#9d7dff',
-  routes_to:   '#44aaff',
-  triggers:    '#ffc145',
+  deployed_on: '#cc88ff',   // 亮紫色
+  routes_to:   '#55bbff',   // 亮蓝色
+  triggers:    '#ffcc55',   // 亮琥珀色
 }
 
 /**
  * 获取边类型颜色
+ * 默认返回银蓝色，替代暗灰色
  */
 export function getEdgeTypeColor(type: string): string {
-  return EDGE_TYPE_COLORS[type] ?? '#6b7a9d'
+  return EDGE_TYPE_COLORS[type] ?? '#88aacc'
 }

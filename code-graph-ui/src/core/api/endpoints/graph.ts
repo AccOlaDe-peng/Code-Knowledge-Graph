@@ -4,7 +4,6 @@ import type {
   GraphDetailResponse,
   LineageGraphResponse,
   LineageModulesResponse,
-  EventsGraphResponse,
   ServicesGraphResponse,
   AnalyzeAsyncResponse,
   AnalysisStatusResponse,
@@ -92,7 +91,7 @@ export const graphEndpoints = {
    * GET /events?graph_id={id}
    * Get event flow graph
    */
-  async getEventsGraph(graphId: string): Promise<EventsGraphResponse> {
+  async getEventsGraph(graphId: string): Promise<ServicesGraphResponse> {
     return apiClient.get("/events", { params: { graph_id: graphId } });
   },
 

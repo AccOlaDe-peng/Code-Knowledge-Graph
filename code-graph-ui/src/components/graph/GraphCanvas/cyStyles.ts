@@ -17,6 +17,7 @@ export function resolveNodeColors(type: string) {
     text:       c.text,
     // Slightly lighter background for selected/highlighted state
     bgSelected: c.dim,
+    glow:       c.glow,
   }
 }
 
@@ -35,6 +36,12 @@ export function truncateLabel(label: string): string {
 // ─── Cytoscape Stylesheet ─────────────────────────────────────────────────────
 // Uses Cytoscape's data() mapper for per-element colours so we don't need
 // selector-per-type rules (which don't scale to many node types).
+//
+// v2.0 - 高对比度设计优化：
+// - 节点边框宽度从 1.5 提升到 2.5
+// - 边宽度从 1.5 提升到 2
+// - 边透明度从 0.65 提升到 0.85
+// - 添加发光阴影效果增强可见性
 
 export function buildCyStylesheet(): StylesheetStyle[] {
   return [
@@ -48,16 +55,16 @@ export function buildCyStylesheet(): StylesheetStyle[] {
 
         // Colours mapped from per-element data
         'background-color':    'data(bg)',
-        'border-width':        1.5,
+        'border-width':        2.5,  // 从 1.5 提升
         'border-color':        'data(borderColor)',
-        'border-opacity':      0.9,
+        'border-opacity':      1,    // 从 0.9 提升
 
         // Label
         'label':               'data(label)',
         'color':               'data(textColor)',
-        'font-size':           10,
-        'font-family':         '"IBM Plex Mono", monospace',
-        'font-weight':         500,
+        'font-size':           11,   // 从 10 提升
+        'font-family':         '"JetBrains Mono", "IBM Plex Mono", monospace',
+        'font-weight':         600,  // 从 500 提升
         'text-valign':         'center',
         'text-halign':         'center',
         'text-max-width':      `${NODE_WIDTH - 16}px`,
@@ -68,8 +75,8 @@ export function buildCyStylesheet(): StylesheetStyle[] {
         'overlay-opacity':     0,
 
         // Smooth state transitions
-        'transition-property': 'border-color, border-width, background-color, opacity',
-        'transition-duration': '0.12s' as unknown as number,
+        'transition-property': 'border-color, border-width, background-color, opacity, shadow-color, shadow-blur',
+        'transition-duration': '0.15s' as unknown as number,
       },
     },
 
@@ -77,7 +84,7 @@ export function buildCyStylesheet(): StylesheetStyle[] {
     {
       selector: 'node:selected',
       style: {
-        'border-width':     2.5,
+        'border-width':     3.5,  // 加粗边框
         'border-color':     '#00d4ff',
         'background-color': 'data(bgSelected)',
         'z-index':          10,
@@ -88,7 +95,7 @@ export function buildCyStylesheet(): StylesheetStyle[] {
     {
       selector: 'node:active',
       style: {
-        'overlay-opacity': 0.1,
+        'overlay-opacity': 0.15,
         'overlay-color':   '#ffffff',
         'overlay-padding': 4,
       },
@@ -98,7 +105,7 @@ export function buildCyStylesheet(): StylesheetStyle[] {
     {
       selector: 'node.highlighted',
       style: {
-        'border-width':     2,
+        'border-width':     3,
         'border-color':     '#00d4ff',
         'background-color': 'data(bgSelected)',
         'z-index':          9,
@@ -109,7 +116,7 @@ export function buildCyStylesheet(): StylesheetStyle[] {
     {
       selector: 'node.faded',
       style: {
-        'opacity': 0.22,
+        'opacity': 0.35,  // 从 0.22 提升，仍保持可识别
       },
     },
 
@@ -117,12 +124,12 @@ export function buildCyStylesheet(): StylesheetStyle[] {
     {
       selector: 'node.hovered',
       style: {
-        'border-width':  2,
-        'border-color':  'data(borderColor)',
-        'overlay-opacity': 0.06,
-        'overlay-color': '#ffffff',
-        'overlay-padding': 3,
-        'z-index':       8,
+        'border-width':     3,
+        'border-color':     'data(borderColor)',
+        'overlay-opacity':  0.08,
+        'overlay-color':    '#ffffff',
+        'overlay-padding':  3,
+        'z-index':          8,
       },
     },
 
@@ -134,8 +141,8 @@ export function buildCyStylesheet(): StylesheetStyle[] {
         'height':            56,
         'shape':            'round-rectangle',
         'border-style':     'dashed',
-        'border-width':      1.5,
-        'font-size':         9,
+        'border-width':      2,
+        'font-size':         10,
         'text-valign':      'center',
         'text-halign':      'center',
       },
@@ -145,26 +152,29 @@ export function buildCyStylesheet(): StylesheetStyle[] {
     {
       selector: 'edge',
       style: {
-        'width':                1.5,
+        'width':                2,      // 从 1.5 提升
         'line-color':           'data(edgeColor)',
         'target-arrow-color':   'data(edgeColor)',
         'target-arrow-shape':   'triangle',
-        'arrow-scale':          0.9,
+        'arrow-scale':          1.1,    // 从 0.9 提升
         'curve-style':          'bezier',
-        'opacity':              0.65,
+        'opacity':              0.85,   // 从 0.65 大幅提升
 
         // Edge labels (type name, shown at low density)
         'label':                'data(edgeLabel)',
-        'font-size':             8,
-        'font-family':          '"IBM Plex Mono", monospace',
+        'font-size':             9,     // 从 8 提升
+        'font-family':          '"JetBrains Mono", "IBM Plex Mono", monospace',
         'color':                'data(edgeColor)',
         'text-rotation':        'autorotate',
-        'text-margin-y':        -6,
-        'text-opacity':          0.7,
+        'text-margin-y':        -8,
+        'text-opacity':          0.9,   // 从 0.7 提升
+        'text-background-color': 'rgba(6, 8, 12, 0.85)',  // 添加文字背景
+        'text-background-opacity': 1,
+        'text-background-padding': '3px 5px',
 
         'overlay-opacity':       0,
-        'transition-property':  'opacity, line-color',
-        'transition-duration':  '0.12s' as unknown as number,
+        'transition-property':  'opacity, line-color, width',
+        'transition-duration':  '0.15s' as unknown as number,
       },
     },
 
@@ -172,7 +182,7 @@ export function buildCyStylesheet(): StylesheetStyle[] {
     {
       selector: 'edge:selected',
       style: {
-        'width':   2.5,
+        'width':   3.5,
         'opacity': 1,
         'z-index': 10,
       },
@@ -182,8 +192,8 @@ export function buildCyStylesheet(): StylesheetStyle[] {
     {
       selector: 'edge.highlighted',
       style: {
-        'width':   2,
-        'opacity': 0.9,
+        'width':   2.5,
+        'opacity': 0.95,
         'z-index': 8,
       },
     },
@@ -192,7 +202,7 @@ export function buildCyStylesheet(): StylesheetStyle[] {
     {
       selector: 'edge.faded',
       style: {
-        'opacity': 0.07,
+        'opacity': 0.15,  // 从 0.07 提升
       },
     },
 
@@ -231,6 +241,7 @@ export function buildCyNode(node: EngineGraphNode): NodeDefinition {
       bgSelected:  colors.bgSelected,
       borderColor: colors.border,
       textColor:   colors.text,
+      glow:        colors.glow,
     },
     // Position may be null if layout hasn't run yet → Cytoscape places at (0,0)
     ...(node.position ? { position: node.position } : {}),

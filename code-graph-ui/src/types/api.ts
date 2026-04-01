@@ -114,9 +114,6 @@ export type LineageModulesResponse = {
   edges: LineageModuleEdge[];
 };
 
-/** GET /events — publishes / subscribes / produces / consumes */
-export type EventsGraphResponse = Graph & { graphId: string };
-
 /** GET /services — Service / Cluster / Database nodes */
 export type ServicesGraphResponse = Graph & { graphId: string };
 
@@ -179,22 +176,6 @@ export type AnalyzeCancelResponse = {
   task_id: string;
   status: string;
   message: string;
-};
-
-// ─── POST /query ──────────────────────────────────────────────────────────────
-
-export type RagQueryRequest = {
-  graphId: string;
-  question: string;
-};
-
-export type RagQueryResponse = {
-  question: string;
-  answer: string;
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-  sources: string[];
-  confidence: number;
 };
 
 // ─── Error ────────────────────────────────────────────────────────────────────

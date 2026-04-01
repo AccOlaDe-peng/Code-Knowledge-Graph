@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useCallback, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Alert, Spin, Button, message } from 'antd'
+import { Alert, Spin, Button } from 'antd'
 import { useRepoStore } from '../../store/repoStore'
 import { useGraphEngineStore } from '../../graph-engine/store/graphEngineStore'
 // import { createGraphLoader, GraphLoader } from '../../graph-engine/loader/GraphLoader'
@@ -17,13 +17,8 @@ const ArchitectureExplorer: React.FC = () => {
   const repos         = useRepoStore(s => s.repos)
   const setActiveRepo = useRepoStore(s => s.setActiveRepo)
 
-  const setLoadingStatus = useGraphEngineStore(s => s.setLoadingStatus)
-  const setLoadingError  = useGraphEngineStore(s => s.setLoadingError)
   const loadingStatus    = useGraphEngineStore(s => s.loading.status)
   const loadingError     = useGraphEngineStore(s => s.loading.error)
-
-  // const loaderRef = useRef<GraphLoader | null>(null)
-  const loaderRef = useRef<unknown>(null)
 
   // 分层架构数据状态
   const [layeredData, setLayeredData] = useState<ArchitectureData | null>(null)
@@ -109,25 +104,25 @@ const ArchitectureExplorer: React.FC = () => {
   // }, [activeRepo?.repoId, layeredData]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── 展开/折叠回调（已禁用）─────────────────────────────────────────────────
-  const handleNodeExpand = useCallback(async (_nodeId: string) => {
-    // if (!loaderRef.current) return
-    // try {
-    //   const result = await (loaderRef.current as GraphLoader).expandNode(nodeId)
-    //   if (result?.has_more) {
-    //     void message.info(`已展示前 ${result.node_count} 个子节点（还有更多）`)
-    //   }
-    // } catch (err) {
-    //   void message.error(`展开失败: ${err}`)
-    // }
-  }, [])
+  // const handleNodeExpand = useCallback(async (_nodeId: string) => {
+  //   // if (!loaderRef.current) return
+  //   // try {
+  //   //   const result = await (loaderRef.current as GraphLoader).expandNode(nodeId)
+  //   //   if (result?.has_more) {
+  //   //     void message.info(`已展示前 ${result.node_count} 个子节点（还有更多）`)
+  //   //   }
+  //   // } catch (err) {
+  //   //   void message.error(`展开失败: ${err}`)
+  //   // }
+  // }, [])
 
-  const handleNodeCollapse = useCallback((_nodeId: string) => {
-    // (loaderRef.current as GraphLoader)?.collapseNode(nodeId)
-  }, [])
+  // const handleNodeCollapse = useCallback((_nodeId: string) => {
+  //   // (loaderRef.current as GraphLoader)?.collapseNode(nodeId)
+  // }, [])
 
-  const handleRelayout = useCallback(() => {
+  const handleRelayout = () => {
     window.dispatchEvent(new CustomEvent('architecturecanvas:relayout'))
-  }, [])
+  }
 
   const isLoading = loadingStatus === 'loading' || isLoadingLayered
 

@@ -13,9 +13,7 @@ API 端点：
     GET    /graph/summary       — 获取图谱 LOD-0 摘要
     GET    /callgraph           — 获取函数调用图（Function 节点 + calls 边）
     GET    /lineage             — 获取依赖血缘图（depends_on/reads/writes 边）
-    GET    /events              — 获取事件流图（Event/Topic 节点）
     GET    /services            — 获取基础设施图（Service/Cluster/Database 节点）
-    POST   /query               — GraphRAG 自然语言查询
 
 辅助端点：
     GET  /health              — 健康检查
@@ -118,14 +116,12 @@ app.add_middleware(
 from backend.api.routers import repos as repos_router
 from backend.api.routers import analysis as analysis_router
 from backend.api.routers import graphs as graphs_router
-from backend.api.routers import query as query_router
 from backend.api.routers import domains as domains_router
 from backend.api.routers import data_lineage as data_lineage_router
 
 app.include_router(repos_router.router)
 app.include_router(analysis_router.router)
 app.include_router(graphs_router.router)
-app.include_router(query_router.router)
 app.include_router(domains_router.router)
 app.include_router(data_lineage_router.router)
 
@@ -173,9 +169,7 @@ def root():
             "DELETE /graph/{graph_id}",
             "GET    /callgraph",
             "GET    /lineage",
-            "GET    /events",
             "GET    /services",
-            "POST   /query",
         ],
     }
 

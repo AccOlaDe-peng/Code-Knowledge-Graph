@@ -21,7 +21,6 @@ type GraphStore = {
 
   // Graph views
   lineageGraph: AsyncSlice<Graph>
-  eventGraph:   AsyncSlice<Graph>
   moduleGraph:  AsyncSlice<Graph>   // NEW: /graph/module (contains + imports)
   fullGraph:    AsyncSlice<Graph>   // NEW: /graph/data   (all nodes + edges)
 
@@ -31,7 +30,6 @@ type GraphStore = {
 
   // Actions — async loaders
   loadLineage:     (repoId: string) => Promise<void>
-  loadEvents:      (repoId: string) => Promise<void>
   loadModuleGraph: (repoId: string) => Promise<void>  // NEW
   loadFullGraph:   (repoId: string) => Promise<void>  // NEW
 
@@ -46,7 +44,6 @@ export const useGraphStore = create<GraphStore>((set) => ({
   selectedNode:  null,
 
   lineageGraph: idle(),
-  eventGraph:   idle(),
   moduleGraph:  idle(),
   fullGraph:    idle(),
 
@@ -69,16 +66,6 @@ export const useGraphStore = create<GraphStore>((set) => ({
       set({ lineageGraph: { data: graph, loading: false, error: null } })
     } catch (e) {
       set({ lineageGraph: { data: null, loading: false, error: String(e) } })
-    }
-  },
-
-  loadEvents: async (repoId) => {
-    set({ eventGraph: { data: null, loading: true, error: null } })
-    try {
-      const res = await graphApi.getEventsGraph(repoId)
-      set({ eventGraph: { data: res, loading: false, error: null } })
-    } catch (e) {
-      set({ eventGraph: { data: null, loading: false, error: String(e) } })
     }
   },
 
@@ -117,7 +104,6 @@ export const useGraphStore = create<GraphStore>((set) => ({
   clearGraphs: () =>
     set({
       lineageGraph: idle(),
-      eventGraph:   idle(),
       moduleGraph:  idle(),
       fullGraph:    idle(),
     }),

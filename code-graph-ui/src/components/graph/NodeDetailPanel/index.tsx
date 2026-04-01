@@ -17,27 +17,27 @@ const TYPE_META: Record<string, { color: string; bg: string; symbol: string }> =
   Module:         { color: '#00d4ff', bg: 'rgba(0,212,255,0.08)',   symbol: '◫' },
   Component:      { color: '#00f084', bg: 'rgba(0,240,132,0.08)',   symbol: '⬡' },
   Function:       { color: '#ffc145', bg: 'rgba(255,193,69,0.08)',  symbol: 'ƒ' },
-  Class:          { color: '#b08eff', bg: 'rgba(176,142,255,0.08)', symbol: '⊡' },
+  Class:          { color: '#ff66cc', bg: 'rgba(255,102,204,0.08)', symbol: '⊡' },  // Magenta
   Service:        { color: '#7ed957', bg: 'rgba(126,217,87,0.08)',  symbol: '◎' },
-  Database:       { color: '#9d7dff', bg: 'rgba(157,125,255,0.08)', symbol: '⊞' },
+  Database:       { color: '#ff66cc', bg: 'rgba(255,102,204,0.08)', symbol: '⊞' },  // Magenta
   API:            { color: '#ff6b6b', bg: 'rgba(255,107,107,0.08)', symbol: '⇌' },
   Event:          { color: '#ffcc44', bg: 'rgba(255,204,68,0.08)',  symbol: '⚡' },
   Cluster:        { color: '#44aaff', bg: 'rgba(68,170,255,0.08)',  symbol: '⊕' },
-  Infrastructure: { color: '#888899', bg: 'rgba(136,136,153,0.08)', symbol: '⚙' },
+  Infrastructure: { color: '#88aacc', bg: 'rgba(136,170,204,0.08)', symbol: '⚙' },  // Silver
   // AI 优先流水线新增节点类型
-  Entity:         { color: '#b08eff', bg: 'rgba(176,142,255,0.08)', symbol: '▢' },
-  Table:          { color: '#9d7dff', bg: 'rgba(157,125,255,0.08)', symbol: '⊞' },
-  Field:          { color: '#88ccff', bg: 'rgba(136,204,255,0.08)', symbol: 'Field' },
+  Entity:         { color: '#ff66cc', bg: 'rgba(255,102,204,0.08)', symbol: '▢' },  // Magenta
+  Table:          { color: '#ff66cc', bg: 'rgba(255,102,204,0.08)', symbol: '⊞' },  // Magenta
+  Field:          { color: '#00ccaa', bg: 'rgba(0,204,170,0.08)',   symbol: 'Field' },  // Teal
   Flow:           { color: '#ffcc44', bg: 'rgba(255,204,68,0.08)',  symbol: '⟳' },
   FlowNode:       { color: '#88dd88', bg: 'rgba(136,221,136,0.08)', symbol: '◉' },
-  default:        { color: '#4a5068', bg: 'rgba(74,80,104,0.08)',   symbol: '●' },
+  default:        { color: '#88aacc', bg: 'rgba(136,170,204,0.08)', symbol: '●' },  // Silver
 }
 
 const EDGE_COLORS: Record<string, string> = {
   calls:       '#00f084',
   depends_on:  '#00d4ff',
-  imports:     '#b08eff',
-  contains:    '#4a5068',
+  imports:     '#ff66cc',     // Magenta
+  contains:    '#88aacc',     // Silver
   reads:       '#ffc145',
   writes:      '#ff6b6b',
   produces:    '#ffcc44',
@@ -45,8 +45,8 @@ const EDGE_COLORS: Record<string, string> = {
   publishes:   '#44aaff',
   subscribes:  '#7ed957',
   // AI 优先流水线新增边类型
-  maps_to:      '#b08eff',
-  has_field:    '#8899bb',
+  maps_to:      '#ff66cc',    // Magenta
+  has_field:    '#99bbdd',    // Silver
   one_to_one:   '#00f084',
   one_to_many:  '#00f084',
   many_to_one:  '#00f084',
@@ -86,14 +86,14 @@ type RelatedNode = {
 // ─── Entity Details Component ──────────────────────────────────────────────────
 
 const EntityDetails: React.FC<{ node: GraphNode }> = ({ node }) => {
-  const props = node.properties
-  const importanceScore = props.importance_score ?? 5
+  const props = node.properties ?? {}
+  const importanceScore = typeof props.importance_score === 'number' ? props.importance_score : 5
   const importanceColor = importanceScore >= 8 ? '#00f084' : importanceScore >= 5 ? '#ffc145' : '#ff6b6b'
 
   return (
     <>
       {/* Table name */}
-      {props.table_name && (
+      {typeof props.table_name === 'string' && (
         <>
           <SectionLabel>映射表名</SectionLabel>
           <div style={{
@@ -111,7 +111,7 @@ const EntityDetails: React.FC<{ node: GraphNode }> = ({ node }) => {
       )}
 
       {/* Primary key */}
-      {props.primary_key && (
+      {typeof props.primary_key === 'string' && (
         <>
           <Divider />
           <SectionLabel>主键字段</SectionLabel>
@@ -130,12 +130,12 @@ const EntityDetails: React.FC<{ node: GraphNode }> = ({ node }) => {
       )}
 
       {/* Core fields */}
-      {props.core_fields && Array.isArray(props.core_fields) && props.core_fields.length > 0 && (
+      {Array.isArray(props.core_fields) && props.core_fields.length > 0 && (
         <>
           <Divider />
           <SectionLabel>核心字段</SectionLabel>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            {props.core_fields.map((f: string, i: number) => (
+            {props.core_fields.map((f, i) => (
               <span key={i} style={{
                 fontFamily: 'var(--font-mono)',
                 fontSize: 9,
@@ -145,7 +145,7 @@ const EntityDetails: React.FC<{ node: GraphNode }> = ({ node }) => {
                 borderRadius: 3,
                 padding: '3px 8px',
               }}>
-                {f}
+                {String(f)}
               </span>
             ))}
           </div>
@@ -176,7 +176,7 @@ const EntityDetails: React.FC<{ node: GraphNode }> = ({ node }) => {
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--t-secondary)' }}>
             {importanceScore >= 8 ? '核心实体' : importanceScore >= 5 ? '重要实体' : '辅助实体'}
           </div>
-          {props.importance_reason && (
+          {typeof props.importance_reason === 'string' && (
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--t-muted)', marginTop: 4 }}>
               {props.importance_reason}
             </div>
@@ -185,7 +185,7 @@ const EntityDetails: React.FC<{ node: GraphNode }> = ({ node }) => {
       </div>
 
       {/* Description */}
-      {props.description && (
+      {typeof props.description === 'string' && (
         <>
           <Divider />
           <SectionLabel>描述</SectionLabel>
@@ -201,7 +201,7 @@ const EntityDetails: React.FC<{ node: GraphNode }> = ({ node }) => {
       )}
 
       {/* Role in system */}
-      {props.role_in_system && (
+      {typeof props.role_in_system === 'string' && (
         <>
           <Divider />
           <SectionLabel>系统角色</SectionLabel>
@@ -225,12 +225,12 @@ const EntityDetails: React.FC<{ node: GraphNode }> = ({ node }) => {
 // ─── Field Details Component ───────────────────────────────────────────────────
 
 const FieldDetails: React.FC<{ node: GraphNode }> = ({ node }) => {
-  const props = node.properties
+  const props = node.properties ?? {}
 
   return (
     <>
       {/* Field type */}
-      {props.type && (
+      {typeof props.type === 'string' && (
         <>
           <SectionLabel>字段类型</SectionLabel>
           <div style={{
@@ -248,7 +248,7 @@ const FieldDetails: React.FC<{ node: GraphNode }> = ({ node }) => {
       )}
 
       {/* Column name */}
-      {props.column_name && (
+      {typeof props.column_name === 'string' && (
         <>
           <Divider />
           <SectionLabel>数据库列名</SectionLabel>
@@ -270,7 +270,7 @@ const FieldDetails: React.FC<{ node: GraphNode }> = ({ node }) => {
       <Divider />
       <SectionLabel>字段属性</SectionLabel>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-        {props.is_primary_key && (
+        {props.is_primary_key === true && (
           <span style={{
             fontFamily: 'var(--font-mono)',
             fontSize: 9,
@@ -283,7 +283,7 @@ const FieldDetails: React.FC<{ node: GraphNode }> = ({ node }) => {
             🔑 主键
           </span>
         )}
-        {props.is_foreign_key && (
+        {props.is_foreign_key === true && (
           <span style={{
             fontFamily: 'var(--font-mono)',
             fontSize: 9,
@@ -312,7 +312,7 @@ const FieldDetails: React.FC<{ node: GraphNode }> = ({ node }) => {
       </div>
 
       {/* Foreign key reference */}
-      {props.is_foreign_key && props.references_entity && (
+      {props.is_foreign_key === true && typeof props.references_entity === 'string' && (
         <>
           <Divider />
           <SectionLabel>外键引用</SectionLabel>
@@ -325,13 +325,13 @@ const FieldDetails: React.FC<{ node: GraphNode }> = ({ node }) => {
             borderRadius: 4,
             padding: '8px 12px',
           }}>
-            → {props.references_entity}.{props.references_field || 'id'}
+            → {props.references_entity}.{typeof props.references_field === 'string' ? props.references_field : 'id'}
           </div>
         </>
       )}
 
       {/* Business meaning */}
-      {props.business_meaning && (
+      {typeof props.business_meaning === 'string' && (
         <>
           <Divider />
           <SectionLabel>业务含义</SectionLabel>
@@ -347,7 +347,7 @@ const FieldDetails: React.FC<{ node: GraphNode }> = ({ node }) => {
       )}
 
       {/* Description */}
-      {props.description && (
+      {typeof props.description === 'string' && (
         <>
           <Divider />
           <SectionLabel>描述</SectionLabel>
@@ -368,12 +368,12 @@ const FieldDetails: React.FC<{ node: GraphNode }> = ({ node }) => {
 // ─── Flow Details Component ────────────────────────────────────────────────────
 
 const FlowDetails: React.FC<{ node: GraphNode }> = ({ node }) => {
-  const props = node.properties
+  const props = node.properties ?? {}
 
   return (
     <>
       {/* Flow type */}
-      {props.flow_type && (
+      {typeof props.flow_type === 'string' && (
         <>
           <SectionLabel>流程类型</SectionLabel>
           <div style={{
@@ -391,7 +391,7 @@ const FlowDetails: React.FC<{ node: GraphNode }> = ({ node }) => {
       )}
 
       {/* Flow key */}
-      {props.key && (
+      {typeof props.key === 'string' && (
         <>
           <Divider />
           <SectionLabel>流程标识</SectionLabel>
@@ -410,7 +410,7 @@ const FlowDetails: React.FC<{ node: GraphNode }> = ({ node }) => {
       )}
 
       {/* Description */}
-      {props.description && (
+      {typeof props.description === 'string' && (
         <>
           <Divider />
           <SectionLabel>描述</SectionLabel>

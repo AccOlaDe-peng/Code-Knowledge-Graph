@@ -7,13 +7,13 @@
  * - 字段选择器
  * - 血缘图展示（流入/流出）
  */
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { Select, Spin, Empty, Tag, Card, Tabs, Tooltip } from 'antd';
 import { ArrowRightOutlined, ArrowLeftOutlined, SwapOutlined } from '@ant-design/icons';
 import GraphViewer from '../../components/graph/GraphViewer';
 import type { GraphNode, GraphEdge } from '../../types/graph';
 import { useRepoStore } from '../../store/repoStore';
-import { graphApi } from '../../api/graphApi';
+import { graphApi, type RawNode, type RawEdge } from '../../api/graphApi';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -71,12 +71,12 @@ const FieldLineage: React.FC = () => {
         // Extract entities and fields
         const entityMap = new Map<string, EntityInfo>();
 
-        res.nodes.forEach((node: GraphNode) => {
+        res.nodes.forEach((node: RawNode) => {
           if (node.type === 'Entity' || node.type === 'entity') {
             const entity: EntityInfo = {
               id: node.id,
-              name: node.label || node.id.replace('entity:', ''),
-              tableName: node.properties?.table_name || '',
+              name: node.name || node.id.replace('entity:', ''),
+              tableName: typeof node.properties?.table_name === 'string' ? node.properties.table_name : '',
               fields: [],
             };
             entityMap.set(node.id, entity);
@@ -92,9 +92,9 @@ const FieldLineage: React.FC = () => {
                 entity.fields.push({
                   id: node.id,
                   name: parts[1],
-                  type: node.properties?.type || 'unknown',
-                  isPrimaryKey: node.properties?.is_primary_key || false,
-                  isForeignKey: node.properties?.is_foreign_key || false,
+                  type: typeof node.properties?.type === 'string' ? node.properties.type : 'unknown',
+                  isPrimaryKey: node.properties?.is_primary_key === true,
+                  isForeignKey: node.properties?.is_foreign_key === true,
                 });
               }
             }
@@ -105,15 +105,15 @@ const FieldLineage: React.FC = () => {
 
         // Extract lineages - filter for flow_to edges
         const flowLineages: FlowInfo[] = res.edges
-          .filter((edge: GraphEdge) => edge.type === 'flow_to')
-          .map((edge: GraphEdge) => ({
-            fromEntity: edge.properties?.from_entity || '',
-            fromField: edge.properties?.from_field || '',
-            toEntity: edge.properties?.to_entity || '',
-            toField: edge.properties?.to_field || '',
-            flowType: edge.properties?.flow_type || 'direct',
-            flowPattern: edge.properties?.flow_pattern || '',
-            description: edge.properties?.description || '',
+          .filter((edge: RawEdge) => edge.type === 'flow_to')
+          .map((edge: RawEdge) => ({
+            fromEntity: typeof edge.properties?.from_entity === 'string' ? edge.properties.from_entity : '',
+            fromField: typeof edge.properties?.from_field === 'string' ? edge.properties.from_field : '',
+            toEntity: typeof edge.properties?.to_entity === 'string' ? edge.properties.to_entity : '',
+            toField: typeof edge.properties?.to_field === 'string' ? edge.properties.to_field : '',
+            flowType: typeof edge.properties?.flow_type === 'string' ? edge.properties.flow_type : 'direct',
+            flowPattern: typeof edge.properties?.flow_pattern === 'string' ? edge.properties.flow_pattern : '',
+            description: typeof edge.properties?.description === 'string' ? edge.properties.description : '',
           }));
 
         setLineages(flowLineages);
@@ -138,7 +138,6 @@ const FieldLineage: React.FC = () => {
     return lineages.filter(l => {
       if (selectedField) {
         // Filter by specific field
-        const fieldKey = `${selectedEntity?.replace('entity:', '')}.${selectedField}`;
         if (flowDirection === 'in') {
           return l.toEntity === selectedEntity?.replace('entity:', '') && l.toField === selectedField;
         } else if (flowDirection === 'out') {

@@ -140,7 +140,7 @@ const DataLineageInner: React.FC = () => {
               width: 9,
               height: 9,
               borderRadius: 2,
-              background: "#b08eff",
+              background: "#ff66cc",
               boxShadow: "0 0 12px #b08effaa",
             }}
           />
@@ -149,7 +149,7 @@ const DataLineageInner: React.FC = () => {
               fontFamily: "var(--font-ui)",
               fontSize: 15,
               fontWeight: 700,
-              color: "#b08eff",
+              color: "#ff66cc",
               letterSpacing: "0.04em",
             }}
           >
@@ -169,7 +169,7 @@ const DataLineageInner: React.FC = () => {
                   fontFamily: "var(--font-mono)",
                   fontSize: 16,
                   fontWeight: 700,
-                  color: "#b08eff",
+                  color: "#ff66cc",
                 }}
               >
                 {stats.moduleCount}

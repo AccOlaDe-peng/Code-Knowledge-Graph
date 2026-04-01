@@ -7,6 +7,12 @@
  *   graphloader:uncollapse — element.show() 子节点
  *   graphloader:prune      — 折叠距最后展开节点最远的节点
  *   architecturecanvas:relayout — 触发 cose-bilkent 全图重排
+ *
+ * v2.0 - 高对比度设计优化：
+ * - 节点边框宽度从 1 提升到 2.5
+ * - 边宽度从 1.5 提升到 2
+ * - 边透明度从 0.6-0.85 提升到 0.85-0.95
+ * - 添加节点发光效果
  */
 import React, { useEffect, useRef, useCallback } from 'react'
 import cytoscape from 'cytoscape'
@@ -43,51 +49,80 @@ export const ArchitectureCanvas: React.FC<ArchitectureCanvasProps> = ({
     const cy = cytoscape({
       container: containerRef.current,
       style: [
+        // ── 基础节点样式 ───────────────────────────────────────────────────
         {
           selector: 'node',
           style: {
             'label':            'data(label)',
-            'background-color': '#1a2035',
+            'background-color': '#162030',  // 提升背景亮度
             'border-color':     '#00d4ff',
-            'border-width':     1,
-            'color':            '#e0e6f0',
-            'font-size':        11,
+            'border-width':     2.5,        // 从 1 提升
+            'border-opacity':   1,          // 从默认提升
+            'color':            '#f0f4fc',  // 更亮的文字
+            'font-size':        12,         // 从 11 提升
+            'font-weight':      600,        // 加粗
+            'font-family':      '"JetBrains Mono", "IBM Plex Mono", monospace',
             'text-valign':      'center',
             'text-halign':      'center',
-            'width':            120,
-            'height':           40,
+            'width':            130,        // 稍微增大
+            'height':           44,
             'shape':            'round-rectangle',
+            'transition-property': 'border-color, border-width, background-color, shadow-blur',
+            'transition-duration': '0.15s' as unknown as number,
           },
         },
+        // ── 节点 hover 状态 ─────────────────────────────────────────────────
+        {
+          selector: 'node:hover',
+          style: {
+            'border-width':   3,
+            'border-color':   '#00d4ff',
+          },
+        },
+        // ── 节点选中状态 ───────────────────────────────────────────────────
+        {
+          selector: 'node:selected',
+          style: {
+            'border-width':   3.5,
+            'border-color':   '#00d4ff',
+            'background-color': '#1a2840',
+          },
+        },
+        // ── 基础边样式 ─────────────────────────────────────────────────────
         {
           selector: 'edge',
           style: {
             'line-color':             '#2a3a5c',
             'target-arrow-color':     '#2a3a5c',
             'target-arrow-shape':     'triangle',
+            'arrow-scale':            1.2,    // 从默认提升
             'curve-style':            'bezier',
-            'width':                  1.5,
-            'line-opacity':           0.8,
+            'width':                  2,      // 从 1.5 提升
+            'line-opacity':           0.85,   // 从 0.8 提升
+            'transition-property':    'line-color, line-opacity, width',
+            'transition-duration':    '0.12s' as unknown as number,
           },
         },
-        // calls 边 - 青绿色动画
+        // calls 边 - 青绿色（高可见性）
         {
           selector: 'edge[type="calls"]',
           style: {
             'line-color':         '#00f084',
             'target-arrow-color': '#00f084',
-            'line-opacity':       0.85,
+            'line-opacity':       0.95,      // 从 0.85 提升
+            'width':              2.5,       // 加粗
             'line-style':         'solid',
           },
         },
-        // contains 边 - 紫色虚线
+        // contains 边 - Silver 虚线
         {
           selector: 'edge[type="contains"]',
           style: {
-            'line-color':         '#b08eff',
-            'target-arrow-color': '#b08eff',
-            'line-opacity':       0.6,
+            'line-color':         '#88aacc',
+            'target-arrow-color': '#88aacc',
+            'line-opacity':       0.85,
             'line-style':         'dashed',
+            'width':              2,
           },
         },
         // depends_on 边 - 琥珀色
@@ -96,7 +131,8 @@ export const ArchitectureCanvas: React.FC<ArchitectureCanvasProps> = ({
           style: {
             'line-color':         '#ffc145',
             'target-arrow-color': '#ffc145',
-            'line-opacity':       0.85,
+            'line-opacity':       0.95,      // 从 0.85 提升
+            'width':              2.5,       // 加粗
           },
         },
         // reads 边 - 青色
@@ -105,7 +141,8 @@ export const ArchitectureCanvas: React.FC<ArchitectureCanvasProps> = ({
           style: {
             'line-color':         '#00d4ff',
             'target-arrow-color': '#00d4ff',
-            'line-opacity':       0.85,
+            'line-opacity':       0.95,
+            'width':              2.5,
           },
         },
         // writes 边 - 红色
@@ -114,26 +151,29 @@ export const ArchitectureCanvas: React.FC<ArchitectureCanvasProps> = ({
           style: {
             'line-color':         '#ff6b6b',
             'target-arrow-color': '#ff6b6b',
-            'line-opacity':       0.85,
+            'line-opacity':       0.95,
+            'width':              2.5,
           },
         },
-        // implements 边 - 紫色
+        // implements 边 - Magenta
         {
           selector: 'edge[type="implements"]',
           style: {
-            'line-color':         '#b08eff',
-            'target-arrow-color': '#b08eff',
-            'line-opacity':       0.7,
+            'line-color':         '#ff66cc',
+            'target-arrow-color': '#ff66cc',
+            'line-opacity':       0.9,
             'line-style':         'dotted',
+            'width':              2,
           },
         },
-        // imports 边 - 灰色
+        // imports 边 - Silver
         {
           selector: 'edge[type="imports"]',
           style: {
-            'line-color':         '#6b8aaa',
-            'target-arrow-color': '#6b8aaa',
-            'line-opacity':       0.6,
+            'line-color':         '#88aacc',
+            'target-arrow-color': '#88aacc',
+            'line-opacity':       0.8,
+            'width':              2,
           },
         },
         {

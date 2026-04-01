@@ -9,8 +9,6 @@ import { useMetaStore } from "./store/metaStore";
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Repository = lazy(() => import("./pages/Repository"));
 const DataLineage = lazy(() => import("./pages/DataLineage"));
-const EventFlow = lazy(() => import("./pages/EventFlow"));
-const GraphQuery = lazy(() => import("./pages/GraphQuery"));
 const FieldLineage = lazy(() => import("./pages/FieldLineage"));
 
 // New feature modules
@@ -60,9 +58,7 @@ const App: React.FC = () => {
             <Route path="repository" element={wrap(Repository)} />
             <Route path="architecture" element={wrap(ArchitectureExplorer)} />
             <Route path="lineage" element={wrap(DataLineage)} />
-            <Route path="eventflow" element={wrap(EventFlow)} />
             <Route path="fieldlineage" element={wrap(FieldLineage)} />
-            <Route path="query" element={wrap(GraphQuery)} />
           </Route>
         </Routes>
       </BrowserRouter>

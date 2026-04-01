@@ -1,10 +1,9 @@
-"""图谱视图 API：三个语义清晰的只读视图接口 + events/services 保留接口。
+"""图谱视图 API：三个语义清晰的只读视图接口 + services 保留接口。
 
 路由：
   GET /graph/framework  — 架构图（高层节点，可过滤类型）
   GET /graph/call       — 调用图（calls 边 + 相关节点，可 BFS 展开）
   GET /graph/lineage    — 血缘图（depends_on/reads/writes 等边，可 BFS 展开）
-  GET /events           — 事件流图（保留，使用 GraphRepository）
   GET /services         — 基础设施服务图（保留，使用 GraphRepository）
 """
 from __future__ import annotations
@@ -1149,63 +1148,6 @@ def get_expand(
 
 
 # ── Legacy Endpoints (GraphRepository / graph_id) — preserved ────────────────
-
-
-@router.get("/events", tags=["图谱"])
-def get_events(
-    graph_id: str = Query(description="图谱 ID"),
-    include_edges: bool = Query(default=True, description="是否返回事件关系边"),
-):
-    """
-    获取事件流图。
-
-    返回 `Event`、`Topic` 节点及其 `publishes`、`routes_to`、`consumes` 关系。
-    同时返回相关的 `Component` 节点（Producer/Consumer）。
-    """
-    _EVENT_NODE_TYPES = {"Event", "Topic"}
-    _EVENT_EDGE_TYPES = {"publishes", "routes_to", "consumes", "produces", "subscribes"}
-
-    built = _load_built_or_404(graph_id)
-
-    # 收集所有事件相关的边
-    event_edges = []
-    if include_edges:
-        event_edges = [
-            e.model_dump(by_alias=True)
-            for e in built.edges
-            if e.type in _EVENT_EDGE_TYPES
-        ]
-
-    # 收集所有涉及的节点 ID
-    involved_node_ids = set()
-    for e in built.edges:
-        if e.type in _EVENT_EDGE_TYPES:
-            involved_node_ids.add(e.from_)
-            involved_node_ids.add(e.to)
-
-    # 收集节点：Event/Topic 节点 + 相关的 Component 节点
-    node_map = {n.id: n for n in built.nodes}
-    event_nodes = []
-    for node_id in involved_node_ids:
-        if node_id in node_map:
-            node = node_map[node_id]
-            # 包含 Event/Topic 节点，以及参与事件流的 Component 节点
-            if node.type in _EVENT_NODE_TYPES or node.type == "Component":
-                event_nodes.append(node.model_dump())
-
-    # 统计：按 node.type 分组
-    type_counts: dict[str, int] = {}
-    for n in event_nodes:
-        type_counts[n["type"]] = type_counts.get(n["type"], 0) + 1
-
-    return {
-        "graph_id":    graph_id,
-        "node_count":  len(event_nodes),
-        "edge_count":  len(event_edges),
-        "type_counts": type_counts,
-        "nodes":       event_nodes,
-        "edges":       event_edges,
-    }
 
 
 @router.get("/services", tags=["图谱"])

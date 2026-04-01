@@ -280,13 +280,15 @@ export function getNodeTypeTagColor(type: string): string {
     Service: 'green',
     API: 'geekblue',
     Function: 'default',
-    Table: 'purple',
+    Table: 'magenta',      // Changed from purple
     Event: 'orange',
     Component: 'green',
-    Class: 'purple',
-    Database: 'purple',
+    Class: 'magenta',      // Changed from purple
+    Database: 'magenta',   // Changed from purple
     Cluster: 'blue',
     Infrastructure: 'default',
+    Entity: 'magenta',     // Changed from purple
+    Field: 'cyan',
   };
   return colorMap[type] ?? 'default';
 }

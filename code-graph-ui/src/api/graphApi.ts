@@ -2,7 +2,6 @@ import axios, { type AxiosInstance } from "axios";
 import type {
   GraphListResponse,
   GraphDetailResponse,
-  EventsGraphResponse,
   ServicesGraphResponse,
   AnalysisStatus,
 } from "../types/api";
@@ -203,14 +202,6 @@ export const graphApi = {
    */
   traceLineage(data: import("../types/api").TraceLineageRequest): Promise<import("../types/api").TraceLineageResponse> {
     return httpClient.post("/lineage/trace", data);
-  },
-
-  /**
-   * GET /events
-   * Returns Event nodes and their publishes / subscribes edges.
-   */
-  getEventsGraph(graphId: string): Promise<EventsGraphResponse> {
-    return httpClient.get("/events", { params: { graph_id: graphId } });
   },
 
   /**
