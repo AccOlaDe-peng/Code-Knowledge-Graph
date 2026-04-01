@@ -48,66 +48,9 @@ const FunctionCallGraph: React.FC = () => {
     setSelectedModule(null);
   };
 
-  // 渲染加载状态
-  if (!activeRepo) {
-    return (
-      <div style={styles.container}>
-        <div style={styles.empty}>
-          <Empty
-            description={
-              <span style={{ color: "#5a6a8a" }}>请先选择仓库以查看函数调用图</span>
-            }
-          />
-        </div>
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div style={styles.container}>
-        <div style={styles.loading}>
-          <Spin size="large" />
-          <span style={{ color: "#7888a8", marginTop: 16 }}>加载函数调用图数据...</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div style={styles.container}>
-        <div style={styles.error}>
-          <span style={{ color: "#ff6b6b" }}>{error}</span>
-          <Button
-            icon={<ReloadOutlined />}
-            onClick={() => loadData(activeRepo.repoId)}
-            style={{ marginTop: 16 }}
-          >
-            重试
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!data) {
-    return (
-      <div style={styles.container}>
-        <div style={styles.empty}>
-          <Empty
-            description={
-              <span style={{ color: "#5a6a8a" }}>暂无函数调用图数据</span>
-            }
-          />
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div style={styles.container}>
-      {/* 工具栏 */}
+      {/* 工具栏 - 始终显示 */}
       <div style={styles.toolbar}>
         <div style={styles.toolbarLeft}>
           {/* 返回按钮 */}
@@ -126,7 +69,11 @@ const FunctionCallGraph: React.FC = () => {
           <div style={styles.title}>
             <div style={styles.titleDot} />
             <span style={styles.titleText}>
-              {currentView === "overview" ? "函数调用图" : `${data?.project_name} / 模块详情`}
+              {currentView === "overview"
+                ? "函数调用图"
+                : data
+                  ? `${data.project_name} / 模块详情`
+                  : "函数调用图"}
             </span>
           </div>
         </div>
@@ -137,10 +84,10 @@ const FunctionCallGraph: React.FC = () => {
 
         <div style={styles.toolbarRight}>
           {/* 全局搜索 */}
-          <GlobalSearch />
+          {data && <GlobalSearch />}
 
           {/* 统计信息 */}
-          {currentView === "overview" && (
+          {currentView === "overview" && data && (
             <div style={styles.stats}>
               <StatChip label="模块" value={data.total_modules} color="#00d4ff" />
               <StatChip label="函数" value={data.total_functions.toLocaleString()} color="#00f084" />
@@ -149,16 +96,65 @@ const FunctionCallGraph: React.FC = () => {
           )}
 
           {/* 路径追踪 */}
-          <PathTrace />
+          {data && <PathTrace />}
         </div>
       </div>
 
       {/* 主内容区 */}
       <div style={styles.content}>
-        {currentView === "overview" ? (
-          <ModuleOverview />
-        ) : (
-          <ModuleDetail />
+        {/* 未选择仓库 */}
+        {!activeRepo && (
+          <div style={styles.empty}>
+            <Empty
+              description={
+                <span style={{ color: "#5a6a8a" }}>请先选择仓库以查看函数调用图</span>
+              }
+            />
+          </div>
+        )}
+
+        {/* 加载中 */}
+        {activeRepo && loading && (
+          <div style={styles.loading}>
+            <Spin size="large" />
+            <span style={{ color: "#7888a8", marginTop: 16 }}>加载函数调用图数据...</span>
+          </div>
+        )}
+
+        {/* 加载错误 */}
+        {activeRepo && error && !loading && (
+          <div style={styles.error}>
+            <span style={{ color: "#ff6b6b" }}>{error}</span>
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={() => loadData(activeRepo.repoId)}
+              style={{ marginTop: 16 }}
+            >
+              重试
+            </Button>
+          </div>
+        )}
+
+        {/* 无数据 */}
+        {activeRepo && !loading && !error && !data && (
+          <div style={styles.empty}>
+            <Empty
+              description={
+                <span style={{ color: "#5a6a8a" }}>暂无函数调用图数据，请先分析仓库</span>
+              }
+            />
+          </div>
+        )}
+
+        {/* 有数据时显示视图 */}
+        {data && !loading && (
+          <>
+            {currentView === "overview" ? (
+              <ModuleOverview />
+            ) : (
+              <ModuleDetail />
+            )}
+          </>
         )}
       </div>
 
