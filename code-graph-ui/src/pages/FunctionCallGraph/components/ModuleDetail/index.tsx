@@ -1,7 +1,7 @@
 /**
  * ModuleDetail - 模块详情视图
  *
- * 左侧：模块树 + 函数列表（按热度排序）
+ * 左侧：控制面板 + 模块树 + 函数列表（按热度排序）
  * 右侧：函数调用图（热点函数优先，点击展开调用链）
  */
 import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
@@ -22,8 +22,8 @@ import {
   SearchOutlined,
   FolderOutlined,
   FunctionOutlined,
-  CompressOutlined,
   FireOutlined,
+  ReloadOutlined,
 } from "@ant-design/icons";
 import { useFunctionCallStore } from "../../../../store/functionCallStore";
 import { FUNCTION_TYPE_COLORS, EDGE_COLORS, type FunctionInfo, type CallChain } from "../../types";
@@ -44,11 +44,6 @@ function calculateHeat(func: FunctionInfo): number {
 /** 按热度排序函数 */
 function sortByHeat(functions: FunctionInfo[]): FunctionInfo[] {
   return [...functions].sort((a, b) => calculateHeat(b) - calculateHeat(a));
-}
-
-/** 获取热点函数 */
-function getHotFunctions(functions: FunctionInfo[], limit: number): FunctionInfo[] {
-  return sortByHeat(functions).slice(0, limit);
 }
 
 // ─── 函数节点组件 ────────────────────────────────────────────────────────────
@@ -154,144 +149,6 @@ const FunctionNode: React.FC<{
 
 const nodeTypes = { functionNode: FunctionNode };
 
-// ─── 左侧面板 ────────────────────────────────────────────────────────────────
-
-const LeftPanel: React.FC<{
-  selectedModuleId: string;
-  search: string;
-  onSearch: (v: string) => void;
-  typeFilter: string | null;
-  onTypeFilter: (v: string | null) => void;
-  onSelectFunction: (funcId: string) => void;
-}> = ({ selectedModuleId, search, onSearch, typeFilter, onTypeFilter, onSelectFunction }) => {
-  const { data, setSelectedModule, selectedFunctionId } = useFunctionCallStore();
-
-  // 过滤当前模块的函数
-  const currentFunctions = useMemo(() => {
-    const module = data?.modules.find((m) => m.id === selectedModuleId);
-    if (!module) return [];
-    let result = [...module.functions];
-    if (search) {
-      const s = search.toLowerCase();
-      result = result.filter(
-        (f) =>
-          f.name.toLowerCase().includes(s) ||
-          f.fullName.toLowerCase().includes(s) ||
-          f.className.toLowerCase().includes(s)
-      );
-    }
-    if (typeFilter) {
-      result = result.filter((f) => f.type === typeFilter);
-    }
-    return sortByHeat(result);
-  }, [data?.modules, selectedModuleId, search, typeFilter]);
-
-  return (
-    <div style={styles.leftPanel}>
-      {/* 搜索 */}
-      <div style={styles.searchSection}>
-        <Input
-          placeholder="搜索函数..."
-          prefix={<SearchOutlined style={{ color: "#5a6a8a" }} />}
-          value={search}
-          onChange={(e) => onSearch(e.target.value)}
-          style={styles.searchInput}
-          allowClear
-        />
-      </div>
-
-      {/* 模块树 */}
-      <div style={styles.treeSection}>
-        <div style={styles.sectionTitle}>
-          <FolderOutlined style={{ marginRight: 6 }} />
-          模块列表
-        </div>
-        <div style={styles.treeList}>
-          {data?.modules.map((m) => (
-            <div
-              key={m.id}
-              onClick={() => setSelectedModule(m.id)}
-              style={{
-                ...styles.treeItem,
-                background: m.id === selectedModuleId ? "rgba(0,212,255,0.1)" : "transparent",
-                borderLeft: m.id === selectedModuleId ? "2px solid #00d4ff" : "2px solid transparent",
-              }}
-            >
-              <span style={styles.treeItemName}>{m.name}</span>
-              <span style={styles.treeItemCount}>{m.functionCount}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* 函数列表（按热度排序） */}
-      <div style={styles.funcSection}>
-        <div style={styles.sectionHeader}>
-          <div style={styles.sectionTitle}>
-            <FunctionOutlined style={{ marginRight: 6 }} />
-            函数列表（按热度）
-          </div>
-          <Select
-            placeholder="类型"
-            value={typeFilter}
-            onChange={onTypeFilter}
-            allowClear
-            style={{ width: 90 }}
-            size="small"
-            options={[
-              { value: "service", label: "Service" },
-              { value: "controller", label: "Controller" },
-              { value: "repository", label: "Repository" },
-              { value: "dto", label: "DTO" },
-              { value: "entity", label: "Entity" },
-              { value: "handler", label: "Handler" },
-            ]}
-          />
-        </div>
-        <div style={styles.funcList}>
-          {currentFunctions.slice(0, 100).map((f) => {
-            const heat = calculateHeat(f);
-            return (
-              <div
-                key={f.id}
-                onClick={() => onSelectFunction(f.id)}
-                style={{
-                  ...styles.funcItem,
-                  background: f.id === selectedFunctionId ? "rgba(0,212,255,0.1)" : "transparent",
-                }}
-              >
-                <span style={styles.funcName}>
-                  {heat > 10 && <FireOutlined style={{ fontSize: 9, color: "#ffc145", marginRight: 4 }} />}
-                  {f.name}
-                </span>
-                <span style={styles.funcHeat}>{heat}</span>
-                <Tag
-                  style={{
-                    background: `${FUNCTION_TYPE_COLORS[f.type]?.border}15`,
-                    border: "none",
-                    color: FUNCTION_TYPE_COLORS[f.type]?.border,
-                    fontSize: 9,
-                    padding: "0 4px",
-                    marginLeft: 4,
-                  }}
-                >
-                  {f.type}
-                </Tag>
-              </div>
-            );
-          })}
-          {currentFunctions.length === 0 && (
-            <Empty description={<span style={{ color: "#5a6a8a" }}>无匹配函数</span>} />
-          )}
-          {currentFunctions.length > 100 && (
-            <div style={styles.moreHint}>仅显示前 100 条热点函数</div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
-
 // ─── 主组件 ──────────────────────────────────────────────────────────────────
 
 const ModuleDetail: React.FC = () => {
@@ -302,6 +159,8 @@ const ModuleDetail: React.FC = () => {
     callersIndex,
     calleesIndex,
     funcInfoIndex,
+    setSelectedModule,
+    selectedFunctionId,
   } = useFunctionCallStore();
 
   const [search, setSearch] = useState("");
@@ -319,14 +178,35 @@ const ModuleDetail: React.FC = () => {
     [data?.modules, selectedModuleId]
   );
 
+  // 当前模块的函数（过滤后）
+  const filteredFunctions = useMemo(() => {
+    if (!currentModule) return [];
+    let result = [...currentModule.functions];
+    if (search) {
+      const s = search.toLowerCase();
+      result = result.filter(
+        (f) =>
+          f.name.toLowerCase().includes(s) ||
+          f.fullName.toLowerCase().includes(s) ||
+          f.className.toLowerCase().includes(s)
+      );
+    }
+    if (typeFilter) {
+      result = result.filter((f) => f.type === typeFilter);
+    }
+    return result;
+  }, [currentModule, search, typeFilter]);
+
+  // 按热度排序后的函数列表
+  const sortedFunctions = useMemo(() => sortByHeat(filteredFunctions), [filteredFunctions]);
+
   // 基础函数列表（热点函数）
   const baseFunctions = useMemo(() => {
-    if (!currentModule) return [];
     if (showAllFunctions) {
-      return sortByHeat(currentModule.functions);
+      return sortedFunctions;
     }
-    return getHotFunctions(currentModule.functions, hotFunctionsLimit);
-  }, [currentModule, showAllFunctions, hotFunctionsLimit]);
+    return sortedFunctions.slice(0, hotFunctionsLimit);
+  }, [sortedFunctions, showAllFunctions, hotFunctionsLimit]);
 
   // 计算图中应该显示的函数（基础 + 展开的调用链）
   const displayedFunctions = useMemo(() => {
@@ -445,15 +325,12 @@ const ModuleDetail: React.FC = () => {
       const currentDepth = expandDepthRef.current.get(funcId) ?? 0;
 
       if (currentDepth >= MAX_EXPAND_DEPTH) {
-        // 已达到最大深度，不再展开
         return;
       }
 
-      // 获取调用者和被调用者
       const callers = callersIndex?.get(funcId) ?? [];
       const callees = calleesIndex?.get(funcId) ?? [];
 
-      // 收集要添加的函数 ID
       const newFuncIds = new Set<string>();
 
       for (const chain of callers) {
@@ -469,7 +346,6 @@ const ModuleDetail: React.FC = () => {
       }
 
       if (newFuncIds.size > 0) {
-        // 更新展开状态
         setExpandedFuncIds((prev) => {
           const next = new Set(prev);
           for (const id of newFuncIds) {
@@ -480,7 +356,6 @@ const ModuleDetail: React.FC = () => {
         });
       }
 
-      // 同时设置选中的函数
       setSelectedFunction(funcId);
     },
     [callersIndex, calleesIndex, displayedFunctions, setSelectedFunction]
@@ -496,7 +371,6 @@ const ModuleDetail: React.FC = () => {
   const handleSelectFunction = useCallback(
     (funcId: string) => {
       setSelectedFunction(funcId);
-      // 自动展开该函数的调用链
       const callers = callersIndex?.get(funcId) ?? [];
       const callees = calleesIndex?.get(funcId) ?? [];
 
@@ -533,14 +407,149 @@ const ModuleDetail: React.FC = () => {
   return (
     <div style={styles.container}>
       {/* 左侧面板 */}
-      <LeftPanel
-        selectedModuleId={selectedModuleId || ""}
-        search={search}
-        onSearch={setSearch}
-        typeFilter={typeFilter}
-        onTypeFilter={setTypeFilter}
-        onSelectFunction={handleSelectFunction}
-      />
+      <div style={styles.leftPanel}>
+        {/* 控制面板 */}
+        <div style={styles.controlPanel}>
+          <div style={styles.controlHeader}>
+            <span style={styles.controlTitle}>显示设置</span>
+            <Tooltip title="重置展开的调用链">
+              <Button
+                size="small"
+                icon={<ReloadOutlined />}
+                onClick={handleResetExpand}
+                style={{ fontSize: 11 }}
+              >
+                重置
+              </Button>
+            </Tooltip>
+          </div>
+          <div style={styles.controlRow}>
+            <span style={styles.controlLabel}>显示全部函数</span>
+            <Switch
+              checked={showAllFunctions}
+              onChange={setShowAllFunctions}
+              size="small"
+            />
+          </div>
+          {!showAllFunctions && (
+            <div style={styles.controlRow}>
+              <span style={styles.controlLabel}>热点数量: {hotFunctionsLimit}</span>
+              <Slider
+                value={hotFunctionsLimit}
+                onChange={setHotFunctionsLimit}
+                min={10}
+                max={100}
+                step={10}
+                style={{ flex: 1, marginLeft: 8 }}
+              />
+            </div>
+          )}
+          <div style={styles.expandInfo}>
+            已展开 {expandedFuncIds.size} 个函数
+          </div>
+        </div>
+
+        {/* 搜索 */}
+        <div style={styles.searchSection}>
+          <Input
+            placeholder="搜索函数..."
+            prefix={<SearchOutlined style={{ color: "#5a6a8a" }} />}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={styles.searchInput}
+            allowClear
+          />
+        </div>
+
+        {/* 模块树 */}
+        <div style={styles.treeSection}>
+          <div style={styles.sectionTitle}>
+            <FolderOutlined style={{ marginRight: 6 }} />
+            模块列表
+          </div>
+          <div style={styles.treeList}>
+            {data?.modules.map((m) => (
+              <div
+                key={m.id}
+                onClick={() => setSelectedModule(m.id)}
+                style={{
+                  ...styles.treeItem,
+                  background: m.id === selectedModuleId ? "rgba(0,212,255,0.1)" : "transparent",
+                  borderLeft: m.id === selectedModuleId ? "2px solid #00d4ff" : "2px solid transparent",
+                }}
+              >
+                <span style={styles.treeItemName}>{m.name}</span>
+                <span style={styles.treeItemCount}>{m.functionCount}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* 函数列表 */}
+        <div style={styles.funcSection}>
+          <div style={styles.sectionHeader}>
+            <div style={styles.sectionTitle}>
+              <FunctionOutlined style={{ marginRight: 6 }} />
+              函数列表（按热度）
+            </div>
+            <Select
+              placeholder="类型"
+              value={typeFilter}
+              onChange={setTypeFilter}
+              allowClear
+              style={{ width: 90 }}
+              size="small"
+              options={[
+                { value: "service", label: "Service" },
+                { value: "controller", label: "Controller" },
+                { value: "repository", label: "Repository" },
+                { value: "dto", label: "DTO" },
+                { value: "entity", label: "Entity" },
+                { value: "handler", label: "Handler" },
+              ]}
+            />
+          </div>
+          <div style={styles.funcList}>
+            {sortedFunctions.slice(0, 100).map((f) => {
+              const heat = calculateHeat(f);
+              return (
+                <div
+                  key={f.id}
+                  onClick={() => handleSelectFunction(f.id)}
+                  style={{
+                    ...styles.funcItem,
+                    background: f.id === selectedFunctionId ? "rgba(0,212,255,0.1)" : "transparent",
+                  }}
+                >
+                  <span style={styles.funcName}>
+                    {heat > 10 && <FireOutlined style={{ fontSize: 9, color: "#ffc145", marginRight: 4 }} />}
+                    {f.name}
+                  </span>
+                  <span style={styles.funcHeat}>{heat}</span>
+                  <Tag
+                    style={{
+                      background: `${FUNCTION_TYPE_COLORS[f.type]?.border}15`,
+                      border: "none",
+                      color: FUNCTION_TYPE_COLORS[f.type]?.border,
+                      fontSize: 9,
+                      padding: "0 4px",
+                      marginLeft: 4,
+                    }}
+                  >
+                    {f.type}
+                  </Tag>
+                </div>
+              );
+            })}
+            {sortedFunctions.length === 0 && (
+              <Empty description={<span style={{ color: "#5a6a8a" }}>无匹配函数</span>} />
+            )}
+            {sortedFunctions.length > 100 && (
+              <div style={styles.moreHint}>仅显示前 100 条热点函数</div>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* 右侧图形区 */}
       <div style={styles.rightPanel}>
@@ -583,57 +592,12 @@ const ModuleDetail: React.FC = () => {
               </div>
             </Panel>
 
-            {/* 控制面板 */}
-            <Panel position="top-right">
-              <div style={styles.controlPanel}>
-                <div style={styles.controlRow}>
-                  <span style={styles.controlLabel}>显示全部</span>
-                  <Switch
-                    checked={showAllFunctions}
-                    onChange={setShowAllFunctions}
-                    size="small"
-                  />
-                </div>
-
-                {!showAllFunctions && (
-                  <div style={styles.controlRow}>
-                    <span style={styles.controlLabel}>热点数量</span>
-                    <Slider
-                      value={hotFunctionsLimit}
-                      onChange={setHotFunctionsLimit}
-                      min={10}
-                      max={100}
-                      step={10}
-                      style={{ width: 100 }}
-                    />
-                    <span style={styles.controlValue}>{hotFunctionsLimit}</span>
-                  </div>
-                )}
-
-                <div style={styles.controlRow}>
-                  <Tooltip title="重置展开的调用链">
-                    <Button
-                      size="small"
-                      icon={<CompressOutlined />}
-                      onClick={handleResetExpand}
-                    >
-                      重置
-                    </Button>
-                  </Tooltip>
-                </div>
-
-                <div style={styles.expandHint}>
-                  已展开 {expandedFuncIds.size} 个函数
-                </div>
-              </div>
-            </Panel>
-
             {/* 图例 */}
             <Panel position="bottom-left">
               <div style={styles.legend}>
                 <div style={styles.legendItem}>
                   <FireOutlined style={{ color: "#ffc145", fontSize: 10 }} />
-                  <span>热点函数</span>
+                  <span>热点函数（热度&gt;10）</span>
                 </div>
                 <div style={styles.legendItem}>
                   <div style={{ ...styles.legendLine, background: EDGE_COLORS.same_module }} />
@@ -671,19 +635,56 @@ const styles: Record<string, React.CSSProperties> = {
     flex: 1,
     position: "relative",
   },
+  // 控制面板
+  controlPanel: {
+    padding: "12px 14px",
+    borderBottom: "1px solid rgba(255,255,255,0.04)",
+    background: "rgba(0,20,40,0.3)",
+  },
+  controlHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  controlTitle: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: "#00d4ff",
+    fontFamily: "var(--font-mono)",
+  },
+  controlRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  controlLabel: {
+    fontSize: 11,
+    color: "#a8b8d8",
+  },
+  expandInfo: {
+    fontSize: 10,
+    color: "#5a6a8a",
+    textAlign: "center",
+    marginTop: 4,
+  },
+  // 搜索
   searchSection: {
-    padding: "12px",
+    padding: "10px 14px",
     borderBottom: "1px solid rgba(255,255,255,0.04)",
   },
   searchInput: {
     background: "rgba(0,0,0,0.3)",
     border: "1px solid rgba(255,255,255,0.1)",
     borderRadius: 4,
+    fontSize: 12,
   },
+  // 模块树
   treeSection: {
-    padding: "8px 12px",
+    padding: "8px 14px",
     borderBottom: "1px solid rgba(255,255,255,0.04)",
-    maxHeight: 180,
+    maxHeight: 150,
     overflow: "auto",
   },
   sectionTitle: {
@@ -691,7 +692,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#7888a8",
     fontFamily: "var(--font-mono)",
     letterSpacing: "0.05em",
-    marginBottom: 8,
+    marginBottom: 6,
     display: "flex",
     alignItems: "center",
   },
@@ -704,13 +705,13 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: "6px 8px",
+    padding: "5px 8px",
     borderRadius: 4,
     cursor: "pointer",
     transition: "all 0.15s ease",
   },
   treeItemName: {
-    fontSize: 12,
+    fontSize: 11,
     color: "#a8b8d8",
     fontFamily: "var(--font-mono)",
   },
@@ -719,6 +720,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#5a6a8a",
     fontFamily: "var(--font-mono)",
   },
+  // 函数列表
   funcSection: {
     flex: 1,
     display: "flex",
@@ -729,18 +731,18 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: "8px 12px",
+    padding: "8px 14px",
     borderBottom: "1px solid rgba(255,255,255,0.04)",
   },
   funcList: {
     flex: 1,
     overflow: "auto",
-    padding: "8px 12px",
+    padding: "8px 14px",
   },
   funcItem: {
     display: "flex",
     alignItems: "center",
-    padding: "6px 8px",
+    padding: "5px 8px",
     borderRadius: 4,
     cursor: "pointer",
     marginBottom: 2,
@@ -754,7 +756,7 @@ const styles: Record<string, React.CSSProperties> = {
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
     flex: 1,
-    marginRight: 8,
+    marginRight: 6,
   },
   funcHeat: {
     fontSize: 10,
@@ -770,6 +772,7 @@ const styles: Record<string, React.CSSProperties> = {
     textAlign: "center",
     padding: "8px",
   },
+  // 模块信息
   moduleInfo: {
     background: "rgba(10,13,20,0.9)",
     border: "1px solid rgba(255,255,255,0.08)",
@@ -792,37 +795,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 10,
     color: "#5a6a8a",
   },
-  controlPanel: {
-    background: "rgba(10,13,20,0.9)",
-    border: "1px solid rgba(255,255,255,0.08)",
-    borderRadius: 8,
-    padding: "12px 16px",
-    display: "flex",
-    flexDirection: "column",
-    gap: 10,
-  },
-  controlRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-  },
-  controlLabel: {
-    fontSize: 11,
-    color: "#7888a8",
-    minWidth: 60,
-  },
-  controlValue: {
-    fontSize: 11,
-    color: "#00d4ff",
-    fontFamily: "var(--font-mono)",
-    minWidth: 30,
-    textAlign: "right",
-  },
-  expandHint: {
-    fontSize: 10,
-    color: "#5a6a8a",
-    textAlign: "center",
-  },
+  // 图例
   legend: {
     background: "rgba(10,13,20,0.9)",
     border: "1px solid rgba(255,255,255,0.08)",
