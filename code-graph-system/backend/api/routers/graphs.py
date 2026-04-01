@@ -1842,23 +1842,11 @@ def _find_function_call_graph_file(repo_id: str) -> Path | None:
 
 def _compute_module_calls(modules: list[dict], call_chains: list[dict]) -> list[dict]:
     """计算模块间调用统计"""
-    # 构建函数到模块的映射
-    func_to_module: dict[str, str] = {}
-    for module in modules:
-        module_id = module.get("id", "")
-        for func in module.get("functions", []):
-            func_id = func.get("id", "")
-            if func_id:
-                func_to_module[func_id] = module_id
-
-    # 统计模块间调用
+    # 直接从 call_chains 中统计跨模块调用
     module_call_counts: dict[tuple[str, str], int] = {}
     for chain in call_chains:
-        source_func = chain.get("sourceFunctionId", "")
-        target_func = chain.get("targetFunctionId", "")
-
-        source_module = func_to_module.get(source_func)
-        target_module = func_to_module.get(target_func)
+        source_module = chain.get("sourceModuleId", "")
+        target_module = chain.get("targetModuleId", "")
 
         if source_module and target_module and source_module != target_module:
             key = (source_module, target_module)
@@ -1884,6 +1872,11 @@ def get_function_call_graph(repo_id: str = Query(..., description="仓库 ID")) 
     从 `data/graphs/{repo_id}-function-call-graph.json` 加载函数调用图数据。
     返回模块列表、函数列表、调用链列表以及模块间调用统计。
 
+    数据结构说明：
+    - modules[].internalCallChains: 模块内部调用链
+    - crossModuleCalls: 跨模块调用链
+    - API 统一合并为 call_chains 返回
+
     返回格式：
     {
         "repo_id": "adms",
@@ -1906,7 +1899,7 @@ def get_function_call_graph(repo_id: str = Query(..., description="仓库 ID")) 
 
     try:
         with open(file_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+            raw_data = json.load(f)
     except json.JSONDecodeError as e:
         logger.exception("函数调用图 JSON 解析失败: %s", file_path)
         raise HTTPException(
@@ -1920,19 +1913,54 @@ def get_function_call_graph(repo_id: str = Query(..., description="仓库 ID")) 
             detail=f"读取函数调用图文件失败: {e}",
         )
 
-    # 提取数据
-    modules = data.get("modules", [])
-    call_chains = data.get("callChains", [])
+    modules = raw_data.get("modules", [])
+
+    # 合并调用链：内部调用链 + 跨模块调用链
+    call_chains = []
+
+    # 1. 模块内部调用链
+    for module in modules:
+        module_id = module.get("id", "")
+        module_name = module.get("name", "")
+        for chain in module.get("internalCallChains", []):
+            # 转换为统一格式
+            call_chains.append({
+                "sourceModule": module_name,
+                "sourceModuleId": module_id,
+                "sourceFunctionId": chain.get("callerId", ""),
+                "sourceFunctionName": chain.get("callerName", ""),
+                "targetModule": module_name,
+                "targetModuleId": module_id,
+                "targetFunctionId": chain.get("calleeId", ""),
+                "targetFunctionName": chain.get("calleeName", ""),
+                "callType": chain.get("callType", "direct"),
+                "sourceLine": chain.get("sourceLine", 0),
+            })
+
+    # 2. 跨模块调用链
+    for chain in raw_data.get("crossModuleCalls", []):
+        call_chains.append({
+            "sourceModule": chain.get("sourceModule", ""),
+            "sourceModuleId": chain.get("sourceModuleId", ""),
+            "sourceFunctionId": chain.get("sourceFunctionId", ""),
+            "sourceFunctionName": chain.get("sourceFunctionName", ""),
+            "targetModule": chain.get("targetModule", ""),
+            "targetModuleId": chain.get("targetModuleId", ""),
+            "targetFunctionId": chain.get("targetFunctionId", ""),
+            "targetFunctionName": chain.get("targetFunctionName", ""),
+            "callType": chain.get("callType", "direct"),
+            "sourceLine": chain.get("sourceLine", 0),
+        })
 
     # 计算模块间调用统计
     module_calls = _compute_module_calls(modules, call_chains)
 
     return FunctionCallGraphResponse(
         repo_id=repo_id,
-        project_name=data.get("projectName", repo_id),
-        total_modules=data.get("totalModules", len(modules)),
-        total_functions=data.get("totalFunctions", 0),
-        total_call_chains=data.get("totalCallChains", len(call_chains)),
+        project_name=raw_data.get("projectName", repo_id),
+        total_modules=raw_data.get("totalModules", len(modules)),
+        total_functions=raw_data.get("totalFunctions", 0),
+        total_call_chains=len(call_chains),
         modules=modules,
         call_chains=call_chains,
         module_calls=[ModuleCall(**mc) for mc in module_calls],
