@@ -2,7 +2,7 @@
  * ModuleDetail - 模块详情视图
  *
  * 左侧：控制面板 + 模块树 + 函数列表（按热度排序）
- * 右侧：函数调用图（热点函数优先，点击展开调用链）
+ * 右侧：函数调用图（热点函数优先，点击展开调用链）或调用链视图
  */
 import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import {
@@ -17,17 +17,19 @@ import {
 } from "reactflow";
 import type { Node, Edge } from "reactflow";
 import "reactflow/dist/style.css";
-import { Input, Select, Tag, Empty, Button, Slider, Switch, Tooltip, Spin } from "antd";
+import { Input, Select, Tag, Empty, Button, Slider, Switch, Tooltip, Spin, Radio } from "antd";
 import {
   SearchOutlined,
   FolderOutlined,
   FunctionOutlined,
   FireOutlined,
   ReloadOutlined,
+  ApartmentOutlined,
 } from "@ant-design/icons";
 import { useFunctionCallStore } from "../../../../store/functionCallStore";
-import { FUNCTION_TYPE_COLORS, EDGE_COLORS, type FunctionInfo } from "../../types";
+import { FUNCTION_TYPE_COLORS, EDGE_COLORS, type FunctionInfo, type ViewMode } from "../../types";
 import { computeDagreLayout } from "../../utils/layout";
+import CallChainView from "./CallChainView";
 
 // ─── 常量 ─────────────────────────────────────────────────────────────────────
 
@@ -164,6 +166,12 @@ const ModuleDetail: React.FC = () => {
     setSelectedModule,
     selectedFunctionId,
     loadModuleDetail,
+    // 调用链视图状态
+    viewMode,
+    setViewMode,
+    callChainRootId,
+    setCallChainRoot,
+    resetCallChain,
   } = useFunctionCallStore();
 
   const [search, setSearch] = useState("");
@@ -460,12 +468,21 @@ const ModuleDetail: React.FC = () => {
   const handleResetExpand = useCallback(() => {
     setExpandedFuncIds(new Set());
     expandDepthRef.current.clear();
-  }, []);
+    resetCallChain();
+  }, [resetCallChain]);
 
   // 从左侧列表选择函数
   const handleSelectFunction = useCallback(
     (funcId: string) => {
       setSelectedFunction(funcId);
+
+      // 在调用链模式下，设置调用链根节点
+      if (viewMode === "callchain") {
+        setCallChainRoot(funcId);
+        return;
+      }
+
+      // 热点图模式下，展开调用链
       const callers = callersIndex?.get(funcId) ?? [];
       const callees = calleesIndex?.get(funcId) ?? [];
 
@@ -488,7 +505,7 @@ const ModuleDetail: React.FC = () => {
         });
       }
     },
-    [setSelectedFunction, callersIndex, calleesIndex]
+    [setSelectedFunction, callersIndex, calleesIndex, viewMode, setCallChainRoot]
   );
 
   // 加载中状态
@@ -517,7 +534,7 @@ const ModuleDetail: React.FC = () => {
         <div style={styles.controlPanel}>
           <div style={styles.controlHeader}>
             <span style={styles.controlTitle}>显示设置</span>
-            <Tooltip title="重置展开的调用链">
+            <Tooltip title="重置当前视图">
               <Button
                 size="small"
                 icon={<ReloadOutlined />}
@@ -528,30 +545,68 @@ const ModuleDetail: React.FC = () => {
               </Button>
             </Tooltip>
           </div>
-          <div style={styles.controlRow}>
-            <span style={styles.controlLabel}>显示全部函数</span>
-            <Switch
-              checked={showAllFunctions}
-              onChange={setShowAllFunctions}
+
+          {/* 视图模式切换 */}
+          <div style={styles.modeSwitch}>
+            <Radio.Group
+              value={viewMode}
+              onChange={(e) => setViewMode(e.target.value)}
               size="small"
-            />
+              optionType="button"
+              buttonStyle="solid"
+              style={{ width: "100%" }}
+            >
+              <Radio.Button value="heatmap" style={styles.modeButton}>
+                <FireOutlined style={{ marginRight: 4 }} />
+                热点图
+              </Radio.Button>
+              <Radio.Button value="callchain" style={styles.modeButton}>
+                <ApartmentOutlined style={{ marginRight: 4 }} />
+                调用链
+              </Radio.Button>
+            </Radio.Group>
           </div>
-          {!showAllFunctions && (
-            <div style={styles.controlRow}>
-              <span style={styles.controlLabel}>热点数量: {hotFunctionsLimit}</span>
-              <Slider
-                value={hotFunctionsLimit}
-                onChange={setHotFunctionsLimit}
-                min={10}
-                max={100}
-                step={10}
-                style={{ flex: 1, marginLeft: 8 }}
-              />
+
+          {/* 热点图模式的设置 */}
+          {viewMode === "heatmap" && (
+            <>
+              <div style={styles.controlRow}>
+                <span style={styles.controlLabel}>显示全部函数</span>
+                <Switch
+                  checked={showAllFunctions}
+                  onChange={setShowAllFunctions}
+                  size="small"
+                />
+              </div>
+              {!showAllFunctions && (
+                <div style={styles.controlRow}>
+                  <span style={styles.controlLabel}>热点数量: {hotFunctionsLimit}</span>
+                  <Slider
+                    value={hotFunctionsLimit}
+                    onChange={setHotFunctionsLimit}
+                    min={10}
+                    max={100}
+                    step={10}
+                    style={{ flex: 1, marginLeft: 8 }}
+                  />
+                </div>
+              )}
+              <div style={styles.expandInfo}>
+                已展开 {expandedFuncIds.size} 个函数
+              </div>
+            </>
+          )}
+
+          {/* 调用链模式的提示 */}
+          {viewMode === "callchain" && (
+            <div style={styles.callChainHint}>
+              {callChainRootId ? (
+                <span>点击函数查看调用链</span>
+              ) : (
+                <span style={{ color: "#ffc145" }}>请选择函数查看调用链</span>
+              )}
             </div>
           )}
-          <div style={styles.expandInfo}>
-            已展开 {expandedFuncIds.size} 个函数
-          </div>
         </div>
 
         {/* 搜索 */}
@@ -663,64 +718,68 @@ const ModuleDetail: React.FC = () => {
 
       {/* 右侧图形区 */}
       <div style={styles.rightPanel}>
-        <div style={{ width: "100%", height: "100%" }}>
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onNodeClick={onNodeClick}
-            nodeTypes={nodeTypes}
-            fitView
-            fitViewOptions={{ padding: 0.2 }}
-            minZoom={0.2}
-            maxZoom={2}
-            proOptions={{ hideAttribution: true }}
-          >
-            <Background
-              variant={BackgroundVariant.Dots}
-              gap={20}
-              size={1}
-              color="rgba(255,255,255,0.04)"
-            />
-            <Controls
-              style={{
-                background: "rgba(10,13,20,0.9)",
-                border: "1px solid rgba(255,255,255,0.08)",
-                borderRadius: 8,
-              }}
-            />
+        {viewMode === "callchain" ? (
+          <CallChainView />
+        ) : (
+          <div style={{ width: "100%", height: "100%" }}>
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onNodeClick={onNodeClick}
+              nodeTypes={nodeTypes}
+              fitView
+              fitViewOptions={{ padding: 0.2 }}
+              minZoom={0.2}
+              maxZoom={2}
+              proOptions={{ hideAttribution: true }}
+            >
+              <Background
+                variant={BackgroundVariant.Dots}
+                gap={20}
+                size={1}
+                color="rgba(255,255,255,0.04)"
+              />
+              <Controls
+                style={{
+                  background: "rgba(10,13,20,0.9)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: 8,
+                }}
+              />
 
-            {/* 模块信息 */}
-            <Panel position="top-left">
-              <div style={styles.moduleInfo}>
-                <div style={styles.moduleName}>{currentModule.name}</div>
-                <div style={styles.moduleDesc}>{currentModule.displayName}</div>
-                <div style={styles.moduleStats}>
-                  {currentModule.functions.length} 函数 · 显示 {displayedFunctions.size} 个
+              {/* 模块信息 */}
+              <Panel position="top-left">
+                <div style={styles.moduleInfo}>
+                  <div style={styles.moduleName}>{currentModule.name}</div>
+                  <div style={styles.moduleDesc}>{currentModule.displayName}</div>
+                  <div style={styles.moduleStats}>
+                    {currentModule.functions.length} 函数 · 显示 {displayedFunctions.size} 个
+                  </div>
                 </div>
-              </div>
-            </Panel>
+              </Panel>
 
-            {/* 图例 */}
-            <Panel position="bottom-left">
-              <div style={styles.legend}>
-                <div style={styles.legendItem}>
-                  <FireOutlined style={{ color: "#ffc145", fontSize: 10 }} />
-                  <span>热点函数（热度&gt;10）</span>
+              {/* 图例 */}
+              <Panel position="bottom-left">
+                <div style={styles.legend}>
+                  <div style={styles.legendItem}>
+                    <FireOutlined style={{ color: "#ffc145", fontSize: 10 }} />
+                    <span>热点函数（热度&gt;10）</span>
+                  </div>
+                  <div style={styles.legendItem}>
+                    <div style={{ ...styles.legendLine, background: EDGE_COLORS.same_module }} />
+                    <span>同模块调用</span>
+                  </div>
+                  <div style={styles.legendItem}>
+                    <div style={{ ...styles.legendLine, background: EDGE_COLORS.cross_module, borderStyle: "dashed" }} />
+                    <span>跨模块调用</span>
+                  </div>
                 </div>
-                <div style={styles.legendItem}>
-                  <div style={{ ...styles.legendLine, background: EDGE_COLORS.same_module }} />
-                  <span>同模块调用</span>
-                </div>
-                <div style={styles.legendItem}>
-                  <div style={{ ...styles.legendLine, background: EDGE_COLORS.cross_module, borderStyle: "dashed" }} />
-                  <span>跨模块调用</span>
-                </div>
-              </div>
-            </Panel>
-          </ReactFlow>
-        </div>
+              </Panel>
+            </ReactFlow>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -780,6 +839,23 @@ const styles: Record<string, React.CSSProperties> = {
   controlLabel: {
     fontSize: 11,
     color: "#a8b8d8",
+  },
+  modeSwitch: {
+    marginBottom: 10,
+  },
+  modeButton: {
+    width: "50%",
+    textAlign: "center" as const,
+    fontSize: 11,
+  },
+  callChainHint: {
+    fontSize: 10,
+    color: "#7888a8",
+    textAlign: "center",
+    marginTop: 8,
+    padding: "6px 8px",
+    background: "rgba(0,0,0,0.2)",
+    borderRadius: 4,
   },
   expandInfo: {
     fontSize: 10,
