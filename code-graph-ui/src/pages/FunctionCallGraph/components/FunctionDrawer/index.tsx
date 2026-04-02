@@ -4,12 +4,11 @@
  * 显示函数签名、参数、返回值、Callers/Callees 列表
  */
 import React from "react";
-import { Drawer, Tag, Button } from "antd";
+import { Drawer, Tag } from "antd";
 import {
   FunctionOutlined,
   FileTextOutlined,
   ArrowRightOutlined,
-  PlayCircleOutlined,
 } from "@ant-design/icons";
 import { useFunctionCallStore } from "../../../../store/functionCallStore";
 import { FUNCTION_TYPE_COLORS } from "../../types";
@@ -24,10 +23,6 @@ const FunctionDrawer: React.FC = () => {
     getModuleByFunctionId,
     getCallers,
     getCallees,
-    setPathFrom,
-    setPathTo,
-    pathFrom,
-    pathTo,
   } = useFunctionCallStore();
 
   const func = selectedFunctionId ? getFunctionById(selectedFunctionId) : null;
@@ -39,18 +34,6 @@ const FunctionDrawer: React.FC = () => {
 
   const handleClose = () => {
     setSelectedFunction(null);
-  };
-
-  const handleSetPathFrom = () => {
-    if (selectedFunctionId) {
-      setPathFrom(selectedFunctionId);
-    }
-  };
-
-  const handleSetPathTo = () => {
-    if (selectedFunctionId) {
-      setPathTo(selectedFunctionId);
-    }
   };
 
   return (
@@ -235,30 +218,6 @@ const FunctionDrawer: React.FC = () => {
               <div style={styles.emptyList}>无调用目标</div>
             )}
           </div>
-
-          {/* 路径追踪 */}
-          <div style={styles.pathSection}>
-            <div style={styles.sectionLabel}>路径追踪</div>
-            <div style={styles.pathButtons}>
-              <Button
-                size="small"
-                icon={<PlayCircleOutlined />}
-                onClick={handleSetPathFrom}
-                type={pathFrom === selectedFunctionId ? "primary" : "default"}
-                style={{ marginRight: 8 }}
-              >
-                设为起点
-              </Button>
-              <Button
-                size="small"
-                icon={<PlayCircleOutlined />}
-                onClick={handleSetPathTo}
-                type={pathTo === selectedFunctionId ? "primary" : "default"}
-              >
-                设为终点
-              </Button>
-            </div>
-          </div>
         </div>
       )}
     </Drawer>
@@ -419,15 +378,6 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#5a6a8a",
     textAlign: "center",
     padding: "8px",
-  },
-  pathSection: {
-    borderTop: "1px solid rgba(255,255,255,0.06)",
-    paddingTop: 16,
-    marginTop: 8,
-  },
-  pathButtons: {
-    display: "flex",
-    gap: 8,
   },
 };
 

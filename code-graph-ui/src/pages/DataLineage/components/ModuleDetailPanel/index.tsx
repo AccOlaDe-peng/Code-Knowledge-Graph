@@ -238,7 +238,7 @@ const ModuleDetailPanel: React.FC<ModuleDetailPanelProps> = ({
                 style={{
                   fontFamily: "'IBM Plex Mono', monospace",
                   fontSize: 10,
-                  color: "#5a6a8a",
+                  color: "#7888a8",
                   letterSpacing: "0.02em",
                 }}
               >
@@ -249,7 +249,7 @@ const ModuleDetailPanel: React.FC<ModuleDetailPanelProps> = ({
               style={{
                 fontFamily: "'IBM Plex Mono', monospace",
                 fontSize: 10,
-                color: "#6a7a9a",
+                color: "#98a8c8",
                 marginTop: 2,
                 maxWidth: 320,
                 overflow: "hidden",
@@ -390,7 +390,7 @@ const StatBadge: React.FC<{ count: number; label: string; color: string }> = ({ 
       style={{
         fontFamily: "'IBM Plex Mono', monospace",
         fontSize: 9,
-        color: "#6a7a9a",
+        color: "#8898b8",
       }}
     >
       {label}

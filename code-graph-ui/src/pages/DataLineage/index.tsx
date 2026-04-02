@@ -52,9 +52,17 @@ const DataLineageInner: React.FC = () => {
       const namePrefix = repoName.split(/[-_]/)[0].toLowerCase();
       const result: DataLineageJSON = await getDataLineage(namePrefix);
 
-      // 直接使用返回的数据结构
-      setModules(result.modules || []);
-      setDependencies(result.moduleDependencies?.dependencies || []);
+      // 过滤掉引擎管理模块及其相关依赖
+      const EXCLUDED_MODULE_IDS = ['engine'];
+      const filteredModules = (result.modules || []).filter(
+        (m) => !EXCLUDED_MODULE_IDS.includes(m.id)
+      );
+      const filteredDependencies = (result.moduleDependencies?.dependencies || []).filter(
+        (dep) => !EXCLUDED_MODULE_IDS.includes(dep.from) && !EXCLUDED_MODULE_IDS.includes(dep.to)
+      );
+
+      setModules(filteredModules);
+      setDependencies(filteredDependencies);
     } catch (err) {
       console.error('[DataLineage] Error:', err);
       setError(err instanceof Error ? err.message : "加载数据失败");

@@ -104,10 +104,22 @@ export interface FunctionCallOverviewResponse {
   module_calls: ModuleCall[];
 }
 
+// 外部函数信息（跨模块调用涉及）
+export interface ExternalFunction {
+  id: string;
+  name: string;  // 函数短名
+  fullName: string;  // 全限定名
+  moduleId: string;
+  moduleName: string;
+  type?: FunctionType;
+  className?: string;
+}
+
 // 模块详情响应
 export interface ModuleDetailResponse {
   module: Module;
   call_chains: CallChain[];
+  external_functions: ExternalFunction[];
 }
 
 export interface FunctionCallGraphResponse {
@@ -119,32 +131,6 @@ export interface FunctionCallGraphResponse {
   modules: Module[];
   call_chains: CallChain[];
   module_calls: ModuleCall[];
-}
-
-export interface PathNode {
-  id: string;
-  name: string;
-  type: string;
-  module_id: string;
-  module_name: string;
-}
-
-export interface PathEdge {
-  source_function_id: string;
-  target_function_id: string;
-  call_type: string;
-}
-
-export interface TracedPath {
-  nodes: PathNode[];
-  edges: PathEdge[];
-  length: number;
-}
-
-export interface PathTraceResponse {
-  found: boolean;
-  paths: TracedPath[];
-  max_depth_reached: boolean;
 }
 
 // ─── 前端视图状态 ────────────────────────────────────────────────────────────
@@ -161,13 +147,6 @@ export interface FunctionCallStoreState {
   currentView: ViewLevel;
   selectedModuleId: string | null;
   selectedFunctionId: string | null;
-
-  // 路径追踪
-  pathFrom: string | null;
-  pathTo: string | null;
-  tracedPaths: TracedPath[] | null;
-  selectedPathIndex: number | null;
-  tracingPath: boolean;
 
   // 索引（缓存）
   callersIndex: Map<string, CallChain[]> | null;

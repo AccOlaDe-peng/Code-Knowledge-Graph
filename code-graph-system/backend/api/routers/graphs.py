@@ -1791,10 +1791,23 @@ class FunctionCallOverviewResponse(BaseModel):
     module_calls: list[ModuleCall]
 
 
+class ExternalFunction(BaseModel):
+    """外部函数信息（用于跨模块调用）"""
+    id: str
+    name: str  # 函数短名
+    full_name: str = Field(alias="fullName")  # 全限定名
+    module_id: str = Field(alias="moduleId")
+    module_name: str = Field(alias="moduleName")
+
+    class Config:
+        populate_by_name = True
+
+
 class ModuleDetailResponse(BaseModel):
     """单个模块详情响应"""
     module: dict  # 含完整 functions
     call_chains: list[dict]  # 仅该模块相关的调用链
+    external_functions: list[dict] = []  # 跨模块调用涉及的外部函数
 
 
 class PathNode(BaseModel):
@@ -2073,7 +2086,26 @@ def trace_function_path(
         )
 
     modules = data.get("modules", [])
-    call_chains = data.get("callChains", [])
+
+    # 构建调用链列表（合并内部调用和跨模块调用）
+    call_chains = []
+    for module in modules:
+        module_id = module.get("id", "")
+        module_name = module.get("name", "")
+        for chain in module.get("internalCallChains", []):
+            call_chains.append({
+                "sourceFunctionId": chain.get("callerId", ""),
+                "targetFunctionId": chain.get("calleeId", ""),
+                "sourceModuleId": module_id,
+                "targetModuleId": module_id,
+            })
+    for chain in data.get("crossModuleCalls", []):
+        call_chains.append({
+            "sourceFunctionId": chain.get("sourceFunctionId", ""),
+            "targetFunctionId": chain.get("targetFunctionId", ""),
+            "sourceModuleId": chain.get("sourceModuleId", ""),
+            "targetModuleId": chain.get("targetModuleId", ""),
+        })
 
     # 构建函数信息映射
     func_info: dict[str, dict] = {}
@@ -2272,11 +2304,13 @@ def get_function_call_module_detail(
 
     用于模块详情页面，返回该模块的完整函数列表和相关调用链。
     调用链包括：模块内部调用 + 以该模块为源/目标的跨模块调用。
+    同时返回跨模块调用涉及的外部函数信息，用于渲染完整的调用图。
 
     返回格式：
     {
         "module": { "id", "name", "functions": [...], ... },
-        "call_chains": [...]  // 仅该模块相关的调用链
+        "call_chains": [...],  // 仅该模块相关的调用链
+        "external_functions": [...]  // 跨模块调用涉及的外部函数
     }
     """
     file_path = _find_function_call_graph_file(repo_id)
@@ -2318,9 +2352,17 @@ def get_function_call_module_detail(
     # 更新函数的 callerCount 和 calleeCount
     _update_function_counts(target_module, call_chains)
 
+    # 收集外部函数（跨模块调用涉及的非本模块函数）
+    external_functions = _collect_external_functions(
+        target_module,
+        call_chains,
+        raw_data.get("modules", [])
+    )
+
     return ModuleDetailResponse(
         module=target_module,
         call_chains=call_chains,
+        external_functions=external_functions,
     )
 
 
@@ -2424,4 +2466,66 @@ def _update_function_counts(module: dict, call_chains: list[dict]) -> None:
         func_id = func.get("id", "")
         func["callerCount"] = func_caller_count.get(func_id, 0)
         func["calleeCount"] = func_callee_count.get(func_id, 0)
+
+
+def _collect_external_functions(
+    target_module: dict,
+    call_chains: list[dict],
+    all_modules: list[dict]
+) -> list[dict]:
+    """收集跨模块调用涉及的外部函数。
+
+    遍历调用链，找出不属于当前模块的函数（外部函数），
+    并从所有模块中查找这些函数的详细信息。
+    """
+    module_id = target_module.get("id", "")
+    module_func_ids = {f.get("id", "") for f in target_module.get("functions", [])}
+
+    # 找出所有外部函数 ID
+    external_func_ids: set[str] = set()
+    for chain in call_chains:
+        source_id = chain.get("sourceFunctionId", "")
+        target_id = chain.get("targetFunctionId", "")
+
+        if source_id and source_id not in module_func_ids:
+            external_func_ids.add(source_id)
+        if target_id and target_id not in module_func_ids:
+            external_func_ids.add(target_id)
+
+    if not external_func_ids:
+        return []
+
+    # 构建其他模块的函数索引
+    func_to_module: dict[str, tuple[dict, dict]] = {}  # func_id -> (func_info, module_info)
+    for mod in all_modules:
+        if mod.get("id") == module_id:
+            continue
+        mod_id = mod.get("id", "")
+        mod_name = mod.get("name", "")
+        for func in mod.get("functions", []):
+            func_id = func.get("id", "")
+            if func_id in external_func_ids:
+                func_to_module[func_id] = (func, {"id": mod_id, "name": mod_name})
+
+    # 构建外部函数列表
+    external_functions: list[dict] = []
+    for func_id in external_func_ids:
+        if func_id in func_to_module:
+            func_info, mod_info = func_to_module[func_id]
+            # 从 fullName 解析短名
+            full_name = func_info.get("fullName", func_info.get("name", ""))
+            short_name = full_name.split(".")[-1] if "." in full_name else full_name
+
+            external_functions.append({
+                "id": func_id,
+                "name": short_name,
+                "fullName": full_name,
+                "moduleId": mod_info["id"],
+                "moduleName": mod_info["name"],
+                # 额外信息用于前端渲染
+                "type": func_info.get("type", "service"),
+                "className": func_info.get("className", ""),
+            })
+
+    return external_functions
 

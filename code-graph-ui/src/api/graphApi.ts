@@ -220,27 +220,6 @@ export const graphApi = {
       params: { repo_id: repoId },
     });
   },
-
-  /**
-   * GET /graph/function-call/path — 路径追踪
-   */
-  traceFunctionPath(
-    repoId: string,
-    fromFunc: string,
-    toFunc: string,
-    maxDepth = 10,
-    maxPaths = 5,
-  ): Promise<import("../pages/FunctionCallGraph/types").PathTraceResponse> {
-    return httpClient.get("/graph/function-call/path", {
-      params: {
-        repo_id: repoId,
-        from_func: fromFunc,
-        to_func: toFunc,
-        max_depth: maxDepth,
-        max_paths: maxPaths,
-      },
-    });
-  },
 };
 
 // ─── Raw node/edge types from new pipeline ────────────────────────────────────

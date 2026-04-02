@@ -102,7 +102,7 @@ const ModuleNode: React.FC<NodeProps<ModuleNodeData>> = ({ data }) => {
         style={{
           fontFamily: "'JetBrains Mono', 'IBM Plex Mono', monospace",
           fontSize: 11,
-          color: "#9aa8c8",  // 从 #7888a8 提升亮度
+          color: "#c8d4e8",  // 提亮以提升对比度
           lineHeight: 1.5,
           overflow: "hidden",
           textOverflow: "ellipsis",
@@ -131,7 +131,7 @@ const ModuleNode: React.FC<NodeProps<ModuleNodeData>> = ({ data }) => {
           }}>
             {module.entities.length}
           </span>
-          <span style={{ fontSize: 10, color: "#6a7a9a" }}>实体</span>
+          <span style={{ fontSize: 10, color: "#8898b8" }}>实体</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
           <span style={{
@@ -141,7 +141,7 @@ const ModuleNode: React.FC<NodeProps<ModuleNodeData>> = ({ data }) => {
           }}>
             {module.businessFlows.length}
           </span>
-          <span style={{ fontSize: 10, color: "#6a7a9a" }}>流程</span>
+          <span style={{ fontSize: 10, color: "#8898b8" }}>流程</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
           <span style={{
@@ -151,7 +151,7 @@ const ModuleNode: React.FC<NodeProps<ModuleNodeData>> = ({ data }) => {
           }}>
             {module.subFunctions.length}
           </span>
-          <span style={{ fontSize: 10, color: "#6a7a9a" }}>功能</span>
+          <span style={{ fontSize: 10, color: "#8898b8" }}>功能</span>
         </div>
       </div>
 

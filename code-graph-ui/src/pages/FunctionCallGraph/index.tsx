@@ -16,7 +16,6 @@ import ModuleOverview from "./components/ModuleOverview";
 import ModuleDetail from "./components/ModuleDetail";
 import FunctionDrawer from "./components/FunctionDrawer";
 import GlobalSearch from "./components/GlobalSearch";
-import PathTrace from "./components/PathTrace";
 
 // ─── 主页面组件 ──────────────────────────────────────────────────────────────
 
@@ -94,9 +93,6 @@ const FunctionCallGraph: React.FC = () => {
               <StatChip label="调用" value={overview.total_call_chains.toLocaleString()} color="#ffc145" />
             </div>
           )}
-
-          {/* 路径追踪 */}
-          {overview && <PathTrace />}
         </div>
       </div>
 

@@ -4,9 +4,9 @@ import type {
   Module,
   FunctionInfo,
   CallChain,
-  TracedPath,
   ViewLevel,
   ModuleSummary,
+  ExternalFunction,
 } from "../pages/FunctionCallGraph/types";
 import httpClient from "../api/graphApi";
 
@@ -28,13 +28,6 @@ interface FunctionCallStore {
   selectedFunctionId: string | null;
   currentView: ViewLevel;
 
-  // === 路径追踪 ===
-  pathFrom: string | null;
-  pathTo: string | null;
-  tracedPaths: TracedPath[] | null;
-  selectedPathIndex: number | null;
-  tracingPath: boolean;
-
   // === 索引（仅当前模块） ===
   callersIndex: Map<string, CallChain[]> | null;
   calleesIndex: Map<string, CallChain[]> | null;
@@ -50,13 +43,6 @@ interface FunctionCallStore {
   setSelectedModule: (id: string | null) => void;
   setSelectedFunction: (id: string | null) => void;
 
-  // === Actions - 路径追踪 ===
-  setPathFrom: (funcId: string | null) => void;
-  setPathTo: (funcId: string | null) => void;
-  tracePath: (repoId: string) => Promise<void>;
-  setSelectedPathIndex: (index: number | null) => void;
-  clearPathTrace: () => void;
-
   // === 辅助方法 ===
   getCurrentModule: () => Module | null;
   getModuleSummary: (id: string) => ModuleSummary | undefined;
@@ -71,6 +57,7 @@ interface FunctionCallStore {
 interface ModuleDetailData {
   module: Module;
   callChains: CallChain[];
+  externalFunctions: ExternalFunction[];
 }
 
 // ─── Helper 函数 ─────────────────────────────────────────────────────────────
@@ -99,10 +86,32 @@ function buildCalleesIndex(callChains: CallChain[]): Map<string, CallChain[]> {
   return index;
 }
 
-function buildFuncInfoIndex(module: Module): Map<string, FunctionInfo> {
+function buildFuncInfoIndex(module: Module, externalFunctions: ExternalFunction[] = []): Map<string, FunctionInfo> {
   const index = new Map<string, FunctionInfo>();
+  // 添加模块内部函数
   for (const func of module.functions) {
     index.set(func.id, func);
+  }
+  // 添加外部函数（跨模块调用涉及的函数）
+  for (const extFunc of externalFunctions) {
+    // 外部函数只包含基本信息，需要转换为 FunctionInfo 格式
+    index.set(extFunc.id, {
+      id: extFunc.id,
+      name: extFunc.name,
+      fullName: extFunc.fullName,
+      className: extFunc.className || extFunc.fullName.split(".").slice(-2, -1).join("."),
+      type: extFunc.type || "service",
+      visibility: "public",
+      description: `外部函数 (${extFunc.moduleName})`,
+      sourceFile: "",
+      sourceLine: 0,
+      params: [],
+      returnType: { type: "void", description: "" },
+      annotations: [],
+      callerCount: 0,
+      calleeCount: 0,
+      static: false,
+    });
   }
   return index;
 }
@@ -122,12 +131,6 @@ export const useFunctionCallStore = create<FunctionCallStore>((set, get) => ({
 
   selectedFunctionId: null,
   currentView: "overview",
-
-  pathFrom: null,
-  pathTo: null,
-  tracedPaths: null,
-  selectedPathIndex: null,
-  tracingPath: false,
 
   callersIndex: null,
   calleesIndex: null,
@@ -182,7 +185,7 @@ export const useFunctionCallStore = create<FunctionCallStore>((set, get) => ({
         // 重建索引
         callersIndex: buildCallersIndex(cached.callChains),
         calleesIndex: buildCalleesIndex(cached.callChains),
-        funcInfoIndex: buildFuncInfoIndex(cached.module),
+        funcInfoIndex: buildFuncInfoIndex(cached.module, cached.externalFunctions),
       });
       return;
     }
@@ -197,6 +200,7 @@ export const useFunctionCallStore = create<FunctionCallStore>((set, get) => ({
       const detailData: ModuleDetailData = {
         module: response.module,
         callChains: response.call_chains,
+        externalFunctions: response.external_functions || [],
       };
 
       // 更新缓存
@@ -207,10 +211,10 @@ export const useFunctionCallStore = create<FunctionCallStore>((set, get) => ({
         currentModuleId: moduleId,
         moduleDetails: newModuleDetails,
         moduleLoading: false,
-        // 构建索引
+        // 构建索引（包含外部函数）
         callersIndex: buildCallersIndex(detailData.callChains),
         calleesIndex: buildCalleesIndex(detailData.callChains),
-        funcInfoIndex: buildFuncInfoIndex(detailData.module),
+        funcInfoIndex: buildFuncInfoIndex(detailData.module, detailData.externalFunctions),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "加载模块详情失败";
@@ -229,11 +233,6 @@ export const useFunctionCallStore = create<FunctionCallStore>((set, get) => ({
       moduleError: null,
       selectedFunctionId: null,
       currentView: "overview",
-      pathFrom: null,
-      pathTo: null,
-      tracedPaths: null,
-      selectedPathIndex: null,
-      tracingPath: false,
       callersIndex: null,
       calleesIndex: null,
       funcInfoIndex: null,
@@ -250,49 +249,6 @@ export const useFunctionCallStore = create<FunctionCallStore>((set, get) => ({
   }),
 
   setSelectedFunction: (id) => set({ selectedFunctionId: id }),
-
-  // === Actions - 路径追踪 ===
-
-  setPathFrom: (funcId) => set({ pathFrom: funcId }),
-  setPathTo: (funcId) => set({ pathTo: funcId }),
-
-  tracePath: async (repoId: string) => {
-    const { pathFrom, pathTo } = get();
-    if (!pathFrom || !pathTo) {
-      return;
-    }
-
-    set({ tracingPath: true, tracedPaths: null, selectedPathIndex: null });
-
-    try {
-      const response = await httpClient.get("/graph/function-call/path", {
-        params: {
-          repo_id: repoId,
-          from_func: pathFrom,
-          to_func: pathTo,
-        },
-      }) as any;
-
-      set({
-        tracedPaths: response.paths,
-        tracingPath: false,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "路径追踪失败";
-      set({ overviewError: message, tracingPath: false });
-    }
-  },
-
-  setSelectedPathIndex: (index) => set({ selectedPathIndex: index }),
-
-  clearPathTrace: () => {
-    set({
-      pathFrom: null,
-      pathTo: null,
-      tracedPaths: null,
-      selectedPathIndex: null,
-    });
-  },
 
   // === 辅助方法 ===
 

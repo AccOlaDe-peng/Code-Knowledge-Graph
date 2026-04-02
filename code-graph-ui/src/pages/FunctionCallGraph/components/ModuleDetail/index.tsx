@@ -26,7 +26,7 @@ import {
   ReloadOutlined,
 } from "@ant-design/icons";
 import { useFunctionCallStore } from "../../../../store/functionCallStore";
-import { FUNCTION_TYPE_COLORS, EDGE_COLORS, type FunctionInfo, type CallChain } from "../../types";
+import { FUNCTION_TYPE_COLORS, EDGE_COLORS, type FunctionInfo } from "../../types";
 import { computeDagreLayout } from "../../utils/layout";
 
 // ─── 常量 ─────────────────────────────────────────────────────────────────────
@@ -236,30 +236,39 @@ const ModuleDetail: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [callChains, currentModule?.id]);
 
-  // 计算图中应该显示的函数（基础 + 调用链关联的函数 + 展开的函数）
+  // 计算图中应该显示的函数（基础函数 + 展开函数的直接关联函数）
   const displayedFunctions = useMemo(() => {
     const result = new Map<string, FunctionInfo>();
 
-    // 添加基础函数
+    // 添加基础函数（热点函数）
     for (const func of baseFunctions) {
       result.set(func.id, func);
     }
 
-    // 添加与当前模块调用链相关的函数
-    // 这样确保调用链的两端都有对应的节点
+    // 只添加与基础函数直接相关的调用链中的外部函数
+    // 限制数量以避免性能问题
+    const baseFuncIds = new Set(baseFunctions.map(f => f.id));
+    let externalAdded = 0;
+    const MAX_EXTERNAL = 50; // 限制外部函数数量
+
     for (const chain of moduleCallChains) {
-      // 添加源函数
-      if (!result.has(chain.sourceFunctionId)) {
-        const sourceFunc = funcInfoIndex?.get(chain.sourceFunctionId);
-        if (sourceFunc) {
-          result.set(chain.sourceFunctionId, sourceFunc);
-        }
-      }
-      // 添加目标函数
-      if (!result.has(chain.targetFunctionId)) {
+      // 只有当基础函数是调用链的一端时，才添加另一端的函数
+      const sourceInBase = baseFuncIds.has(chain.sourceFunctionId);
+      const targetInBase = baseFuncIds.has(chain.targetFunctionId);
+
+      if (sourceInBase && !targetInBase && externalAdded < MAX_EXTERNAL) {
+        // 源函数在基础集合中，添加目标函数
         const targetFunc = funcInfoIndex?.get(chain.targetFunctionId);
-        if (targetFunc) {
+        if (targetFunc && !result.has(chain.targetFunctionId)) {
           result.set(chain.targetFunctionId, targetFunc);
+          externalAdded++;
+        }
+      } else if (targetInBase && !sourceInBase && externalAdded < MAX_EXTERNAL) {
+        // 目标函数在基础集合中，添加源函数
+        const sourceFunc = funcInfoIndex?.get(chain.sourceFunctionId);
+        if (sourceFunc && !result.has(chain.sourceFunctionId)) {
+          result.set(chain.sourceFunctionId, sourceFunc);
+          externalAdded++;
         }
       }
     }
@@ -275,26 +284,17 @@ const ModuleDetail: React.FC = () => {
     return result;
   }, [baseFunctions, moduleCallChains, funcInfoIndex, expandedFuncIds]);
 
-  // 获取与显示函数相关的调用链
+  // 获取与显示函数相关的调用链（两端都在显示函数集合中）
   const displayedCallChains = useMemo(() => {
     if (!callChains) return [];
 
     const funcIds = new Set(displayedFunctions.keys());
-    const result: CallChain[] = [];
 
-    for (const chain of callChains) {
-      const sourceInGraph = funcIds.has(chain.sourceFunctionId);
-      const targetInGraph = funcIds.has(chain.targetFunctionId);
-
-      // 至少有一端在图中
-      if (sourceInGraph || targetInGraph) {
-        result.push(chain);
-      }
-    }
-
-    return result;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [callChains]);
+    // 只保留两端函数都在图中的调用链
+    return callChains.filter((chain) =>
+      funcIds.has(chain.sourceFunctionId) && funcIds.has(chain.targetFunctionId)
+    );
+  }, [callChains, displayedFunctions]);
 
   // 计算 Dagre 布局
   const layoutPositions = useMemo(() => {
