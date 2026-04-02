@@ -11,7 +11,6 @@ import {
   BaseEdge,
   EdgeLabelRenderer,
   getBezierPath,
-  MarkerType,
 } from "reactflow";
 import type { EdgeProps } from "reactflow";
 import { EDGE_COLORS } from "../../types";
@@ -37,7 +36,6 @@ const CallChainEdge: React.FC<EdgeProps<CallChainEdgeData>> = ({
   targetPosition,
   data,
   style = {},
-  markerEnd,
 }) => {
   // 计算边颜色
   const getEdgeColor = () => {
@@ -66,8 +64,29 @@ const CallChainEdge: React.FC<EdgeProps<CallChainEdgeData>> = ({
   const labelText = data ? `L:${data.sourceLine}` : "";
   const typeText = data?.callType === "interface" ? "interface" : "";
 
+  // Marker 端点 ID
+  const markerId = `marker-${id}`;
+  const markerUrl = `url(#${markerId})`;
+
   return (
     <>
+      {/* 定义 marker */}
+      <svg style={{ position: "absolute", width: 0, height: 0 }}>
+        <defs>
+          <marker
+            id={markerId}
+            markerWidth="8"
+            markerHeight="8"
+            refX="8"
+            refY="4"
+            orient="auto"
+            markerUnits="strokeWidth"
+          >
+            <path d="M0,0 L8,4 L0,8 Z" fill={edgeColor} />
+          </marker>
+        </defs>
+      </svg>
+
       {/* 边线 */}
       <BaseEdge
         id={id}
@@ -79,12 +98,7 @@ const CallChainEdge: React.FC<EdgeProps<CallChainEdgeData>> = ({
           strokeDasharray: isDashed ? "5,5" : undefined,
           opacity: 0.8,
         }}
-        markerEnd={markerEnd || {
-          type: MarkerType.ArrowClosed,
-          color: edgeColor,
-          width: 8,
-          height: 8,
-        }}
+        markerEnd={markerUrl}
       />
 
       {/* 边标签 */}

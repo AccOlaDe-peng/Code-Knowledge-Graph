@@ -27,7 +27,7 @@ import {
   ApartmentOutlined,
 } from "@ant-design/icons";
 import { useFunctionCallStore } from "../../../../store/functionCallStore";
-import { FUNCTION_TYPE_COLORS, EDGE_COLORS, type FunctionInfo, type ViewMode } from "../../types";
+import { FUNCTION_TYPE_COLORS, EDGE_COLORS, type FunctionInfo } from "../../types";
 import { computeDagreLayout } from "../../utils/layout";
 import CallChainView from "./CallChainView";
 

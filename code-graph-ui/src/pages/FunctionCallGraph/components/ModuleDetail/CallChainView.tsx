@@ -20,9 +20,9 @@ import {
 } from "reactflow";
 import type { Node, Edge } from "reactflow";
 import "reactflow/dist/style.css";
-import { Empty, Button, Tag } from "antd";
-import { ExpandOutlined, WarningOutlined } from "@ant-design/icons";
-import { useFunctionCallStore } from "../../../../../store/functionCallStore";
+import { Empty, Tag } from "antd";
+import { WarningOutlined } from "@ant-design/icons";
+import { useFunctionCallStore } from "../../../../store/functionCallStore";
 import { useCallChainData, useCollapsedVirtualNodes } from "./hooks/useCallChainData";
 import { computeCallChainLayout } from "../../utils/layout";
 import { EDGE_COLORS } from "../../types";
@@ -39,15 +39,13 @@ const edgeTypes = { callChainEdge: CallChainEdge };
 const CallChainView: React.FC = () => {
   const {
     callChainRootId,
-    collapsedNodes,
     toggleCollapsedNode,
     funcInfoIndex,
     setSelectedFunction,
-    selectedFunctionId,
   } = useFunctionCallStore();
 
   // 获取调用链数据
-  const { nodes: chainNodes, edges: chainEdges, collapsedInfo, hasCycle, cycleEdges, totalNodes } = useCallChainData();
+  const { nodes: chainNodes, edges: chainEdges, collapsedInfo, hasCycle, cycleEdges } = useCallChainData();
 
   // 获取折叠虚拟节点
   const virtualNodes = useCollapsedVirtualNodes(collapsedInfo);

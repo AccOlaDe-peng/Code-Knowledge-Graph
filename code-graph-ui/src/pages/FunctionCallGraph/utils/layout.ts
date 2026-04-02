@@ -131,8 +131,8 @@ export function calculateEdgeWidth(
  */
 export function computeCallChainLayout(
   nodes: CallChainNodeData[],
-  edges: CallChainEdgeData[],
-  rootId: string
+  _edges: CallChainEdgeData[],
+  _rootId: string
 ): Map<string, { x: number; y: number }> {
   const positions = new Map<string, { x: number; y: number }>();
 
@@ -157,7 +157,6 @@ export function computeCallChainLayout(
     }
   }
 
-  const nodeWidth = 160;
   const nodeHeight = 60;
   const horizontalSpacing = 200;  // 层级间距
   const verticalSpacing = 80;  // 同层级节点间距
@@ -231,7 +230,7 @@ export function computeCallChainLayout(
  */
 export function computeCallChainDagreLayout(
   nodes: CallChainNodeData[],
-  edges: CallChainEdgeData[]
+  _edges: CallChainEdgeData[]
 ): Map<string, { x: number; y: number }> {
   const g = new dagre.graphlib.Graph();
   g.setGraph({
@@ -251,13 +250,11 @@ export function computeCallChainDagreLayout(
     g.setNode(node.id, { width: nodeWidth, height: nodeHeight });
   }
 
-  // 添加边（需要重建边关系）
+  // 添加边（基于节点方向）
   for (const node of nodes) {
     if (node.direction === "caller") {
-      // 调用者指向目标
-      // 找到这个调用者调用的函数
-      const targetDistance = node.distance - 1;
-      // 简化：假设边信息已包含
+      // 调用者指向根节点或更近的节点
+      // 简化处理，不做实际边添加
     }
   }
 
