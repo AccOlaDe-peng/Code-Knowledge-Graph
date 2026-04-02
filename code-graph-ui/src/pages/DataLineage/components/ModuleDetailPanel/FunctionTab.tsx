@@ -28,19 +28,29 @@ interface FunctionTabProps {
 
 // ─── 主组件 ──────────────────────────────────────────────────────────────────
 
-const FunctionTab: React.FC<FunctionTabProps> = ({ subFunctions, moduleColor }) => {
+const FunctionTab: React.FC<FunctionTabProps> = ({
+  subFunctions,
+  moduleColor,
+}) => {
   if (!subFunctions.length) {
     return (
       <div
         style={{
           textAlign: "center",
           padding: 40,
-          color: "#4a5a7a",
+          color: "#95b0d1",
           fontFamily: "'IBM Plex Mono', monospace",
-          fontSize: 11,
+          fontSize: 12,
         }}
       >
-        <ApiOutlined style={{ fontSize: 32, opacity: 0.3, marginBottom: 12, display: "block" }} />
+        <ApiOutlined
+          style={{
+            fontSize: 32,
+            opacity: 0.3,
+            marginBottom: 12,
+            display: "block",
+          }}
+        />
         暂无功能数据
       </div>
     );
@@ -49,7 +59,11 @@ const FunctionTab: React.FC<FunctionTabProps> = ({ subFunctions, moduleColor }) 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {subFunctions.map((func) => (
-        <FunctionCard key={func.id} subFunction={func} moduleColor={moduleColor} />
+        <FunctionCard
+          key={func.id}
+          subFunction={func}
+          moduleColor={moduleColor}
+        />
       ))}
     </div>
   );
@@ -57,11 +71,12 @@ const FunctionTab: React.FC<FunctionTabProps> = ({ subFunctions, moduleColor }) 
 
 // ─── 功能卡片 ────────────────────────────────────────────────────────────────
 
-const FunctionCard: React.FC<{ subFunction: SubFunction; moduleColor: string }> = ({
-  subFunction,
-  moduleColor,
-}) => {
-  const isInternal = !subFunction.apiEndpoint || subFunction.apiEndpoint === "内部调用";
+const FunctionCard: React.FC<{
+  subFunction: SubFunction;
+  moduleColor: string;
+}> = ({ subFunction, moduleColor }) => {
+  const isInternal =
+    !subFunction.apiEndpoint || subFunction.apiEndpoint === "内部调用";
 
   return (
     <div
@@ -74,15 +89,26 @@ const FunctionCard: React.FC<{ subFunction: SubFunction; moduleColor: string }> 
       }}
     >
       {/* 头部：名称 + API 端点 */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          marginBottom: 8,
+        }}
+      >
         {/* 图标 */}
         <div
           style={{
             width: 28,
             height: 28,
             borderRadius: 6,
-            background: isInternal ? `${moduleColor}12` : "rgba(0, 212, 255, 0.12)",
-            border: isInternal ? `1px solid ${moduleColor}25` : "1px solid rgba(0, 212, 255, 0.25)",
+            background: isInternal
+              ? `${moduleColor}12`
+              : "rgba(0, 212, 255, 0.12)",
+            border: isInternal
+              ? `1px solid ${moduleColor}25`
+              : "1px solid rgba(0, 212, 255, 0.25)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -128,7 +154,7 @@ const FunctionCard: React.FC<{ subFunction: SubFunction; moduleColor: string }> 
           <span
             style={{
               fontFamily: "'IBM Plex Mono', monospace",
-              fontSize: 10,
+              fontSize: 11,
               color: "#00d4ff",
             }}
           >
@@ -153,7 +179,7 @@ const FunctionCard: React.FC<{ subFunction: SubFunction; moduleColor: string }> 
           <span
             style={{
               fontFamily: "'IBM Plex Mono', monospace",
-              fontSize: 10,
+              fontSize: 11,
               color: moduleColor,
             }}
           >
@@ -166,8 +192,8 @@ const FunctionCard: React.FC<{ subFunction: SubFunction; moduleColor: string }> 
       <div
         style={{
           fontFamily: "'IBM Plex Mono', monospace",
-          fontSize: 10,
-          color: "#7a8aaa",
+          fontSize: 11,
+          color: "#a9bfdc",
           marginBottom: 12,
           lineHeight: 1.5,
         }}
@@ -205,8 +231,8 @@ const FunctionCard: React.FC<{ subFunction: SubFunction; moduleColor: string }> 
             <span
               style={{
                 fontFamily: "'IBM Plex Mono', monospace",
-                fontSize: 9,
-                color: "#8898b8",
+                fontSize: 10,
+                color: "#b6c9e8",
               }}
             >
               输入来源
@@ -219,7 +245,7 @@ const FunctionCard: React.FC<{ subFunction: SubFunction; moduleColor: string }> 
                   key={input}
                   style={{
                     fontFamily: "'IBM Plex Mono', monospace",
-                    fontSize: 9,
+                    fontSize: 10,
                     color: "#ffc145",
                     padding: "2px 6px",
                     background: "rgba(255, 193, 69, 0.1)",
@@ -230,7 +256,7 @@ const FunctionCard: React.FC<{ subFunction: SubFunction; moduleColor: string }> 
                 </span>
               ))
             ) : (
-              <span style={{ fontSize: 9, color: "#4a5a7a" }}>-</span>
+              <span style={{ fontSize: 10, color: "#95b0d1" }}>-</span>
             )}
           </div>
         </div>
@@ -256,8 +282,8 @@ const FunctionCard: React.FC<{ subFunction: SubFunction; moduleColor: string }> 
             <span
               style={{
                 fontFamily: "'IBM Plex Mono', monospace",
-                fontSize: 9,
-                color: "#8898b8",
+                fontSize: 10,
+                color: "#b6c9e8",
               }}
             >
               输出目标
@@ -270,7 +296,7 @@ const FunctionCard: React.FC<{ subFunction: SubFunction; moduleColor: string }> 
                   key={output}
                   style={{
                     fontFamily: "'IBM Plex Mono', monospace",
-                    fontSize: 9,
+                    fontSize: 10,
                     color: "#00f084",
                     padding: "2px 6px",
                     background: "rgba(0, 240, 132, 0.1)",
@@ -281,7 +307,7 @@ const FunctionCard: React.FC<{ subFunction: SubFunction; moduleColor: string }> 
                 </span>
               ))
             ) : (
-              <span style={{ fontSize: 9, color: "#4a5a7a" }}>-</span>
+              <span style={{ fontSize: 10, color: "#95b0d1" }}>-</span>
             )}
           </div>
         </div>
@@ -358,8 +384,8 @@ const RelationBadge: React.FC<{
     <span
       style={{
         fontFamily: "'IBM Plex Mono', monospace",
-        fontSize: 9,
-        color: "#98a8c8",
+        fontSize: 10,
+        color: "#b3c7e4",
       }}
     >
       {label}

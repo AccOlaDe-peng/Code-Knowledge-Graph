@@ -28,9 +28,12 @@ interface BusinessFlowTabProps {
 
 // ─── 主组件 ──────────────────────────────────────────────────────────────────
 
-const BusinessFlowTab: React.FC<BusinessFlowTabProps> = ({ businessFlows, moduleColor }) => {
+const BusinessFlowTab: React.FC<BusinessFlowTabProps> = ({
+  businessFlows,
+  moduleColor,
+}) => {
   const [selectedFlowId, setSelectedFlowId] = useState<string | null>(
-    businessFlows[0]?.id || null
+    businessFlows[0]?.id || null,
   );
 
   if (!businessFlows.length) {
@@ -39,18 +42,26 @@ const BusinessFlowTab: React.FC<BusinessFlowTabProps> = ({ businessFlows, module
         style={{
           textAlign: "center",
           padding: 40,
-          color: "#4a5a7a",
+          color: "#95b0d1",
           fontFamily: "'IBM Plex Mono', monospace",
-          fontSize: 11,
+          fontSize: 12,
         }}
       >
-        <ThunderboltOutlined style={{ fontSize: 32, opacity: 0.3, marginBottom: 12, display: "block" }} />
+        <ThunderboltOutlined
+          style={{
+            fontSize: 32,
+            opacity: 0.3,
+            marginBottom: 12,
+            display: "block",
+          }}
+        />
         暂无业务流程数据
       </div>
     );
   }
 
-  const selectedFlow = businessFlows.find((f) => f.id === selectedFlowId) || businessFlows[0];
+  const selectedFlow =
+    businessFlows.find((f) => f.id === selectedFlowId) || businessFlows[0];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -78,13 +89,16 @@ const BusinessFlowTab: React.FC<BusinessFlowTabProps> = ({ businessFlows, module
                 selectedFlowId === flow.id
                   ? `${moduleColor}15`
                   : "rgba(255,255,255,0.02)",
-              color: selectedFlowId === flow.id ? moduleColor : "#8a9aba",
+              color: selectedFlowId === flow.id ? moduleColor : "#b3c7e4",
               fontFamily: "'IBM Plex Mono', monospace",
-              fontSize: 11,
+              fontSize: 12,
               fontWeight: 500,
               cursor: "pointer",
               transition: "all 0.15s ease",
-              boxShadow: selectedFlowId === flow.id ? `0 0 0 1px ${moduleColor}40` : "none",
+              boxShadow:
+                selectedFlowId === flow.id
+                  ? `0 0 0 1px ${moduleColor}40`
+                  : "none",
             }}
           >
             <ThunderboltOutlined style={{ fontSize: 10 }} />
@@ -94,7 +108,9 @@ const BusinessFlowTab: React.FC<BusinessFlowTabProps> = ({ businessFlows, module
       </div>
 
       {/* 选中流程详情 */}
-      {selectedFlow && <FlowDetail flow={selectedFlow} moduleColor={moduleColor} />}
+      {selectedFlow && (
+        <FlowDetail flow={selectedFlow} moduleColor={moduleColor} />
+      )}
     </div>
   );
 };
@@ -125,8 +141,8 @@ const FlowDetail: React.FC<{ flow: BusinessFlow; moduleColor: string }> = ({
         <div
           style={{
             fontFamily: "'IBM Plex Mono', monospace",
-            fontSize: 10,
-            color: "#7a8aaa",
+            fontSize: 11,
+            color: "#a9bfdc",
             lineHeight: 1.5,
             marginBottom: 8,
           }}
@@ -138,8 +154,8 @@ const FlowDetail: React.FC<{ flow: BusinessFlow; moduleColor: string }> = ({
           <span
             style={{
               fontFamily: "'IBM Plex Mono', monospace",
-              fontSize: 10,
-              color: "#8898b8",
+              fontSize: 11,
+              color: "#b6c9e8",
             }}
           >
             触发：
@@ -164,9 +180,9 @@ const FlowDetail: React.FC<{ flow: BusinessFlow; moduleColor: string }> = ({
         <div
           style={{
             fontFamily: "'Syne', sans-serif",
-            fontSize: 11,
+            fontSize: 12,
             fontWeight: 600,
-            color: "#a0b0c8",
+            color: "#c0d1e9",
             marginBottom: 12,
             display: "flex",
             alignItems: "center",
@@ -237,8 +253,8 @@ const FlowDetail: React.FC<{ flow: BusinessFlow; moduleColor: string }> = ({
             <span
               style={{
                 fontFamily: "'IBM Plex Mono', monospace",
-                fontSize: 10,
-                color: "#8898b8",
+                fontSize: 11,
+                color: "#b6c9e8",
               }}
             >
               关联服务
@@ -250,7 +266,7 @@ const FlowDetail: React.FC<{ flow: BusinessFlow; moduleColor: string }> = ({
                 key={service}
                 style={{
                   fontFamily: "'IBM Plex Mono', monospace",
-                  fontSize: 9,
+                  fontSize: 10,
                   color: "#00d4ff",
                   padding: "3px 8px",
                   background: "rgba(0, 212, 255, 0.08)",
@@ -367,8 +383,8 @@ const StepNode: React.FC<{
         <div
           style={{
             fontFamily: "'IBM Plex Mono', monospace",
-            fontSize: 10,
-            color: "#7a8aaa",
+            fontSize: 11,
+            color: "#a9bfdc",
             lineHeight: 1.5,
             marginBottom: 8,
           }}
@@ -380,18 +396,18 @@ const StepNode: React.FC<{
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
           {step.input.length > 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <ImportOutlined style={{ fontSize: 9, color: "#00d4ff" }} />
-              <span style={{ fontSize: 9, color: "#8898b8" }}>入:</span>
-              <span style={{ fontSize: 9, color: "#00d4ff" }}>
+              <ImportOutlined style={{ fontSize: 10, color: "#00d4ff" }} />
+              <span style={{ fontSize: 10, color: "#b6c9e8" }}>入:</span>
+              <span style={{ fontSize: 10, color: "#00d4ff" }}>
                 {step.input.join(", ")}
               </span>
             </div>
           )}
           {step.output.length > 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <ExportOutlined style={{ fontSize: 9, color: "#00f084" }} />
-              <span style={{ fontSize: 9, color: "#8898b8" }}>出:</span>
-              <span style={{ fontSize: 9, color: "#00f084" }}>
+              <ExportOutlined style={{ fontSize: 10, color: "#00f084" }} />
+              <span style={{ fontSize: 10, color: "#b6c9e8" }}>出:</span>
+              <span style={{ fontSize: 10, color: "#00f084" }}>
                 {step.output.join(", ")}
               </span>
             </div>
@@ -430,8 +446,8 @@ const DataCard: React.FC<{
       <span
         style={{
           fontFamily: "'IBM Plex Mono', monospace",
-          fontSize: 10,
-          color: "#98a8c8",
+          fontSize: 11,
+          color: "#b3c7e4",
         }}
       >
         {title}
@@ -443,7 +459,7 @@ const DataCard: React.FC<{
           key={item}
           style={{
             fontFamily: "'IBM Plex Mono', monospace",
-            fontSize: 9,
+            fontSize: 10,
             color,
             padding: "3px 7px",
             background: `${color}12`,

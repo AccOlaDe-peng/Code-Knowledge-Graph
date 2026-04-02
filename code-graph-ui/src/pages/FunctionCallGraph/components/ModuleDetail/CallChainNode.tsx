@@ -8,6 +8,7 @@
  */
 import React from "react";
 import { FireOutlined, ExpandOutlined } from "@ant-design/icons";
+import { Handle, Position } from "reactflow";
 import { FUNCTION_TYPE_COLORS } from "../../types";
 
 // ─── 节点数据类型 ──────────────────────────────────────────────────────────────
@@ -29,7 +30,25 @@ interface CallChainNodeData {
 // ─── 节点组件 ──────────────────────────────────────────────────────────────────
 
 const CallChainNode: React.FC<{ data: CallChainNodeData }> = ({ data }) => {
-  const colors = FUNCTION_TYPE_COLORS[data.type] || FUNCTION_TYPE_COLORS.service;
+  const colors =
+    FUNCTION_TYPE_COLORS[data.type] || FUNCTION_TYPE_COLORS.service;
+
+  const renderHandles = () => (
+    <>
+      <Handle
+        type="target"
+        position={Position.Left}
+        style={{ opacity: 0, width: 8, height: 8, border: "none" }}
+        isConnectable={false}
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        style={{ opacity: 0, width: 8, height: 8, border: "none" }}
+        isConnectable={false}
+      />
+    </>
+  );
 
   // 计算热度
   const heat = data.callerCount + data.calleeCount;
@@ -50,6 +69,7 @@ const CallChainNode: React.FC<{ data: CallChainNodeData }> = ({ data }) => {
           transition: "all 0.15s ease",
         }}
       >
+        {renderHandles()}
         {/* 根节点标签 */}
         <div
           style={{
@@ -114,6 +134,7 @@ const CallChainNode: React.FC<{ data: CallChainNodeData }> = ({ data }) => {
           transition: "all 0.15s ease",
         }}
       >
+        {renderHandles()}
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <ExpandOutlined style={{ color: "#7888a8", fontSize: 12 }} />
           <span style={{ fontSize: 11, color: "#7888a8" }}>
@@ -147,10 +168,13 @@ const CallChainNode: React.FC<{ data: CallChainNodeData }> = ({ data }) => {
         minWidth: 140,
         maxWidth: 180,
         cursor: "pointer",
-        boxShadow: isHot ? `0 0 12px ${colors.border}30` : "0 2px 6px rgba(0,0,0,0.2)",
+        boxShadow: isHot
+          ? `0 0 12px ${colors.border}30`
+          : "0 2px 6px rgba(0,0,0,0.2)",
         transition: "all 0.15s ease",
       }}
     >
+      {renderHandles()}
       {/* 函数名 */}
       <div
         style={{

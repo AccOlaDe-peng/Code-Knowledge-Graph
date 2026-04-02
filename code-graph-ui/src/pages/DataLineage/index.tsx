@@ -6,7 +6,13 @@
  * - 展示模块级血缘图
  * - 点击模块展开详情面板
  */
-import React, { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import React, {
+  useEffect,
+  useState,
+  useCallback,
+  useRef,
+  useMemo,
+} from "react";
 import { ReactFlowProvider } from "reactflow";
 import "reactflow/dist/style.css";
 import { Spin, Button, Tooltip } from "antd";
@@ -16,7 +22,28 @@ import { useRepoStore } from "../../store/repoStore";
 import { getDataLineage } from "../../api/dataLineageApi";
 import ModuleGraph from "./components/ModuleGraph";
 import ModuleDetailPanel from "./components/ModuleDetailPanel";
-import type { Module, ModuleDependency, DataLineageJSON } from "./types/dataLineage";
+import type {
+  Module,
+  ModuleDependency,
+  DataLineageJSON,
+} from "./types/dataLineage";
+
+const PURPLE_MODULE_COLORS = new Set([
+  "#ff66cc",
+  "#b08eff",
+  "#9966ff",
+  "#8f6bff",
+  "#a070ff",
+  "#722ed1",
+  "#eb2f96",
+]);
+
+const MODULE_ACCENT_COLOR = "#39e5ff";
+
+function normalizeModuleColor(color: string): string {
+  const normalized = color.trim().toLowerCase();
+  return PURPLE_MODULE_COLORS.has(normalized) ? MODULE_ACCENT_COLOR : color;
+}
 
 // ─── 主组件 ──────────────────────────────────────────────────────────────────
 
@@ -53,18 +80,25 @@ const DataLineageInner: React.FC = () => {
       const result: DataLineageJSON = await getDataLineage(namePrefix);
 
       // 过滤掉引擎管理模块及其相关依赖
-      const EXCLUDED_MODULE_IDS = ['engine'];
-      const filteredModules = (result.modules || []).filter(
-        (m) => !EXCLUDED_MODULE_IDS.includes(m.id)
-      );
-      const filteredDependencies = (result.moduleDependencies?.dependencies || []).filter(
-        (dep) => !EXCLUDED_MODULE_IDS.includes(dep.from) && !EXCLUDED_MODULE_IDS.includes(dep.to)
+      const EXCLUDED_MODULE_IDS = ["engine"];
+      const filteredModules = (result.modules || [])
+        .filter((m) => !EXCLUDED_MODULE_IDS.includes(m.id))
+        .map((m) => ({
+          ...m,
+          color: normalizeModuleColor(m.color),
+        }));
+      const filteredDependencies = (
+        result.moduleDependencies?.dependencies || []
+      ).filter(
+        (dep) =>
+          !EXCLUDED_MODULE_IDS.includes(dep.from) &&
+          !EXCLUDED_MODULE_IDS.includes(dep.to),
       );
 
       setModules(filteredModules);
       setDependencies(filteredDependencies);
     } catch (err) {
-      console.error('[DataLineage] Error:', err);
+      console.error("[DataLineage] Error:", err);
       setError(err instanceof Error ? err.message : "加载数据失败");
       setModules([]);
       setDependencies([]);
@@ -88,14 +122,15 @@ const DataLineageInner: React.FC = () => {
   }, [activeRepo?.repoName, loadData]);
 
   // 处理模块点击
-  const handleModuleClick = useCallback((module: Module) => {
-    setSelectedModule((prev) =>
-      prev?.id === module.id ? null : module
-    );
-    if (selectedModule?.id !== module.id) {
-      setPanelCollapsed(false);
-    }
-  }, [selectedModule?.id]);
+  const handleModuleClick = useCallback(
+    (module: Module) => {
+      setSelectedModule((prev) => (prev?.id === module.id ? null : module));
+      if (selectedModule?.id !== module.id) {
+        setPanelCollapsed(false);
+      }
+    },
+    [selectedModule?.id],
+  );
 
   // 重置视图
   const handleReset = useCallback(() => {
@@ -148,8 +183,8 @@ const DataLineageInner: React.FC = () => {
               width: 9,
               height: 9,
               borderRadius: 2,
-              background: "#ff66cc",
-              boxShadow: "0 0 12px rgba(255,102,204,0.6)",
+              background: MODULE_ACCENT_COLOR,
+              boxShadow: "0 0 12px rgba(57,229,255,0.6)",
             }}
           />
           <span
@@ -157,7 +192,7 @@ const DataLineageInner: React.FC = () => {
               fontFamily: "var(--font-ui)",
               fontSize: 15,
               fontWeight: 700,
-              color: "#ff66cc",
+              color: MODULE_ACCENT_COLOR,
               letterSpacing: "0.04em",
             }}
           >
@@ -177,7 +212,7 @@ const DataLineageInner: React.FC = () => {
                   fontFamily: "var(--font-mono)",
                   fontSize: 16,
                   fontWeight: 700,
-                  color: "#ff66cc",
+                  color: MODULE_ACCENT_COLOR,
                 }}
               >
                 {stats.moduleCount}
@@ -185,8 +220,8 @@ const DataLineageInner: React.FC = () => {
               <span
                 style={{
                   fontFamily: "var(--font-ui)",
-                  fontSize: 11,
-                  color: "#a8b8d8",
+                  fontSize: 12,
+                  color: "#bfd0e8",
                 }}
               >
                 模块
@@ -206,8 +241,8 @@ const DataLineageInner: React.FC = () => {
               <span
                 style={{
                   fontFamily: "var(--font-ui)",
-                  fontSize: 11,
-                  color: "#a8b8d8",
+                  fontSize: 12,
+                  color: "#bfd0e8",
                 }}
               >
                 服务
@@ -227,8 +262,8 @@ const DataLineageInner: React.FC = () => {
               <span
                 style={{
                   fontFamily: "var(--font-ui)",
-                  fontSize: 11,
-                  color: "#a8b8d8",
+                  fontSize: 12,
+                  color: "#bfd0e8",
                 }}
               >
                 依赖关系
@@ -279,7 +314,7 @@ const DataLineageInner: React.FC = () => {
               style={{
                 fontFamily: "var(--font-mono)",
                 fontSize: 13,
-                color: "#8898b8",
+                color: "#bfd0e8",
                 letterSpacing: "0.04em",
               }}
             >
@@ -338,7 +373,10 @@ const DataLineageInner: React.FC = () => {
             >
               加载失败: {error}
             </div>
-            <Button onClick={() => activeRepo && loadData(activeRepo.repoName || '')} size="small">
+            <Button
+              onClick={() => activeRepo && loadData(activeRepo.repoName || "")}
+              size="small"
+            >
               重试
             </Button>
           </div>
@@ -361,7 +399,7 @@ const DataLineageInner: React.FC = () => {
               style={{
                 fontFamily: "var(--font-mono)",
                 fontSize: 13,
-                color: "#8898b8",
+                color: "#bfd0e8",
                 letterSpacing: "0.04em",
               }}
             >
@@ -374,10 +412,12 @@ const DataLineageInner: React.FC = () => {
         {activeRepo && modules.length > 0 && !loading && !error && (
           <>
             {/* 模块依赖图 */}
-            <div style={{
-              flex: 1,
-              minHeight: 0,
-            }}>
+            <div
+              style={{
+                flex: 1,
+                minHeight: 0,
+              }}
+            >
               <ModuleGraph
                 modules={modules}
                 dependencies={dependencies}

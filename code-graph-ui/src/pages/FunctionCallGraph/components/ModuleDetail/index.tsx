@@ -4,20 +4,39 @@
  * 左侧：控制面板 + 模块树 + 函数列表（按热度排序）
  * 右侧：函数调用图（热点函数优先，点击展开调用链）或调用链视图
  */
-import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import React, {
+  useState,
+  useMemo,
+  useCallback,
+  useEffect,
+  useRef,
+} from "react";
 import {
   ReactFlow,
   Controls,
   Background,
+  Handle,
   useNodesState,
   useEdgesState,
   BackgroundVariant,
   MarkerType,
   Panel,
+  Position,
 } from "reactflow";
 import type { Node, Edge } from "reactflow";
 import "reactflow/dist/style.css";
-import { Input, Select, Tag, Empty, Button, Slider, Switch, Tooltip, Spin, Radio } from "antd";
+import {
+  Input,
+  Select,
+  Tag,
+  Empty,
+  Button,
+  Slider,
+  Switch,
+  Tooltip,
+  Spin,
+  Radio,
+} from "antd";
 import {
   SearchOutlined,
   FolderOutlined,
@@ -27,7 +46,11 @@ import {
   ApartmentOutlined,
 } from "@ant-design/icons";
 import { useFunctionCallStore } from "../../../../store/functionCallStore";
-import { FUNCTION_TYPE_COLORS, EDGE_COLORS, type FunctionInfo } from "../../types";
+import {
+  FUNCTION_TYPE_COLORS,
+  EDGE_COLORS,
+  type FunctionInfo,
+} from "../../types";
 import { computeDagreLayout } from "../../utils/layout";
 import CallChainView from "./CallChainView";
 
@@ -57,9 +80,10 @@ const FunctionNode: React.FC<{
     heat?: number;
   };
 }> = ({ data }) => {
-  const colors = FUNCTION_TYPE_COLORS[data.type] || FUNCTION_TYPE_COLORS.service;
+  const colors =
+    FUNCTION_TYPE_COLORS[data.type] || FUNCTION_TYPE_COLORS.service;
   const heat = data.heat ?? calculateHeat(data);
-  const isHot = data.isHot ?? (heat > 10);
+  const isHot = data.isHot ?? heat > 10;
 
   return (
     <div
@@ -73,10 +97,25 @@ const FunctionNode: React.FC<{
         minWidth: 140,
         maxWidth: 180,
         cursor: "pointer",
-        boxShadow: isHot ? `0 0 12px ${colors.border}30` : "0 2px 6px rgba(0,0,0,0.2)",
+        boxShadow: isHot
+          ? `0 0 12px ${colors.border}30`
+          : "0 2px 6px rgba(0,0,0,0.2)",
         transition: "all 0.15s ease",
       }}
     >
+      <Handle
+        type="target"
+        position={Position.Left}
+        style={{ opacity: 0, width: 8, height: 8, border: "none" }}
+        isConnectable={false}
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        style={{ opacity: 0, width: 8, height: 8, border: "none" }}
+        isConnectable={false}
+      />
+
       {/* 函数名 */}
       <div
         style={{
@@ -116,19 +155,40 @@ const FunctionNode: React.FC<{
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
           <span style={{ fontSize: 9, color: "#ffc145" }}>热度</span>
-          <span style={{ fontSize: 11, fontWeight: 600, color: "#ffc145", fontFamily: "var(--font-mono)" }}>
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: "#ffc145",
+              fontFamily: "var(--font-mono)",
+            }}
+          >
             {heat}
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
           <span style={{ fontSize: 9, color: "#5a6a8a" }}>被调</span>
-          <span style={{ fontSize: 10, fontWeight: 500, color: "#00d4ff", fontFamily: "var(--font-mono)" }}>
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 500,
+              color: "#00d4ff",
+              fontFamily: "var(--font-mono)",
+            }}
+          >
             {data.callerCount}
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
           <span style={{ fontSize: 9, color: "#5a6a8a" }}>调出</span>
-          <span style={{ fontSize: 10, fontWeight: 500, color: "#00f084", fontFamily: "var(--font-mono)" }}>
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 500,
+              color: "#00f084",
+              fontFamily: "var(--font-mono)",
+            }}
+          >
             {data.calleeCount}
           </span>
         </div>
@@ -160,6 +220,7 @@ const ModuleDetail: React.FC = () => {
     moduleDetails,
     moduleLoading,
     setSelectedFunction,
+    setDrawerFunction,
     callersIndex,
     calleesIndex,
     funcInfoIndex,
@@ -177,14 +238,22 @@ const ModuleDetail: React.FC = () => {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
   const [showAllFunctions, setShowAllFunctions] = useState(false);
-  const [hotFunctionsLimit, setHotFunctionsLimit] = useState(HOT_FUNCTIONS_LIMIT);
+  const [hotFunctionsLimit, setHotFunctionsLimit] =
+    useState(HOT_FUNCTIONS_LIMIT);
+  const [hoveredFunctionId, setHoveredFunctionId] = useState<string | null>(
+    null,
+  );
 
   // 展开的函数 ID 集合
-  const [expandedFuncIds, setExpandedFuncIds] = useState<Set<string>>(new Set());
+  const [expandedFuncIds, setExpandedFuncIds] = useState<Set<string>>(
+    new Set(),
+  );
   const expandDepthRef = useRef<Map<string, number>>(new Map());
 
   // 当前选中的模块详情
-  const currentModuleDetail = currentModuleId ? moduleDetails.get(currentModuleId) : null;
+  const currentModuleDetail = currentModuleId
+    ? moduleDetails.get(currentModuleId)
+    : null;
   const currentModule = currentModuleDetail?.module;
   const callChains = currentModuleDetail?.callChains ?? [];
 
@@ -198,7 +267,7 @@ const ModuleDetail: React.FC = () => {
         (f) =>
           f.name.toLowerCase().includes(s) ||
           f.fullName.toLowerCase().includes(s) ||
-          f.className.toLowerCase().includes(s)
+          f.className.toLowerCase().includes(s),
       );
     }
     if (typeFilter) {
@@ -208,11 +277,16 @@ const ModuleDetail: React.FC = () => {
   }, [currentModule, search, typeFilter]);
 
   // 按热度排序后的函数列表
-  const sortedFunctions = useMemo(() => sortByHeat(filteredFunctions), [filteredFunctions]);
+  const sortedFunctions = useMemo(
+    () => sortByHeat(filteredFunctions),
+    [filteredFunctions],
+  );
 
   // 中间节点（既有 callers 又有 callees 的函数，优先显示）
   const middleNodes = useMemo(() => {
-    return sortedFunctions.filter((f) => f.callerCount > 0 && f.calleeCount > 0);
+    return sortedFunctions.filter(
+      (f) => f.callerCount > 0 && f.calleeCount > 0,
+    );
   }, [sortedFunctions]);
 
   // 基础函数列表（优先中间节点，再补充热点函数）
@@ -239,7 +313,8 @@ const ModuleDetail: React.FC = () => {
 
     return callChains.filter(
       (chain) =>
-        chain.sourceModuleId === currentModule.id || chain.targetModuleId === currentModule.id
+        chain.sourceModuleId === currentModule.id ||
+        chain.targetModuleId === currentModule.id,
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [callChains, currentModule?.id]);
@@ -255,7 +330,7 @@ const ModuleDetail: React.FC = () => {
 
     // 只添加与基础函数直接相关的调用链中的外部函数
     // 限制数量以避免性能问题
-    const baseFuncIds = new Set(baseFunctions.map(f => f.id));
+    const baseFuncIds = new Set(baseFunctions.map((f) => f.id));
     let externalAdded = 0;
     const MAX_EXTERNAL = 50; // 限制外部函数数量
 
@@ -271,7 +346,11 @@ const ModuleDetail: React.FC = () => {
           result.set(chain.targetFunctionId, targetFunc);
           externalAdded++;
         }
-      } else if (targetInBase && !sourceInBase && externalAdded < MAX_EXTERNAL) {
+      } else if (
+        targetInBase &&
+        !sourceInBase &&
+        externalAdded < MAX_EXTERNAL
+      ) {
         // 目标函数在基础集合中，添加源函数
         const sourceFunc = funcInfoIndex?.get(chain.sourceFunctionId);
         if (sourceFunc && !result.has(chain.sourceFunctionId)) {
@@ -299,8 +378,10 @@ const ModuleDetail: React.FC = () => {
     const funcIds = new Set(displayedFunctions.keys());
 
     // 只保留两端函数都在图中的调用链
-    return callChains.filter((chain) =>
-      funcIds.has(chain.sourceFunctionId) && funcIds.has(chain.targetFunctionId)
+    return callChains.filter(
+      (chain) =>
+        funcIds.has(chain.sourceFunctionId) &&
+        funcIds.has(chain.targetFunctionId),
     );
   }, [callChains, displayedFunctions]);
 
@@ -341,10 +422,15 @@ const ModuleDetail: React.FC = () => {
     // 注意：displayedCallChains 可能包含外部函数调用（一端在图中，一端不在）
     // 这些边不应该被渲染，因为目标节点不存在
     return displayedCallChains
-      .filter((c) => funcIds.has(c.sourceFunctionId) && funcIds.has(c.targetFunctionId))
+      .filter(
+        (c) =>
+          funcIds.has(c.sourceFunctionId) && funcIds.has(c.targetFunctionId),
+      )
       .map((chain, index) => {
         const isCross = chain.sourceModuleId !== chain.targetModuleId;
-        const color = isCross ? EDGE_COLORS.cross_module : EDGE_COLORS.same_module;
+        const color = isCross
+          ? EDGE_COLORS.cross_module
+          : EDGE_COLORS.same_module;
 
         return {
           id: `edge-${index}`,
@@ -371,6 +457,52 @@ const ModuleDetail: React.FC = () => {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
+  const hoverRelatedNodeIds = useMemo(() => {
+    if (!hoveredFunctionId) return null;
+
+    const related = new Set<string>([hoveredFunctionId]);
+    for (const chain of displayedCallChains) {
+      if (chain.sourceFunctionId === hoveredFunctionId) {
+        related.add(chain.targetFunctionId);
+      }
+      if (chain.targetFunctionId === hoveredFunctionId) {
+        related.add(chain.sourceFunctionId);
+      }
+    }
+    return related;
+  }, [hoveredFunctionId, displayedCallChains]);
+
+  const renderNodes = useMemo(() => {
+    if (!hoverRelatedNodeIds || !hoveredFunctionId) return nodes;
+
+    return nodes.map((node) => ({
+      ...node,
+      style: {
+        ...(node.style || {}),
+        opacity: hoverRelatedNodeIds.has(node.id) ? 1 : 0.2,
+        transition: "opacity 0.15s ease",
+      },
+    }));
+  }, [nodes, hoverRelatedNodeIds, hoveredFunctionId]);
+
+  const renderEdges = useMemo(() => {
+    if (!hoveredFunctionId) return edges;
+
+    return edges.map((edge) => {
+      const isRelated =
+        edge.source === hoveredFunctionId || edge.target === hoveredFunctionId;
+
+      return {
+        ...edge,
+        style: {
+          ...(edge.style || {}),
+          opacity: isRelated ? 0.9 : 0.08,
+          transition: "opacity 0.15s ease",
+        },
+      };
+    });
+  }, [edges, hoveredFunctionId]);
+
   // 更新节点和边
   useEffect(() => {
     setNodes(initialNodes);
@@ -380,7 +512,8 @@ const ModuleDetail: React.FC = () => {
   // 模块切换时自动展开前几个中间节点的调用链
   // 只在模块 ID 变化时执行，避免其他依赖项变化导致的重复执行
   useEffect(() => {
-    if (!currentModule?.id || !callersIndex || !calleesIndex || !funcInfoIndex) return;
+    if (!currentModule?.id || !callersIndex || !calleesIndex || !funcInfoIndex)
+      return;
 
     // 使用 requestAnimationFrame 避免同步 setState
     const timeoutId = setTimeout(() => {
@@ -460,9 +593,24 @@ const ModuleDetail: React.FC = () => {
       }
 
       setSelectedFunction(funcId);
+      setDrawerFunction(funcId);
     },
-    [callersIndex, calleesIndex, displayedFunctions, setSelectedFunction]
+    [
+      callersIndex,
+      calleesIndex,
+      displayedFunctions,
+      setSelectedFunction,
+      setDrawerFunction,
+    ],
   );
+
+  const onNodeMouseEnter = useCallback((_: React.MouseEvent, node: Node) => {
+    setHoveredFunctionId(node.id);
+  }, []);
+
+  const onNodeMouseLeave = useCallback(() => {
+    setHoveredFunctionId(null);
+  }, []);
 
   // 重置展开状态
   const handleResetExpand = useCallback(() => {
@@ -505,7 +653,13 @@ const ModuleDetail: React.FC = () => {
         });
       }
     },
-    [setSelectedFunction, callersIndex, calleesIndex, viewMode, setCallChainRoot]
+    [
+      setSelectedFunction,
+      callersIndex,
+      calleesIndex,
+      viewMode,
+      setCallChainRoot,
+    ],
   );
 
   // 加载中状态
@@ -521,7 +675,9 @@ const ModuleDetail: React.FC = () => {
   if (!currentModule) {
     return (
       <div style={styles.empty}>
-        <Empty description={<span style={{ color: "#5a6a8a" }}>请选择模块</span>} />
+        <Empty
+          description={<span style={{ color: "#5a6a8a" }}>请选择模块</span>}
+        />
       </div>
     );
   }
@@ -580,7 +736,9 @@ const ModuleDetail: React.FC = () => {
               </div>
               {!showAllFunctions && (
                 <div style={styles.controlRow}>
-                  <span style={styles.controlLabel}>热点数量: {hotFunctionsLimit}</span>
+                  <span style={styles.controlLabel}>
+                    热点数量: {hotFunctionsLimit}
+                  </span>
                   <Slider
                     value={hotFunctionsLimit}
                     onChange={setHotFunctionsLimit}
@@ -639,8 +797,14 @@ const ModuleDetail: React.FC = () => {
                 }}
                 style={{
                   ...styles.treeItem,
-                  background: m.id === currentModuleId ? "rgba(0,212,255,0.1)" : "transparent",
-                  borderLeft: m.id === currentModuleId ? "2px solid #00d4ff" : "2px solid transparent",
+                  background:
+                    m.id === currentModuleId
+                      ? "rgba(0,212,255,0.1)"
+                      : "transparent",
+                  borderLeft:
+                    m.id === currentModuleId
+                      ? "2px solid #00d4ff"
+                      : "2px solid transparent",
                 }}
               >
                 <span style={styles.treeItemName}>{m.name}</span>
@@ -683,11 +847,22 @@ const ModuleDetail: React.FC = () => {
                   onClick={() => handleSelectFunction(f.id)}
                   style={{
                     ...styles.funcItem,
-                    background: f.id === selectedFunctionId ? "rgba(0,212,255,0.1)" : "transparent",
+                    background:
+                      f.id === selectedFunctionId
+                        ? "rgba(0,212,255,0.1)"
+                        : "transparent",
                   }}
                 >
                   <span style={styles.funcName}>
-                    {heat > 10 && <FireOutlined style={{ fontSize: 9, color: "#ffc145", marginRight: 4 }} />}
+                    {heat > 10 && (
+                      <FireOutlined
+                        style={{
+                          fontSize: 9,
+                          color: "#ffc145",
+                          marginRight: 4,
+                        }}
+                      />
+                    )}
                     {f.name}
                   </span>
                   <span style={styles.funcHeat}>{heat}</span>
@@ -707,7 +882,11 @@ const ModuleDetail: React.FC = () => {
               );
             })}
             {sortedFunctions.length === 0 && (
-              <Empty description={<span style={{ color: "#5a6a8a" }}>无匹配函数</span>} />
+              <Empty
+                description={
+                  <span style={{ color: "#5a6a8a" }}>无匹配函数</span>
+                }
+              />
             )}
             {sortedFunctions.length > 100 && (
               <div style={styles.moreHint}>仅显示前 100 条热点函数</div>
@@ -723,11 +902,14 @@ const ModuleDetail: React.FC = () => {
         ) : (
           <div style={{ width: "100%", height: "100%" }}>
             <ReactFlow
-              nodes={nodes}
-              edges={edges}
+              nodes={renderNodes}
+              edges={renderEdges}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onNodeClick={onNodeClick}
+              onNodeMouseEnter={onNodeMouseEnter}
+              onNodeMouseLeave={onNodeMouseLeave}
+              onPaneMouseLeave={onNodeMouseLeave}
               nodeTypes={nodeTypes}
               fitView
               fitViewOptions={{ padding: 0.2 }}
@@ -753,9 +935,12 @@ const ModuleDetail: React.FC = () => {
               <Panel position="top-left">
                 <div style={styles.moduleInfo}>
                   <div style={styles.moduleName}>{currentModule.name}</div>
-                  <div style={styles.moduleDesc}>{currentModule.displayName}</div>
+                  <div style={styles.moduleDesc}>
+                    {currentModule.displayName}
+                  </div>
                   <div style={styles.moduleStats}>
-                    {currentModule.functions.length} 函数 · 显示 {displayedFunctions.size} 个
+                    {currentModule.functions.length} 函数 · 显示{" "}
+                    {displayedFunctions.size} 个
                   </div>
                 </div>
               </Panel>
@@ -768,11 +953,22 @@ const ModuleDetail: React.FC = () => {
                     <span>热点函数（热度&gt;10）</span>
                   </div>
                   <div style={styles.legendItem}>
-                    <div style={{ ...styles.legendLine, background: EDGE_COLORS.same_module }} />
+                    <div
+                      style={{
+                        ...styles.legendLine,
+                        background: EDGE_COLORS.same_module,
+                      }}
+                    />
                     <span>同模块调用</span>
                   </div>
                   <div style={styles.legendItem}>
-                    <div style={{ ...styles.legendLine, background: EDGE_COLORS.cross_module, borderStyle: "dashed" }} />
+                    <div
+                      style={{
+                        ...styles.legendLine,
+                        background: EDGE_COLORS.cross_module,
+                        borderStyle: "dashed",
+                      }}
+                    />
                     <span>跨模块调用</span>
                   </div>
                 </div>

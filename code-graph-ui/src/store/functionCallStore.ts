@@ -27,12 +27,13 @@ interface FunctionCallStore {
 
   // === 选中状态 ===
   selectedFunctionId: string | null;
+  drawerFunctionId: string | null;
   currentView: ViewLevel;
 
   // === 调用链视图状态 ===
-  viewMode: ViewMode;  // 模块详情页视图模式
-  callChainRootId: string | null;  // 调用链根节点（选中的函数）
-  collapsedNodes: Set<string>;  // 折叠的虚拟节点 ID
+  viewMode: ViewMode; // 模块详情页视图模式
+  callChainRootId: string | null; // 调用链根节点（选中的函数）
+  collapsedNodes: Set<string>; // 折叠的虚拟节点 ID
 
   // === 索引（仅当前模块） ===
   callersIndex: Map<string, CallChain[]> | null;
@@ -48,6 +49,7 @@ interface FunctionCallStore {
   setCurrentView: (view: ViewLevel) => void;
   setSelectedModule: (id: string | null) => void;
   setSelectedFunction: (id: string | null) => void;
+  setDrawerFunction: (id: string | null) => void;
 
   // === Actions - 调用链视图 ===
   setViewMode: (mode: ViewMode) => void;
@@ -98,7 +100,10 @@ function buildCalleesIndex(callChains: CallChain[]): Map<string, CallChain[]> {
   return index;
 }
 
-function buildFuncInfoIndex(module: Module, externalFunctions: ExternalFunction[] = []): Map<string, FunctionInfo> {
+function buildFuncInfoIndex(
+  module: Module,
+  externalFunctions: ExternalFunction[] = [],
+): Map<string, FunctionInfo> {
   const index = new Map<string, FunctionInfo>();
   // 添加模块内部函数
   for (const func of module.functions) {
@@ -111,7 +116,9 @@ function buildFuncInfoIndex(module: Module, externalFunctions: ExternalFunction[
       id: extFunc.id,
       name: extFunc.name,
       fullName: extFunc.fullName,
-      className: extFunc.className || extFunc.fullName.split(".").slice(-2, -1).join("."),
+      className:
+        extFunc.className ||
+        extFunc.fullName.split(".").slice(-2, -1).join("."),
       type: extFunc.type || "service",
       visibility: "public",
       description: `外部函数 (${extFunc.moduleName})`,
@@ -125,6 +132,57 @@ function buildFuncInfoIndex(module: Module, externalFunctions: ExternalFunction[
       static: false,
     });
   }
+  return index;
+}
+
+function ensureFunctionsFromCallChains(
+  index: Map<string, FunctionInfo>,
+  callChains: CallChain[] = [],
+): Map<string, FunctionInfo> {
+  for (const chain of callChains) {
+    if (chain.sourceFunctionId && !index.has(chain.sourceFunctionId)) {
+      const fullName = chain.sourceFunctionName || chain.sourceFunctionId;
+      index.set(chain.sourceFunctionId, {
+        id: chain.sourceFunctionId,
+        name: fullName.split(".").pop() || fullName,
+        fullName,
+        className: fullName.split(".").slice(-2, -1).join("."),
+        type: "service",
+        visibility: "public",
+        description: `外部函数 (${chain.sourceModule})`,
+        sourceFile: "",
+        sourceLine: chain.sourceLine || 0,
+        params: [],
+        returnType: { type: "void", description: "" },
+        annotations: [],
+        callerCount: 0,
+        calleeCount: 0,
+        static: false,
+      });
+    }
+
+    if (chain.targetFunctionId && !index.has(chain.targetFunctionId)) {
+      const fullName = chain.targetFunctionName || chain.targetFunctionId;
+      index.set(chain.targetFunctionId, {
+        id: chain.targetFunctionId,
+        name: fullName.split(".").pop() || fullName,
+        fullName,
+        className: fullName.split(".").slice(-2, -1).join("."),
+        type: "service",
+        visibility: "public",
+        description: `外部函数 (${chain.targetModule})`,
+        sourceFile: "",
+        sourceLine: 0,
+        params: [],
+        returnType: { type: "void", description: "" },
+        annotations: [],
+        callerCount: 0,
+        calleeCount: 0,
+        static: false,
+      });
+    }
+  }
+
   return index;
 }
 
@@ -142,6 +200,7 @@ export const useFunctionCallStore = create<FunctionCallStore>((set, get) => ({
   moduleError: null,
 
   selectedFunctionId: null,
+  drawerFunctionId: null,
   currentView: "overview",
 
   // 调用链视图状态
@@ -159,9 +218,9 @@ export const useFunctionCallStore = create<FunctionCallStore>((set, get) => ({
     set({ overviewLoading: true, overviewError: null });
 
     try {
-      const response = await httpClient.get("/graph/function-call/overview", {
+      const response = (await httpClient.get("/graph/function-call/overview", {
         params: { repo_id: repoId },
-      }) as any;
+      })) as any;
 
       const overview: FunctionCallOverviewResponse = {
         repo_id: response.repo_id,
@@ -179,6 +238,7 @@ export const useFunctionCallStore = create<FunctionCallStore>((set, get) => ({
         currentView: "overview",
         currentModuleId: null,
         selectedFunctionId: null,
+        drawerFunctionId: null,
         moduleDetails: new Map(),
         // 重置调用链状态
         viewMode: "heatmap",
@@ -190,7 +250,8 @@ export const useFunctionCallStore = create<FunctionCallStore>((set, get) => ({
         funcInfoIndex: null,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "加载函数调用图概览失败";
+      const message =
+        err instanceof Error ? err.message : "加载函数调用图概览失败";
       set({ overviewError: message, overviewLoading: false });
     }
   },
@@ -206,7 +267,10 @@ export const useFunctionCallStore = create<FunctionCallStore>((set, get) => ({
         // 重建索引
         callersIndex: buildCallersIndex(cached.callChains),
         calleesIndex: buildCalleesIndex(cached.callChains),
-        funcInfoIndex: buildFuncInfoIndex(cached.module, cached.externalFunctions),
+        funcInfoIndex: ensureFunctionsFromCallChains(
+          buildFuncInfoIndex(cached.module, cached.externalFunctions),
+          cached.callChains,
+        ),
       });
       return;
     }
@@ -214,9 +278,12 @@ export const useFunctionCallStore = create<FunctionCallStore>((set, get) => ({
     set({ moduleLoading: true, moduleError: null });
 
     try {
-      const response = await httpClient.get(`/graph/function-call/module/${moduleId}`, {
-        params: { repo_id: repoId },
-      }) as any;
+      const response = (await httpClient.get(
+        `/graph/function-call/module/${moduleId}`,
+        {
+          params: { repo_id: repoId },
+        },
+      )) as any;
 
       const detailData: ModuleDetailData = {
         module: response.module,
@@ -235,7 +302,10 @@ export const useFunctionCallStore = create<FunctionCallStore>((set, get) => ({
         // 构建索引（包含外部函数）
         callersIndex: buildCallersIndex(detailData.callChains),
         calleesIndex: buildCalleesIndex(detailData.callChains),
-        funcInfoIndex: buildFuncInfoIndex(detailData.module, detailData.externalFunctions),
+        funcInfoIndex: ensureFunctionsFromCallChains(
+          buildFuncInfoIndex(detailData.module, detailData.externalFunctions),
+          detailData.callChains,
+        ),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "加载模块详情失败";
@@ -253,6 +323,7 @@ export const useFunctionCallStore = create<FunctionCallStore>((set, get) => ({
       moduleLoading: false,
       moduleError: null,
       selectedFunctionId: null,
+      drawerFunctionId: null,
       currentView: "overview",
       // 重置调用链状态
       viewMode: "heatmap",
@@ -268,21 +339,26 @@ export const useFunctionCallStore = create<FunctionCallStore>((set, get) => ({
 
   setCurrentView: (view) => set({ currentView: view }),
 
-  setSelectedModule: (id) => set({
-    currentModuleId: id,
-    selectedFunctionId: null,
-  }),
+  setSelectedModule: (id) =>
+    set({
+      currentModuleId: id,
+      selectedFunctionId: null,
+      drawerFunctionId: null,
+    }),
 
   setSelectedFunction: (id) => set({ selectedFunctionId: id }),
+
+  setDrawerFunction: (id) => set({ drawerFunctionId: id }),
 
   // === Actions - 调用链视图 ===
 
   setViewMode: (mode) => set({ viewMode: mode }),
 
-  setCallChainRoot: (funcId) => set({
-    callChainRootId: funcId,
-    collapsedNodes: new Set(),  // 切换根节点时重置折叠状态
-  }),
+  setCallChainRoot: (funcId) =>
+    set({
+      callChainRootId: funcId,
+      collapsedNodes: new Set(), // 切换根节点时重置折叠状态
+    }),
 
   toggleCollapsedNode: (nodeId) => {
     const { collapsedNodes } = get();
@@ -295,10 +371,11 @@ export const useFunctionCallStore = create<FunctionCallStore>((set, get) => ({
     set({ collapsedNodes: newSet });
   },
 
-  resetCallChain: () => set({
-    callChainRootId: null,
-    collapsedNodes: new Set(),
-  }),
+  resetCallChain: () =>
+    set({
+      callChainRootId: null,
+      collapsedNodes: new Set(),
+    }),
 
   // === 辅助方法 ===
 

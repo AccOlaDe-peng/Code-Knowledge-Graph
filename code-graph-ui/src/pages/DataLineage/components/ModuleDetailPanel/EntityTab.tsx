@@ -31,12 +31,19 @@ const EntityTab: React.FC<EntityTabProps> = ({ entities, moduleColor }) => {
         style={{
           textAlign: "center",
           padding: 40,
-          color: "#4a5a7a",
+          color: "#95b0d1",
           fontFamily: "'IBM Plex Mono', monospace",
-          fontSize: 11,
+          fontSize: 12,
         }}
       >
-        <TableOutlined style={{ fontSize: 32, opacity: 0.3, marginBottom: 12, display: "block" }} />
+        <TableOutlined
+          style={{
+            fontSize: 32,
+            opacity: 0.3,
+            marginBottom: 12,
+            display: "block",
+          }}
+        />
         暂无实体数据
       </div>
     );
@@ -126,8 +133,8 @@ const EntityCard: React.FC<{ entity: Entity; moduleColor: string }> = ({
             <div
               style={{
                 fontFamily: "'IBM Plex Mono', monospace",
-                fontSize: 10,
-                color: "#8898b8",
+                fontSize: 11,
+                color: "#b6c9e8",
                 marginTop: 2,
               }}
             >
@@ -138,8 +145,8 @@ const EntityCard: React.FC<{ entity: Entity; moduleColor: string }> = ({
 
         <DownOutlined
           style={{
-            fontSize: 10,
-            color: "#8898b8",
+            fontSize: 11,
+            color: "#b6c9e8",
             transform: expanded ? "rotate(180deg)" : "none",
             transition: "transform 0.2s ease",
           }}
@@ -159,8 +166,8 @@ const EntityCard: React.FC<{ entity: Entity; moduleColor: string }> = ({
             style={{
               marginTop: 10,
               fontFamily: "'IBM Plex Mono', monospace",
-              fontSize: 10,
-              color: "#7a8aaa",
+              fontSize: 11,
+              color: "#a9bfdc",
               lineHeight: 1.6,
             }}
           >
@@ -181,8 +188,8 @@ const EntityCard: React.FC<{ entity: Entity; moduleColor: string }> = ({
               <span
                 style={{
                   fontFamily: "'IBM Plex Mono', monospace",
-                  fontSize: 10,
-                  color: "#8898b8",
+                  fontSize: 11,
+                  color: "#b6c9e8",
                 }}
               >
                 字段定义
@@ -230,12 +237,12 @@ const EntityCard: React.FC<{ entity: Entity; moduleColor: string }> = ({
               borderRadius: 6,
             }}
           >
-            <FileTextOutlined style={{ fontSize: 11, color: "#8898b8" }} />
+            <FileTextOutlined style={{ fontSize: 11, color: "#b6c9e8" }} />
             <span
               style={{
                 fontFamily: "'IBM Plex Mono', monospace",
-                fontSize: 9,
-                color: "#98a8c8",
+                fontSize: 10,
+                color: "#b3c7e4",
               }}
               title={entity.sourceFile}
             >

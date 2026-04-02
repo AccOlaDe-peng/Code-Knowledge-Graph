@@ -18,22 +18,27 @@ import { FUNCTION_TYPE_COLORS } from "../../types";
 const FunctionDrawer: React.FC = () => {
   const {
     selectedFunctionId,
+    drawerFunctionId,
     setSelectedFunction,
+    setDrawerFunction,
     getFunctionById,
     getModuleByFunctionId,
     getCallers,
     getCallees,
   } = useFunctionCallStore();
 
-  const func = selectedFunctionId ? getFunctionById(selectedFunctionId) : null;
-  const module = selectedFunctionId ? getModuleByFunctionId(selectedFunctionId) : null;
-  const callers = selectedFunctionId ? getCallers(selectedFunctionId) : [];
-  const callees = selectedFunctionId ? getCallees(selectedFunctionId) : [];
+  const funcId = drawerFunctionId ?? selectedFunctionId;
+  const func = funcId ? getFunctionById(funcId) : null;
+  const module = funcId ? getModuleByFunctionId(funcId) : null;
+  const callers = funcId ? getCallers(funcId) : [];
+  const callees = funcId ? getCallees(funcId) : [];
 
-  const colors = func ? FUNCTION_TYPE_COLORS[func.type] || FUNCTION_TYPE_COLORS.service : null;
+  const colors = func
+    ? FUNCTION_TYPE_COLORS[func.type] || FUNCTION_TYPE_COLORS.service
+    : null;
 
   const handleClose = () => {
-    setSelectedFunction(null);
+    setDrawerFunction(null);
   };
 
   return (
@@ -41,7 +46,9 @@ const FunctionDrawer: React.FC = () => {
       title={
         func ? (
           <div style={styles.title}>
-            <FunctionOutlined style={{ color: colors?.text || "#00d4ff", marginRight: 8 }} />
+            <FunctionOutlined
+              style={{ color: colors?.text || "#00d4ff", marginRight: 8 }}
+            />
             <span style={{ color: "#a8b8d8" }}>{func.name}</span>
           </div>
         ) : (
@@ -50,7 +57,7 @@ const FunctionDrawer: React.FC = () => {
       }
       placement="right"
       width={400}
-      open={!!selectedFunctionId}
+      open={!!drawerFunctionId}
       onClose={handleClose}
       styles={{
         body: { background: "#0a0d14", padding: "16px 20px" },
@@ -121,7 +128,9 @@ const FunctionDrawer: React.FC = () => {
                 <span key={i}>
                   <span style={{ color: "#ffc145" }}>{p.type}</span>
                   <span style={{ color: "#7888a8" }}> {p.name}</span>
-                  {i < func.params.length - 1 && <span style={{ color: "#7888a8" }}>, </span>}
+                  {i < func.params.length - 1 && (
+                    <span style={{ color: "#7888a8" }}>, </span>
+                  )}
                 </span>
               ))}
               <span style={{ color: "#7888a8" }}>)</span>
@@ -167,24 +176,31 @@ const FunctionDrawer: React.FC = () => {
 
           {/* Callers */}
           <div style={styles.section}>
-            <div style={styles.sectionLabel}>
-              被调用 ({callers.length})
-            </div>
+            <div style={styles.sectionLabel}>被调用 ({callers.length})</div>
             {callers.length > 0 ? (
               <div style={styles.callList}>
                 {callers.slice(0, 10).map((c, i) => (
                   <div
                     key={i}
                     style={styles.callItem}
-                    onClick={() => setSelectedFunction(c.sourceFunctionId)}
+                    onClick={() => {
+                      setSelectedFunction(c.sourceFunctionId);
+                      setDrawerFunction(c.sourceFunctionId);
+                    }}
                   >
-                    <ArrowRightOutlined style={{ color: "#00f084", marginRight: 8, fontSize: 10 }} />
-                    <span style={styles.callName}>{c.sourceFunctionName.split(".").pop()}</span>
+                    <ArrowRightOutlined
+                      style={{ color: "#00f084", marginRight: 8, fontSize: 10 }}
+                    />
+                    <span style={styles.callName}>
+                      {c.sourceFunctionName.split(".").pop()}
+                    </span>
                     <span style={styles.callModule}>{c.sourceModule}</span>
                   </div>
                 ))}
                 {callers.length > 10 && (
-                  <div style={styles.moreHint}>还有 {callers.length - 10} 个...</div>
+                  <div style={styles.moreHint}>
+                    还有 {callers.length - 10} 个...
+                  </div>
                 )}
               </div>
             ) : (
@@ -194,24 +210,31 @@ const FunctionDrawer: React.FC = () => {
 
           {/* Callees */}
           <div style={styles.section}>
-            <div style={styles.sectionLabel}>
-              调用目标 ({callees.length})
-            </div>
+            <div style={styles.sectionLabel}>调用目标 ({callees.length})</div>
             {callees.length > 0 ? (
               <div style={styles.callList}>
                 {callees.slice(0, 10).map((c, i) => (
                   <div
                     key={i}
                     style={styles.callItem}
-                    onClick={() => setSelectedFunction(c.targetFunctionId)}
+                    onClick={() => {
+                      setSelectedFunction(c.targetFunctionId);
+                      setDrawerFunction(c.targetFunctionId);
+                    }}
                   >
-                    <ArrowRightOutlined style={{ color: "#ffc145", marginRight: 8, fontSize: 10 }} />
-                    <span style={styles.callName}>{c.targetFunctionName.split(".").pop()}</span>
+                    <ArrowRightOutlined
+                      style={{ color: "#ffc145", marginRight: 8, fontSize: 10 }}
+                    />
+                    <span style={styles.callName}>
+                      {c.targetFunctionName.split(".").pop()}
+                    </span>
                     <span style={styles.callModule}>{c.targetModule}</span>
                   </div>
                 ))}
                 {callees.length > 10 && (
-                  <div style={styles.moreHint}>还有 {callees.length - 10} 个...</div>
+                  <div style={styles.moreHint}>
+                    还有 {callees.length - 10} 个...
+                  </div>
                 )}
               </div>
             ) : (

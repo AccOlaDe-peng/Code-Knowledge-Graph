@@ -23,16 +23,18 @@ import "reactflow/dist/style.css";
 import { Empty, Tag } from "antd";
 import { WarningOutlined } from "@ant-design/icons";
 import { useFunctionCallStore } from "../../../../store/functionCallStore";
-import { useCallChainData, useCollapsedVirtualNodes } from "./hooks/useCallChainData";
+import type { CallChainNodeData } from "../../types";
+import {
+  useCallChainData,
+  useCollapsedVirtualNodes,
+} from "./hooks/useCallChainData";
 import { computeCallChainLayout } from "../../utils/layout";
 import { EDGE_COLORS } from "../../types";
 import CallChainNode from "./CallChainNode";
-import CallChainEdge from "./CallChainEdge";
 
 // ─── 常量 ─────────────────────────────────────────────────────────────────────
 
 const nodeTypes = { callChainNode: CallChainNode };
-const edgeTypes = { callChainEdge: CallChainEdge };
 
 // ─── 主组件 ────────────────────────────────────────────────────────────────────
 
@@ -42,10 +44,18 @@ const CallChainView: React.FC = () => {
     toggleCollapsedNode,
     funcInfoIndex,
     setSelectedFunction,
+    setDrawerFunction,
   } = useFunctionCallStore();
+  const [hoveredNodeId, setHoveredNodeId] = React.useState<string | null>(null);
 
   // 获取调用链数据
-  const { nodes: chainNodes, edges: chainEdges, collapsedInfo, hasCycle, cycleEdges } = useCallChainData();
+  const {
+    nodes: chainNodes,
+    edges: chainEdges,
+    collapsedInfo,
+    hasCycle,
+    cycleEdges,
+  } = useCallChainData();
 
   // 获取折叠虚拟节点
   const virtualNodes = useCollapsedVirtualNodes(collapsedInfo);
@@ -76,81 +86,102 @@ const CallChainView: React.FC = () => {
 
   // 转换为 ReactFlow 边
   const initialEdges = useMemo((): Edge[] => {
-    // 需要根据节点数据重建边
-    const nodeIds = new Set(allNodes.map(n => n.id));
-    const edges: Edge[] = [];
+    const nodeIds = new Set(allNodes.map((n) => n.id));
 
-    // 遍历节点，根据方向和距离重建边关系
-    for (const node of allNodes) {
-      if (node.direction === "root" || node.isCollapsed) continue;
+    return chainEdges
+      .filter(
+        (edge) =>
+          nodeIds.has(edge.sourceFunctionId) &&
+          nodeIds.has(edge.targetFunctionId),
+      )
+      .map((edge) => {
+        const cycleKey = `${edge.sourceFunctionId}->${edge.targetFunctionId}`;
+        const isCycle = cycleEdges.has(cycleKey);
+        const color = isCycle
+          ? "#ff6b6b"
+          : edge.callType === "interface"
+            ? EDGE_COLORS.interface_call
+            : edge.isCrossModule
+              ? EDGE_COLORS.cross_module
+              : EDGE_COLORS.same_module;
 
-      // 找到该节点连接的目标节点
-      if (node.direction === "caller") {
-        // 调用者连接到距离更近的节点
-        const targetDistance = node.distance - 1;
-        const possibleTargets = allNodes.filter(
-          n => (n.distance === targetDistance && n.direction === "caller") || n.direction === "root"
-        );
-
-        for (const target of possibleTargets) {
-          if (nodeIds.has(target.id)) {
-            const isCycle = cycleEdges.has(`${node.id}->${target.id}`);
-            edges.push({
-              id: `edge-${node.id}-${target.id}`,
-              source: node.id,
-              target: target.id,
-              type: "callChainEdge",
-              animated: false,
-              data: {
-                sourceLine: 0,  // 需要从原始数据获取
-                callType: "direct",
-                isCrossModule: false,
-                isCycle,
-              },
-              markerEnd: {
-                type: MarkerType.ArrowClosed,
-                color: isCycle ? "#ff6b6b" : EDGE_COLORS.same_module,
-              },
-            });
-          }
-        }
-      } else if (node.direction === "callee") {
-        // 被调用者从距离更近的节点连接
-        const sourceDistance = node.distance - 1;
-        const possibleSources = allNodes.filter(
-          n => (n.distance === sourceDistance && n.direction === "callee") || n.direction === "root"
-        );
-
-        for (const source of possibleSources) {
-          if (nodeIds.has(source.id)) {
-            const isCycle = cycleEdges.has(`${source.id}->${node.id}`);
-            edges.push({
-              id: `edge-${source.id}-${node.id}`,
-              source: source.id,
-              target: node.id,
-              type: "callChainEdge",
-              animated: false,
-              data: {
-                sourceLine: 0,
-                callType: "direct",
-                isCrossModule: false,
-                isCycle,
-              },
-              markerEnd: {
-                type: MarkerType.ArrowClosed,
-                color: isCycle ? "#ff6b6b" : EDGE_COLORS.same_module,
-              },
-            });
-          }
-        }
-      }
-    }
-
-    return edges;
-  }, [allNodes, cycleEdges]);
+        return {
+          id: `edge-${edge.sourceFunctionId}-${edge.targetFunctionId}-${edge.sourceLine}`,
+          source: edge.sourceFunctionId,
+          target: edge.targetFunctionId,
+          type: "smoothstep",
+          animated: edge.isCrossModule || isCycle,
+          label: `L:${edge.sourceLine}`,
+          labelStyle: {
+            fill: color,
+            fontSize: 10,
+            fontFamily: "var(--font-mono)",
+          },
+          style: {
+            stroke: color,
+            strokeWidth: 1.5,
+            opacity: 0.85,
+            strokeDasharray:
+              edge.isCrossModule || edge.callType === "interface"
+                ? "5,5"
+                : undefined,
+          },
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color,
+          },
+        };
+      });
+  }, [allNodes, chainEdges, cycleEdges]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+
+  const hoverRelatedNodeIds = useMemo(() => {
+    if (!hoveredNodeId) return null;
+
+    const related = new Set<string>([hoveredNodeId]);
+    for (const edge of edges) {
+      if (edge.source === hoveredNodeId) {
+        related.add(edge.target);
+      }
+      if (edge.target === hoveredNodeId) {
+        related.add(edge.source);
+      }
+    }
+    return related;
+  }, [hoveredNodeId, edges]);
+
+  const renderNodes = useMemo(() => {
+    if (!hoverRelatedNodeIds || !hoveredNodeId) return nodes;
+
+    return nodes.map((node) => ({
+      ...node,
+      style: {
+        ...(node.style || {}),
+        opacity: hoverRelatedNodeIds.has(node.id) ? 1 : 0.2,
+        transition: "opacity 0.15s ease",
+      },
+    }));
+  }, [nodes, hoverRelatedNodeIds, hoveredNodeId]);
+
+  const renderEdges = useMemo(() => {
+    if (!hoveredNodeId) return edges;
+
+    return edges.map((edge) => {
+      const isRelated =
+        edge.source === hoveredNodeId || edge.target === hoveredNodeId;
+
+      return {
+        ...edge,
+        style: {
+          ...(edge.style || {}),
+          opacity: isRelated ? 0.9 : 0.08,
+          transition: "opacity 0.15s ease",
+        },
+      };
+    });
+  }, [edges, hoveredNodeId]);
 
   // 更新节点和边
   useEffect(() => {
@@ -160,8 +191,8 @@ const CallChainView: React.FC = () => {
 
   // 点击节点
   const onNodeClick = useCallback(
-    (_: React.MouseEvent, node: Node) => {
-      const data = node.data as any;
+    (_: React.MouseEvent, node: Node<CallChainNodeData>) => {
+      const data = node.data;
 
       // 点击折叠节点，展开
       if (data.isCollapsed) {
@@ -171,9 +202,21 @@ const CallChainView: React.FC = () => {
 
       // 点击普通节点，选中
       setSelectedFunction(data.id);
+      setDrawerFunction(data.id);
     },
-    [toggleCollapsedNode, setSelectedFunction]
+    [toggleCollapsedNode, setSelectedFunction, setDrawerFunction],
   );
+
+  const onNodeMouseEnter = useCallback(
+    (_: React.MouseEvent, node: Node<CallChainNodeData>) => {
+      setHoveredNodeId(node.id);
+    },
+    [],
+  );
+
+  const onNodeMouseLeave = useCallback(() => {
+    setHoveredNodeId(null);
+  }, []);
 
   // 未选择函数
   if (!callChainRootId) {
@@ -206,13 +249,15 @@ const CallChainView: React.FC = () => {
   return (
     <div style={{ width: "100%", height: "100%" }}>
       <ReactFlow
-        nodes={nodes}
-        edges={edges}
+        nodes={renderNodes}
+        edges={renderEdges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={onNodeClick}
+        onNodeMouseEnter={onNodeMouseEnter}
+        onNodeMouseLeave={onNodeMouseLeave}
+        onPaneMouseLeave={onNodeMouseLeave}
         nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
         fitView
         fitViewOptions={{ padding: 0.3 }}
         minZoom={0.2}
@@ -257,15 +302,31 @@ const CallChainView: React.FC = () => {
           <div style={styles.legend}>
             <div style={styles.legendTitle}>调用链图例</div>
             <div style={styles.legendItem}>
-              <div style={{ ...styles.legendLine, background: EDGE_COLORS.same_module }} />
+              <div
+                style={{
+                  ...styles.legendLine,
+                  background: EDGE_COLORS.same_module,
+                }}
+              />
               <span>同模块调用</span>
             </div>
             <div style={styles.legendItem}>
-              <div style={{ ...styles.legendLine, background: EDGE_COLORS.cross_module, borderStyle: "dashed" }} />
+              <div
+                style={{
+                  ...styles.legendLine,
+                  background: EDGE_COLORS.cross_module,
+                  borderStyle: "dashed",
+                }}
+              />
               <span>跨模块调用</span>
             </div>
             <div style={styles.legendItem}>
-              <div style={{ ...styles.legendLine, background: EDGE_COLORS.interface_call }} />
+              <div
+                style={{
+                  ...styles.legendLine,
+                  background: EDGE_COLORS.interface_call,
+                }}
+              />
               <span>接口调用</span>
             </div>
             <div style={styles.legendItem}>
@@ -279,8 +340,12 @@ const CallChainView: React.FC = () => {
         {collapsedInfo.size > 0 && (
           <Panel position="top-right">
             <div style={styles.hint}>
-              已折叠 {Array.from(collapsedInfo.values()).reduce((sum, info) => sum + info.count, 0)} 个节点，
-              点击折叠节点可展开
+              已折叠{" "}
+              {Array.from(collapsedInfo.values()).reduce(
+                (sum, info) => sum + info.count,
+                0,
+              )}{" "}
+              个节点， 点击折叠节点可展开
             </div>
           </Panel>
         )}

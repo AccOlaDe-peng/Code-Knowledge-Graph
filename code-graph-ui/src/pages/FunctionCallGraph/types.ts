@@ -107,8 +107,8 @@ export interface FunctionCallOverviewResponse {
 // 外部函数信息（跨模块调用涉及）
 export interface ExternalFunction {
   id: string;
-  name: string;  // 函数短名
-  fullName: string;  // 全限定名
+  name: string; // 函数短名
+  fullName: string; // 全限定名
   moduleId: string;
   moduleName: string;
   type?: FunctionType;
@@ -142,27 +142,29 @@ export type ViewMode = "heatmap" | "callchain";
 
 // 调用链节点数据（扩展 FunctionInfo）
 export interface CallChainNodeData extends FunctionInfo {
-  distance: number;  // 距离根节点的层数
-  direction: "caller" | "callee" | "root";  // 方向
-  isCollapsed?: boolean;  // 是否为折叠节点
-  collapsedCount?: number;  // 折叠的节点数量
-  isRoot?: boolean;  // 是否为根节点（选中的函数）
+  distance: number; // 距离根节点的层数
+  direction: "caller" | "callee" | "root"; // 方向
+  isCollapsed?: boolean; // 是否为折叠节点
+  collapsedCount?: number; // 折叠的节点数量
+  isRoot?: boolean; // 是否为根节点（选中的函数）
 }
 
 // 调用链边数据
 export interface CallChainEdgeData {
-  sourceLine: number;  // 调用行号
-  callType: "direct" | "interface";  // 调用类型
-  isCrossModule: boolean;  // 是否跨模块调用
+  sourceFunctionId: string; // 源函数 ID
+  targetFunctionId: string; // 目标函数 ID
+  sourceLine: number; // 调用行号
+  callType: "direct" | "interface"; // 调用类型
+  isCrossModule: boolean; // 是否跨模块调用
 }
 
 // 折叠节点信息
 export interface CollapsedNodeInfo {
-  id: string;  // 折叠节点 ID
-  direction: "caller" | "callee";  // 方向
-  distance: number;  // 所在层级
-  count: number;  // 折叠的节点数量
-  parentNodeId: string;  // 父节点 ID（用于展开）
+  id: string; // 折叠节点 ID
+  direction: "caller" | "callee"; // 方向
+  distance: number; // 所在层级
+  count: number; // 折叠的节点数量
+  parentNodeId: string; // 父节点 ID（用于展开）
 }
 
 export interface FunctionCallStoreState {
@@ -185,7 +187,10 @@ export interface FunctionCallStoreState {
 
 // ─── 颜色配置 ─────────────────────────────────────────────────────────────────
 
-export const FUNCTION_TYPE_COLORS: Record<FunctionType, { bg: string; border: string; text: string }> = {
+export const FUNCTION_TYPE_COLORS: Record<
+  FunctionType,
+  { bg: string; border: string; text: string }
+> = {
   service: { bg: "#0d1117", border: "#00d4ff", text: "#00d4ff" },
   controller: { bg: "#0d1117", border: "#00f084", text: "#00f084" },
   repository: { bg: "#0d1117", border: "#b08eff", text: "#b08eff" },

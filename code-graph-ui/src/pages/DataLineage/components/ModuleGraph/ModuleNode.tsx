@@ -46,18 +46,18 @@ const ModuleNode: React.FC<NodeProps<ModuleNodeData>> = ({ data }) => {
       style={{
         background: isSelected
           ? `linear-gradient(135deg, ${module.color}30, ${module.color}15)`
-          : "rgba(18, 25, 35, 0.98)",  // 从 rgba(10,15,22) 提升
+          : "rgba(18, 25, 35, 0.98)", // 从 rgba(10,15,22) 提升
         border: isSelected
           ? `3px solid ${module.color}`
-          : `2.5px solid ${module.color}99`,  // 从 1px 提升到 2.5px
+          : `2.5px solid ${module.color}99`, // 从 1px 提升到 2.5px
         borderRadius: 10,
         padding: "14px 18px",
         minWidth: 190,
         maxWidth: 240,
         cursor: "pointer",
         boxShadow: isSelected
-          ? `0 0 24px ${module.color}40, 0 4px 12px rgba(0,0,0,0.4)`  // 发光 + 阴影
-          : `0 2px 10px rgba(0,0,0,0.35), inset 0 1px 0 ${module.color}15`,  // 内发光边框
+          ? `0 0 24px ${module.color}40, 0 4px 12px rgba(0,0,0,0.4)` // 发光 + 阴影
+          : `0 2px 10px rgba(0,0,0,0.35), inset 0 1px 0 ${module.color}15`, // 内发光边框
         transition: "all 0.2s ease",
       }}
     >
@@ -90,7 +90,7 @@ const ModuleNode: React.FC<NodeProps<ModuleNodeData>> = ({ data }) => {
             fontWeight: 700,
             color: module.color,
             letterSpacing: "0.02em",
-            textShadow: `0 0 8px ${module.color}50`,  // 文字发光
+            textShadow: `0 0 8px ${module.color}50`, // 文字发光
           }}
         >
           {module.name}
@@ -102,7 +102,7 @@ const ModuleNode: React.FC<NodeProps<ModuleNodeData>> = ({ data }) => {
         style={{
           fontFamily: "'JetBrains Mono', 'IBM Plex Mono', monospace",
           fontSize: 11,
-          color: "#c8d4e8",  // 提亮以提升对比度
+          color: "#c8d4e8", // 提亮以提升对比度
           lineHeight: 1.5,
           overflow: "hidden",
           textOverflow: "ellipsis",
@@ -120,38 +120,44 @@ const ModuleNode: React.FC<NodeProps<ModuleNodeData>> = ({ data }) => {
           gap: 14,
           marginTop: 10,
           paddingTop: 10,
-          borderTop: `1px solid ${module.color}35`,  // 从 22 提升透明度
+          borderTop: `1px solid ${module.color}35`, // 从 22 提升透明度
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-          <span style={{
-            fontSize: 12,
-            fontWeight: 600,
-            color: module.color,
-          }}>
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: module.color,
+            }}
+          >
             {module.entities.length}
           </span>
-          <span style={{ fontSize: 10, color: "#8898b8" }}>实体</span>
+          <span style={{ fontSize: 11, color: "#b6c9e8" }}>实体</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-          <span style={{
-            fontSize: 12,
-            fontWeight: 600,
-            color: module.color,
-          }}>
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: module.color,
+            }}
+          >
             {module.businessFlows.length}
           </span>
-          <span style={{ fontSize: 10, color: "#8898b8" }}>流程</span>
+          <span style={{ fontSize: 11, color: "#b6c9e8" }}>流程</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-          <span style={{
-            fontSize: 12,
-            fontWeight: 600,
-            color: module.color,
-          }}>
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: module.color,
+            }}
+          >
             {module.subFunctions.length}
           </span>
-          <span style={{ fontSize: 10, color: "#8898b8" }}>功能</span>
+          <span style={{ fontSize: 11, color: "#b6c9e8" }}>功能</span>
         </div>
       </div>
 

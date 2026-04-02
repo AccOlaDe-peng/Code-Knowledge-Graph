@@ -49,7 +49,7 @@ const TAB_ITEMS = [
     key: "entities",
     label: "实体",
     icon: <DatabaseOutlined />,
-    color: "#00f084",  // 从紫色改为绿色，更清晰
+    color: "#00f084", // 从紫色改为绿色，更清晰
   },
   {
     key: "functions",
@@ -75,19 +75,25 @@ const ModuleDetailPanel: React.FC<ModuleDetailPanelProps> = ({
   const panelRef = useRef<HTMLDivElement>(null);
 
   // 拖拽处理
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-    dragStartY.current = e.clientY;
-    dragStartHeight.current = isFullscreen ? DEFAULT_HEIGHT : panelHeight;
-  }, [panelHeight, isFullscreen]);
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      setIsDragging(true);
+      dragStartY.current = e.clientY;
+      dragStartHeight.current = isFullscreen ? DEFAULT_HEIGHT : panelHeight;
+    },
+    [panelHeight, isFullscreen],
+  );
 
   useEffect(() => {
     if (!isDragging) return;
 
     const handleMouseMove = (e: MouseEvent) => {
       const deltaY = dragStartY.current - e.clientY;
-      const newHeight = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, dragStartHeight.current + deltaY));
+      const newHeight = Math.min(
+        MAX_HEIGHT,
+        Math.max(MIN_HEIGHT, dragStartHeight.current + deltaY),
+      );
       setPanelHeight(newHeight);
       if (isFullscreen) setIsFullscreen(false);
     };
@@ -111,7 +117,7 @@ const ModuleDetailPanel: React.FC<ModuleDetailPanelProps> = ({
   }, []);
 
   // 计算实际高度
-  const actualHeight = collapsed ? 48 : (isFullscreen ? MAX_HEIGHT : panelHeight);
+  const actualHeight = collapsed ? 48 : isFullscreen ? MAX_HEIGHT : panelHeight;
 
   // 模块为空时的占位
   if (!module) {
@@ -132,8 +138,8 @@ const ModuleDetailPanel: React.FC<ModuleDetailPanelProps> = ({
           <div
             style={{
               fontFamily: "'IBM Plex Mono', monospace",
-              fontSize: 11,
-              color: "#4a5a7a",
+              fontSize: 12,
+              color: "#95b0d1",
               letterSpacing: "0.05em",
             }}
           >
@@ -175,7 +181,9 @@ const ModuleDetailPanel: React.FC<ModuleDetailPanelProps> = ({
               width: 40,
               height: 3,
               borderRadius: 2,
-              background: isDragging ? module.color : "rgba(120, 136, 168, 0.3)",
+              background: isDragging
+                ? module.color
+                : "rgba(120, 136, 168, 0.3)",
               transition: "background 0.2s",
             }}
           />
@@ -237,8 +245,8 @@ const ModuleDetailPanel: React.FC<ModuleDetailPanelProps> = ({
               <span
                 style={{
                   fontFamily: "'IBM Plex Mono', monospace",
-                  fontSize: 10,
-                  color: "#a8b8d8",
+                  fontSize: 11,
+                  color: "#bfd0e8",
                   letterSpacing: "0.02em",
                 }}
               >
@@ -248,8 +256,8 @@ const ModuleDetailPanel: React.FC<ModuleDetailPanelProps> = ({
             <div
               style={{
                 fontFamily: "'IBM Plex Mono', monospace",
-                fontSize: 10,
-                color: "#98a8c8",
+                fontSize: 11,
+                color: "#b3c7e4",
                 marginTop: 2,
                 maxWidth: 320,
                 overflow: "hidden",
@@ -266,9 +274,21 @@ const ModuleDetailPanel: React.FC<ModuleDetailPanelProps> = ({
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           {/* 统计徽章 */}
           <div style={{ display: "flex", gap: 6, marginRight: 8 }}>
-            <StatBadge count={module.entities.length} label="实体" color="#00f084" />
-            <StatBadge count={module.businessFlows.length} label="流程" color="#ffc145" />
-            <StatBadge count={module.subFunctions.length} label="功能" color="#00d4ff" />
+            <StatBadge
+              count={module.entities.length}
+              label="实体"
+              color="#00f084"
+            />
+            <StatBadge
+              count={module.businessFlows.length}
+              label="流程"
+              color="#ffc145"
+            />
+            <StatBadge
+              count={module.subFunctions.length}
+              label="功能"
+              color="#00d4ff"
+            />
           </div>
 
           {/* 全屏按钮 */}
@@ -277,9 +297,15 @@ const ModuleDetailPanel: React.FC<ModuleDetailPanelProps> = ({
               <Button
                 type="text"
                 size="small"
-                icon={isFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+                icon={
+                  isFullscreen ? (
+                    <FullscreenExitOutlined />
+                  ) : (
+                    <FullscreenOutlined />
+                  )
+                }
                 onClick={toggleFullscreen}
-                style={{ color: "#a8b8d8", fontSize: 12 }}
+                style={{ color: "#bfd0e8", fontSize: 12 }}
               />
             </Tooltip>
           )}
@@ -291,7 +317,7 @@ const ModuleDetailPanel: React.FC<ModuleDetailPanelProps> = ({
               size="small"
               icon={collapsed ? <RightOutlined /> : <DownOutlined />}
               onClick={() => onCollapseChange?.(!collapsed)}
-              style={{ color: "#a8b8d8" }}
+              style={{ color: "#bfd0e8" }}
             />
           </Tooltip>
         </div>
@@ -327,18 +353,28 @@ const ModuleDetailPanel: React.FC<ModuleDetailPanelProps> = ({
                   gap: 6,
                   padding: "8px 14px",
                   border: "none",
-                  background: activeTab === tab.key ? `${tab.color}12` : "transparent",
-                  color: activeTab === tab.key ? tab.color : "#98a8c8",
+                  background:
+                    activeTab === tab.key ? `${tab.color}12` : "transparent",
+                  color: activeTab === tab.key ? tab.color : "#bfd0e8",
                   fontFamily: "'IBM Plex Mono', monospace",
-                  fontSize: 11,
+                  fontSize: 12,
                   fontWeight: 500,
                   cursor: "pointer",
-                  borderBottom: activeTab === tab.key ? `2px solid ${tab.color}` : "2px solid transparent",
+                  borderBottom:
+                    activeTab === tab.key
+                      ? `2px solid ${tab.color}`
+                      : "2px solid transparent",
                   marginBottom: -1,
                   transition: "all 0.15s ease",
                 }}
               >
-                <span style={{ fontSize: 12 }}>{React.cloneElement(tab.icon, { style: { color: activeTab === tab.key ? tab.color : "#98a8c8" } })}</span>
+                <span style={{ fontSize: 13 }}>
+                  {React.cloneElement(tab.icon, {
+                    style: {
+                      color: activeTab === tab.key ? tab.color : "#bfd0e8",
+                    },
+                  })}
+                </span>
                 {tab.label}
               </button>
             ))}
@@ -352,9 +388,24 @@ const ModuleDetailPanel: React.FC<ModuleDetailPanelProps> = ({
               padding: "12px 16px",
             }}
           >
-            {activeTab === "entities" && <EntityTab entities={module.entities} moduleColor={module.color} />}
-            {activeTab === "flows" && <BusinessFlowTab businessFlows={module.businessFlows} moduleColor={module.color} />}
-            {activeTab === "functions" && <FunctionTab subFunctions={module.subFunctions} moduleColor={module.color} />}
+            {activeTab === "entities" && (
+              <EntityTab
+                entities={module.entities}
+                moduleColor={module.color}
+              />
+            )}
+            {activeTab === "flows" && (
+              <BusinessFlowTab
+                businessFlows={module.businessFlows}
+                moduleColor={module.color}
+              />
+            )}
+            {activeTab === "functions" && (
+              <FunctionTab
+                subFunctions={module.subFunctions}
+                moduleColor={module.color}
+              />
+            )}
           </div>
         </div>
       )}
@@ -364,7 +415,11 @@ const ModuleDetailPanel: React.FC<ModuleDetailPanelProps> = ({
 
 // ─── 统计徽章组件 ─────────────────────────────────────────────────────────────
 
-const StatBadge: React.FC<{ count: number; label: string; color: string }> = ({ count, label, color }) => (
+const StatBadge: React.FC<{ count: number; label: string; color: string }> = ({
+  count,
+  label,
+  color,
+}) => (
   <div
     style={{
       display: "flex",
@@ -389,8 +444,8 @@ const StatBadge: React.FC<{ count: number; label: string; color: string }> = ({ 
     <span
       style={{
         fontFamily: "'IBM Plex Mono', monospace",
-        fontSize: 9,
-        color: "#8898b8",
+        fontSize: 10,
+        color: "#b6c9e8",
       }}
     >
       {label}

@@ -12,7 +12,13 @@
  * - 初始布局只在 modules 变化时计算
  * - 悬浮高亮通过 useMemo 动态计算样式，不触发重新布局
  */
-import React, { useEffect, useMemo, useCallback, useState, useRef } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useCallback,
+  useState,
+  useRef,
+} from "react";
 import { createPortal } from "react-dom";
 import ReactFlow, {
   Background,
@@ -49,11 +55,14 @@ const nodeTypes: NodeTypes = {
 
 // ─── 边样式配置 - 高对比度版本 ──────────────────────────────────────────────
 
-const EDGE_STYLES: Record<string, { color: string; dash: string | undefined; width: number }> = {
-  data:    { color: "#00d4ff", dash: undefined,  width: 3 },
-  config:  { color: "#ff66cc", dash: "6,4",       width: 2.5 },
-  service: { color: "#00f084", dash: undefined,  width: 3 },
-  auth:    { color: "#ffc145", dash: "3,3",       width: 2.5 },
+const EDGE_STYLES: Record<
+  string,
+  { color: string; dash: string | undefined; width: number }
+> = {
+  data: { color: "#00d4ff", dash: undefined, width: 3 },
+  config: { color: "#39e5ff", dash: "6,4", width: 2.5 },
+  service: { color: "#00f084", dash: undefined, width: 3 },
+  auth: { color: "#ffc145", dash: "3,3", width: 2.5 },
   aggregate: { color: "#88aacc", dash: undefined, width: 2 },
 };
 
@@ -138,9 +147,7 @@ const EdgeTooltip: React.FC<EdgeTooltipProps> = ({ dep, x, y, moduleMap }) => {
           {toModule?.name || dep.to}
         </span>
         <span style={{ color: "#98a8c8", margin: "0 6px" }}>→</span>
-        <span style={{ color: "#c8d4e8" }}>
-          {fromModule?.name || dep.from}
-        </span>
+        <span style={{ color: "#c8d4e8" }}>{fromModule?.name || dep.from}</span>
       </div>
 
       {/* 依赖描述 */}
@@ -181,17 +188,17 @@ const EdgeTooltip: React.FC<EdgeTooltipProps> = ({ dep, x, y, moduleMap }) => {
 function applyDagreLayout(
   nodes: Node[],
   edges: Edge[],
-  direction: "TB" | "LR" = "LR"
+  direction: "TB" | "LR" = "LR",
 ): Node[] {
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
   g.setGraph({
     rankdir: direction,
-    nodesep: 120,     // 节点水平间距优化
-    ranksep: 180,     // 层级垂直间距优化
-    marginx: 60,      // 边距优化
+    nodesep: 120, // 节点水平间距优化
+    ranksep: 180, // 层级垂直间距优化
+    marginx: 60, // 边距优化
     marginy: 60,
-    align: "UL",      // 上左对齐，减少布局抖动
+    align: "UL", // 上左对齐，减少布局抖动
   });
 
   nodes.forEach((n) => {
@@ -337,7 +344,7 @@ const ModuleGraph: React.FC<ModuleGraphProps> = ({
     setRfNodes(laidNodes);
     setRfEdges(flowEdges);
     initializedRef.current = true;
-  }, [modules, dependencies, setRfNodes, setRfEdges]);  // 不依赖 selectedModuleId 和 hoveredModuleId
+  }, [modules, dependencies, setRfNodes, setRfEdges]); // 不依赖 selectedModuleId 和 hoveredModuleId
 
   // 动态计算节点样式（不触发重新布局）
   const nodesWithHighlight = useMemo(() => {
@@ -397,7 +404,7 @@ const ModuleGraph: React.FC<ModuleGraphProps> = ({
         }
       }
     },
-    [moduleMap, onModuleClick]
+    [moduleMap, onModuleClick],
   );
 
   // 处理边鼠标进入
@@ -412,7 +419,7 @@ const ModuleGraph: React.FC<ModuleGraphProps> = ({
         });
       }
     },
-    [depMap]
+    [depMap],
   );
 
   // 处理边鼠标移动
@@ -420,11 +427,11 @@ const ModuleGraph: React.FC<ModuleGraphProps> = ({
     (event, _edge) => {
       if (hoveredEdge) {
         setHoveredEdge((prev) =>
-          prev ? { ...prev, x: event.clientX, y: event.clientY } : null
+          prev ? { ...prev, x: event.clientX, y: event.clientY } : null,
         );
       }
     },
-    [hoveredEdge]
+    [hoveredEdge],
   );
 
   // 处理边鼠标离开
@@ -433,9 +440,12 @@ const ModuleGraph: React.FC<ModuleGraphProps> = ({
   }, []);
 
   // 处理节点悬浮进入
-  const handleNodeMouseEnter = useCallback((_: React.MouseEvent, node: Node) => {
-    setHoveredModuleId(node.id);
-  }, []);
+  const handleNodeMouseEnter = useCallback(
+    (_: React.MouseEvent, node: Node) => {
+      setHoveredModuleId(node.id);
+    },
+    [],
+  );
 
   // 处理节点悬浮离开
   const handleNodeMouseLeave = useCallback(() => {
@@ -457,8 +467,8 @@ const ModuleGraph: React.FC<ModuleGraphProps> = ({
           <div
             style={{
               fontFamily: "'JetBrains Mono', 'IBM Plex Mono'",
-              fontSize: 11,
-              color: "#2a4a6a",
+              fontSize: 12,
+              color: "#93b0d2",
               letterSpacing: "0.1em",
             }}
           >
@@ -470,11 +480,13 @@ const ModuleGraph: React.FC<ModuleGraphProps> = ({
   }
 
   return (
-    <div style={{
-      width: "100%",
-      height: "100%",
-      background: "linear-gradient(180deg, #080c14 0%, #0a0f18 100%)"
-    }}>
+    <div
+      style={{
+        width: "100%",
+        height: "100%",
+        background: "linear-gradient(180deg, #080c14 0%, #0a0f18 100%)",
+      }}
+    >
       <ReactFlow
         nodes={nodesWithHighlight}
         edges={edgesWithHighlight}
@@ -518,15 +530,16 @@ const ModuleGraph: React.FC<ModuleGraphProps> = ({
       </ReactFlow>
 
       {/* Tooltip - 渲染到 body */}
-      {hoveredEdge && createPortal(
-        <EdgeTooltip
-          dep={hoveredEdge.dep}
-          x={hoveredEdge.x}
-          y={hoveredEdge.y}
-          moduleMap={moduleMap}
-        />,
-        document.body
-      )}
+      {hoveredEdge &&
+        createPortal(
+          <EdgeTooltip
+            dep={hoveredEdge.dep}
+            x={hoveredEdge.x}
+            y={hoveredEdge.y}
+            moduleMap={moduleMap}
+          />,
+          document.body,
+        )}
     </div>
   );
 };
