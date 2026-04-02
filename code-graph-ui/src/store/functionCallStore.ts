@@ -1,65 +1,76 @@
 import { create } from "zustand";
 import type {
-  FunctionCallGraphResponse,
+  FunctionCallOverviewResponse,
   Module,
   FunctionInfo,
   CallChain,
   TracedPath,
   ViewLevel,
+  ModuleSummary,
 } from "../pages/FunctionCallGraph/types";
 import httpClient from "../api/graphApi";
 
 // ─── Store 状态 ──────────────────────────────────────────────────────────────
 
 interface FunctionCallStore {
-  // 数据
-  data: FunctionCallGraphResponse | null;
-  loading: boolean;
-  error: string | null;
+  // === 概览数据 ===
+  overview: FunctionCallOverviewResponse | null;
+  overviewLoading: boolean;
+  overviewError: string | null;
 
-  // 视图状态
-  currentView: ViewLevel;
-  selectedModuleId: string | null;
+  // === 模块详情 ===
+  moduleDetails: Map<string, ModuleDetailData>;
+  currentModuleId: string | null;
+  moduleLoading: boolean;
+  moduleError: string | null;
+
+  // === 选中状态 ===
   selectedFunctionId: string | null;
+  currentView: ViewLevel;
 
-  // 路径追踪
+  // === 路径追踪 ===
   pathFrom: string | null;
   pathTo: string | null;
   tracedPaths: TracedPath[] | null;
   selectedPathIndex: number | null;
   tracingPath: boolean;
 
-  // 索引（缓存）
+  // === 索引（仅当前模块） ===
   callersIndex: Map<string, CallChain[]> | null;
   calleesIndex: Map<string, CallChain[]> | null;
-  funcToModuleIndex: Map<string, Module> | null;
   funcInfoIndex: Map<string, FunctionInfo> | null;
 
-  // Actions - 数据加载
-  loadData: (repoId: string) => Promise<void>;
+  // === Actions - 数据加载 ===
+  loadOverview: (repoId: string) => Promise<void>;
+  loadModuleDetail: (repoId: string, moduleId: string) => Promise<void>;
   clearData: () => void;
 
-  // Actions - 视图控制
+  // === Actions - 视图控制 ===
   setCurrentView: (view: ViewLevel) => void;
   setSelectedModule: (id: string | null) => void;
   setSelectedFunction: (id: string | null) => void;
 
-  // Actions - 路径追踪
+  // === Actions - 路径追踪 ===
   setPathFrom: (funcId: string | null) => void;
   setPathTo: (funcId: string | null) => void;
   tracePath: (repoId: string) => Promise<void>;
   setSelectedPathIndex: (index: number | null) => void;
   clearPathTrace: () => void;
 
-  // Actions - 索引构建
-  buildIndexes: () => void;
-
-  // 辅助方法
-  getModuleById: (id: string) => Module | undefined;
+  // === 辅助方法 ===
+  getCurrentModule: () => Module | null;
+  getModuleSummary: (id: string) => ModuleSummary | undefined;
   getFunctionById: (id: string) => FunctionInfo | undefined;
   getCallers: (funcId: string) => CallChain[];
   getCallees: (funcId: string) => CallChain[];
-  getModuleByFunctionId: (funcId: string) => Module | undefined;
+  getModuleByFunctionId: (funcId: string) => Module | null;
+}
+
+// ─── 类型定义 ────────────────────────────────────────────────────────────────
+
+interface ModuleDetailData {
+  module: Module;
+  callChains: CallChain[];
 }
 
 // ─── Helper 函数 ─────────────────────────────────────────────────────────────
@@ -88,22 +99,10 @@ function buildCalleesIndex(callChains: CallChain[]): Map<string, CallChain[]> {
   return index;
 }
 
-function buildFuncToModuleIndex(modules: Module[]): Map<string, Module> {
-  const index = new Map<string, Module>();
-  for (const module of modules) {
-    for (const func of module.functions) {
-      index.set(func.id, module);
-    }
-  }
-  return index;
-}
-
-function buildFuncInfoIndex(modules: Module[]): Map<string, FunctionInfo> {
+function buildFuncInfoIndex(module: Module): Map<string, FunctionInfo> {
   const index = new Map<string, FunctionInfo>();
-  for (const module of modules) {
-    for (const func of module.functions) {
-      index.set(func.id, func);
-    }
+  for (const func of module.functions) {
+    index.set(func.id, func);
   }
   return index;
 }
@@ -111,90 +110,149 @@ function buildFuncInfoIndex(modules: Module[]): Map<string, FunctionInfo> {
 // ─── Store 实现 ──────────────────────────────────────────────────────────────
 
 export const useFunctionCallStore = create<FunctionCallStore>((set, get) => ({
-  // 初始状态
-  data: null,
-  loading: false,
-  error: null,
-  currentView: "overview",
-  selectedModuleId: null,
+  // === 初始状态 ===
+  overview: null,
+  overviewLoading: false,
+  overviewError: null,
+
+  moduleDetails: new Map(),
+  currentModuleId: null,
+  moduleLoading: false,
+  moduleError: null,
+
   selectedFunctionId: null,
+  currentView: "overview",
+
   pathFrom: null,
   pathTo: null,
   tracedPaths: null,
   selectedPathIndex: null,
   tracingPath: false,
+
   callersIndex: null,
   calleesIndex: null,
-  funcToModuleIndex: null,
   funcInfoIndex: null,
 
-  // 数据加载
-  loadData: async (repoId: string) => {
-    set({ loading: true, error: null });
+  // === Actions - 数据加载 ===
+
+  loadOverview: async (repoId: string) => {
+    set({ overviewLoading: true, overviewError: null });
 
     try {
-      // httpClient 拦截器已经返回 res.data，使用类型断言
-      const response = await httpClient.get("/graph/function-call", {
+      const response = await httpClient.get("/graph/function-call/overview", {
         params: { repo_id: repoId },
       }) as any;
 
-      const data: FunctionCallGraphResponse = {
+      const overview: FunctionCallOverviewResponse = {
         repo_id: response.repo_id,
         project_name: response.project_name,
         total_modules: response.total_modules,
         total_functions: response.total_functions,
         total_call_chains: response.total_call_chains,
         modules: response.modules,
-        call_chains: response.call_chains,
         module_calls: response.module_calls,
       };
 
-      set({ data, loading: false });
-
-      // 构建索引
-      get().buildIndexes();
-
-      // 重置视图状态
       set({
+        overview,
+        overviewLoading: false,
         currentView: "overview",
-        selectedModuleId: null,
+        currentModuleId: null,
         selectedFunctionId: null,
-        pathFrom: null,
-        pathTo: null,
-        tracedPaths: null,
-        selectedPathIndex: null,
+        moduleDetails: new Map(),
+        // 清除索引
+        callersIndex: null,
+        calleesIndex: null,
+        funcInfoIndex: null,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "加载函数调用图失败";
-      set({ error: message, loading: false });
+      const message = err instanceof Error ? err.message : "加载函数调用图概览失败";
+      set({ overviewError: message, overviewLoading: false });
+    }
+  },
+
+  loadModuleDetail: async (repoId: string, moduleId: string) => {
+    const { moduleDetails } = get();
+
+    // 检查缓存
+    if (moduleDetails.has(moduleId)) {
+      const cached = moduleDetails.get(moduleId)!;
+      set({
+        currentModuleId: moduleId,
+        // 重建索引
+        callersIndex: buildCallersIndex(cached.callChains),
+        calleesIndex: buildCalleesIndex(cached.callChains),
+        funcInfoIndex: buildFuncInfoIndex(cached.module),
+      });
+      return;
+    }
+
+    set({ moduleLoading: true, moduleError: null });
+
+    try {
+      const response = await httpClient.get(`/graph/function-call/module/${moduleId}`, {
+        params: { repo_id: repoId },
+      }) as any;
+
+      const detailData: ModuleDetailData = {
+        module: response.module,
+        callChains: response.call_chains,
+      };
+
+      // 更新缓存
+      const newModuleDetails = new Map(moduleDetails);
+      newModuleDetails.set(moduleId, detailData);
+
+      set({
+        currentModuleId: moduleId,
+        moduleDetails: newModuleDetails,
+        moduleLoading: false,
+        // 构建索引
+        callersIndex: buildCallersIndex(detailData.callChains),
+        calleesIndex: buildCalleesIndex(detailData.callChains),
+        funcInfoIndex: buildFuncInfoIndex(detailData.module),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "加载模块详情失败";
+      set({ moduleError: message, moduleLoading: false });
     }
   },
 
   clearData: () => {
     set({
-      data: null,
-      loading: false,
-      error: null,
-      currentView: "overview",
-      selectedModuleId: null,
+      overview: null,
+      overviewLoading: false,
+      overviewError: null,
+      moduleDetails: new Map(),
+      currentModuleId: null,
+      moduleLoading: false,
+      moduleError: null,
       selectedFunctionId: null,
+      currentView: "overview",
       pathFrom: null,
       pathTo: null,
       tracedPaths: null,
       selectedPathIndex: null,
+      tracingPath: false,
       callersIndex: null,
       calleesIndex: null,
-      funcToModuleIndex: null,
       funcInfoIndex: null,
     });
   },
 
-  // 视图控制
+  // === Actions - 视图控制 ===
+
   setCurrentView: (view) => set({ currentView: view }),
-  setSelectedModule: (id) => set({ selectedModuleId: id, selectedFunctionId: null }),
+
+  setSelectedModule: (id) => set({
+    currentModuleId: id,
+    selectedFunctionId: null,
+  }),
+
   setSelectedFunction: (id) => set({ selectedFunctionId: id }),
 
-  // 路径追踪
+  // === Actions - 路径追踪 ===
+
   setPathFrom: (funcId) => set({ pathFrom: funcId }),
   setPathTo: (funcId) => set({ pathTo: funcId }),
 
@@ -221,7 +279,7 @@ export const useFunctionCallStore = create<FunctionCallStore>((set, get) => ({
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "路径追踪失败";
-      set({ error: message, tracingPath: false });
+      set({ overviewError: message, tracingPath: false });
     }
   },
 
@@ -236,28 +294,17 @@ export const useFunctionCallStore = create<FunctionCallStore>((set, get) => ({
     });
   },
 
-  // 索引构建
-  buildIndexes: () => {
-    const { data } = get();
-    if (!data) return;
+  // === 辅助方法 ===
 
-    const callersIndex = buildCallersIndex(data.call_chains);
-    const calleesIndex = buildCalleesIndex(data.call_chains);
-    const funcToModuleIndex = buildFuncToModuleIndex(data.modules);
-    const funcInfoIndex = buildFuncInfoIndex(data.modules);
-
-    set({
-      callersIndex,
-      calleesIndex,
-      funcToModuleIndex,
-      funcInfoIndex,
-    });
+  getCurrentModule: () => {
+    const { currentModuleId, moduleDetails } = get();
+    if (!currentModuleId) return null;
+    return moduleDetails.get(currentModuleId)?.module ?? null;
   },
 
-  // 辅助方法
-  getModuleById: (id) => {
-    const { data } = get();
-    return data?.modules.find((m) => m.id === id);
+  getModuleSummary: (id) => {
+    const { overview } = get();
+    return overview?.modules.find((m) => m.id === id);
   },
 
   getFunctionById: (id) => {
@@ -275,8 +322,9 @@ export const useFunctionCallStore = create<FunctionCallStore>((set, get) => ({
     return calleesIndex?.get(funcId) ?? [];
   },
 
-  getModuleByFunctionId: (funcId) => {
-    const { funcToModuleIndex } = get();
-    return funcToModuleIndex?.get(funcId);
+  getModuleByFunctionId: (_funcId: string) => {
+    const { currentModuleId, moduleDetails } = get();
+    if (!currentModuleId) return null;
+    return moduleDetails.get(currentModuleId)?.module ?? null;
   },
 }));

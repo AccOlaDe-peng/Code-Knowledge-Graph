@@ -2,8 +2,8 @@
  * FunctionCallGraph - 函数调用图页面
  *
  * 三层视图架构：
- * - 模块总览：展示模块间调用关系
- * - 模块详情：左侧模块树 + 右侧函数调用图
+ * - 模块总览：展示模块间调用关系（轻量级数据）
+ * - 模块详情：左侧模块树 + 右侧函数调用图（按需加载）
  * - 函数详情：右侧抽屉显示函数信息
  */
 import React, { useEffect } from "react";
@@ -23,24 +23,24 @@ import PathTrace from "./components/PathTrace";
 const FunctionCallGraph: React.FC = () => {
   const { activeRepo } = useRepoStore();
   const {
-    data,
-    loading,
-    error,
+    overview,
+    overviewLoading,
+    overviewError,
     currentView,
-    loadData,
+    loadOverview,
     clearData,
     setCurrentView,
     setSelectedModule,
   } = useFunctionCallStore();
 
-  // 加载数据
+  // 加载概览数据
   useEffect(() => {
     if (activeRepo?.repoId) {
-      loadData(activeRepo.repoId);
+      loadOverview(activeRepo.repoId);
     } else {
       clearData();
     }
-  }, [activeRepo?.repoId, loadData, clearData]);
+  }, [activeRepo?.repoId, loadOverview, clearData]);
 
   // 返回模块总览
   const handleBackToOverview = () => {
@@ -71,8 +71,8 @@ const FunctionCallGraph: React.FC = () => {
             <span style={styles.titleText}>
               {currentView === "overview"
                 ? "函数调用图"
-                : data
-                  ? `${data.project_name} / 模块详情`
+                : overview
+                  ? `${overview.project_name} / 模块详情`
                   : "函数调用图"}
             </span>
           </div>
@@ -84,19 +84,19 @@ const FunctionCallGraph: React.FC = () => {
 
         <div style={styles.toolbarRight}>
           {/* 全局搜索 */}
-          {data && <GlobalSearch />}
+          {overview && <GlobalSearch />}
 
           {/* 统计信息 */}
-          {currentView === "overview" && data && (
+          {currentView === "overview" && overview && (
             <div style={styles.stats}>
-              <StatChip label="模块" value={data.total_modules} color="#00d4ff" />
-              <StatChip label="函数" value={data.total_functions.toLocaleString()} color="#00f084" />
-              <StatChip label="调用" value={data.total_call_chains.toLocaleString()} color="#ffc145" />
+              <StatChip label="模块" value={overview.total_modules} color="#00d4ff" />
+              <StatChip label="函数" value={overview.total_functions.toLocaleString()} color="#00f084" />
+              <StatChip label="调用" value={overview.total_call_chains.toLocaleString()} color="#ffc145" />
             </div>
           )}
 
           {/* 路径追踪 */}
-          {data && <PathTrace />}
+          {overview && <PathTrace />}
         </div>
       </div>
 
@@ -114,7 +114,7 @@ const FunctionCallGraph: React.FC = () => {
         )}
 
         {/* 加载中 */}
-        {activeRepo && loading && (
+        {activeRepo && overviewLoading && (
           <div style={styles.loading}>
             <Spin size="large" />
             <span style={{ color: "#7888a8", marginTop: 16 }}>加载函数调用图数据...</span>
@@ -122,12 +122,12 @@ const FunctionCallGraph: React.FC = () => {
         )}
 
         {/* 加载错误 */}
-        {activeRepo && error && !loading && (
+        {activeRepo && overviewError && !overviewLoading && (
           <div style={styles.error}>
-            <span style={{ color: "#ff6b6b" }}>{error}</span>
+            <span style={{ color: "#ff6b6b" }}>{overviewError}</span>
             <Button
               icon={<ReloadOutlined />}
-              onClick={() => loadData(activeRepo.repoId)}
+              onClick={() => loadOverview(activeRepo.repoId)}
               style={{ marginTop: 16 }}
             >
               重试
@@ -136,7 +136,7 @@ const FunctionCallGraph: React.FC = () => {
         )}
 
         {/* 无数据 */}
-        {activeRepo && !loading && !error && !data && (
+        {activeRepo && !overviewLoading && !overviewError && !overview && (
           <div style={styles.empty}>
             <Empty
               description={
@@ -147,7 +147,7 @@ const FunctionCallGraph: React.FC = () => {
         )}
 
         {/* 有数据时显示视图 */}
-        {data && !loading && (
+        {overview && !overviewLoading && (
           <>
             {currentView === "overview" ? (
               <ModuleOverview />

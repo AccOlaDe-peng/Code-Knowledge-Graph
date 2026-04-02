@@ -82,6 +82,34 @@ export interface ModuleCall {
 
 // ─── API 响应类型 ────────────────────────────────────────────────────────────
 
+// 模块概览（不含函数列表）
+export interface ModuleSummary {
+  id: string;
+  name: string;
+  displayName: string;
+  description: string;
+  path: string;
+  functionCount: number;
+  callChainCount: number;
+}
+
+// 概览响应（轻量级）
+export interface FunctionCallOverviewResponse {
+  repo_id: string;
+  project_name: string;
+  total_modules: number;
+  total_functions: number;
+  total_call_chains: number;
+  modules: ModuleSummary[];
+  module_calls: ModuleCall[];
+}
+
+// 模块详情响应
+export interface ModuleDetailResponse {
+  module: Module;
+  call_chains: CallChain[];
+}
+
 export interface FunctionCallGraphResponse {
   repo_id: string;
   project_name: string;

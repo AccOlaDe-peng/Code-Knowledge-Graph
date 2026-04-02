@@ -1,0 +1,53 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5] [cursor=pointer]:
+      - generic [ref=e6]: KG
+      - generic [ref=e7]:
+        - generic [ref=e8]: 代码图谱
+        - generic [ref=e9]: 知识系统 v2.0
+    - navigation [ref=e10]:
+      - generic [ref=e11]:
+        - generic [ref=e12] [cursor=pointer]:
+          - img [ref=e14]
+          - generic [ref=e19]:
+            - generic [ref=e20]: 概览
+            - generic [ref=e21]: 系统仪表盘
+        - generic [ref=e22] [cursor=pointer]:
+          - img [ref=e24]
+          - generic [ref=e26]:
+            - generic [ref=e27]: 仓库
+            - generic [ref=e28]: 代码仓库管理
+        - generic [ref=e29] [cursor=pointer]:
+          - img [ref=e31]
+          - generic [ref=e35]:
+            - generic [ref=e36]: 架构图
+            - generic [ref=e37]: 模块架构视图
+        - generic [ref=e38] [cursor=pointer]:
+          - img [ref=e40]
+          - generic [ref=e44]:
+            - generic [ref=e45]: 数据血缘
+            - generic [ref=e46]: 数据流向追踪
+        - generic [ref=e47] [cursor=pointer]:
+          - img [ref=e50]
+          - generic [ref=e60]:
+            - generic [ref=e61]: 调用图
+            - generic [ref=e62]: 函数调用关系
+    - generic [ref=e63]:
+      - generic [ref=e66]: API 已连接
+      - button [ref=e67] [cursor=pointer]:
+        - img [ref=e68]
+  - main [ref=e72]:
+    - generic [ref=e76]:
+      - generic [ref=e77]:
+        - generic [ref=e81]: 函数调用图
+        - generic [ref=e84]:
+          - generic [ref=e85]: 仓库
+          - generic [ref=e86] [cursor=pointer]:
+            - generic [ref=e87]:
+              - generic: — 选择仓库 —
+              - combobox [ref=e88]
+            - img "down" [ref=e90]:
+              - img [ref=e91]
+      - generic [ref=e95]:
+        - img "暂无数据" [ref=e97]
+        - generic [ref=e108]: 请先选择仓库以查看函数调用图

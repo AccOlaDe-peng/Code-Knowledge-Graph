@@ -17,7 +17,7 @@ import {
 } from "reactflow";
 import type { Node, Edge } from "reactflow";
 import "reactflow/dist/style.css";
-import { Input, Select, Tag, Empty, Button, Slider, Switch, Tooltip } from "antd";
+import { Input, Select, Tag, Empty, Button, Slider, Switch, Tooltip, Spin } from "antd";
 import {
   SearchOutlined,
   FolderOutlined,
@@ -153,14 +153,17 @@ const nodeTypes = { functionNode: FunctionNode };
 
 const ModuleDetail: React.FC = () => {
   const {
-    data,
-    selectedModuleId,
+    overview,
+    currentModuleId,
+    moduleDetails,
+    moduleLoading,
     setSelectedFunction,
     callersIndex,
     calleesIndex,
     funcInfoIndex,
     setSelectedModule,
     selectedFunctionId,
+    loadModuleDetail,
   } = useFunctionCallStore();
 
   const [search, setSearch] = useState("");
@@ -172,11 +175,10 @@ const ModuleDetail: React.FC = () => {
   const [expandedFuncIds, setExpandedFuncIds] = useState<Set<string>>(new Set());
   const expandDepthRef = useRef<Map<string, number>>(new Map());
 
-  // 当前选中的模块
-  const currentModule = useMemo(
-    () => data?.modules.find((m) => m.id === selectedModuleId),
-    [data?.modules, selectedModuleId]
-  );
+  // 当前选中的模块详情
+  const currentModuleDetail = currentModuleId ? moduleDetails.get(currentModuleId) : null;
+  const currentModule = currentModuleDetail?.module;
+  const callChains = currentModuleDetail?.callChains ?? [];
 
   // 当前模块的函数（过滤后）
   const filteredFunctions = useMemo(() => {
@@ -223,13 +225,43 @@ const ModuleDetail: React.FC = () => {
     return [...selectedMiddle, ...remaining.slice(0, remainingCount)];
   }, [sortedFunctions, middleNodes, showAllFunctions, hotFunctionsLimit]);
 
-  // 计算图中应该显示的函数（基础 + 展开的调用链）
+  // 获取当前模块相关的调用链（包括模块内部调用和跨模块调用）
+  const moduleCallChains = useMemo(() => {
+    if (!callChains || !currentModule) return [];
+
+    return callChains.filter(
+      (chain) =>
+        chain.sourceModuleId === currentModule.id || chain.targetModuleId === currentModule.id
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callChains, currentModule?.id]);
+
+  // 计算图中应该显示的函数（基础 + 调用链关联的函数 + 展开的函数）
   const displayedFunctions = useMemo(() => {
     const result = new Map<string, FunctionInfo>();
 
     // 添加基础函数
     for (const func of baseFunctions) {
       result.set(func.id, func);
+    }
+
+    // 添加与当前模块调用链相关的函数
+    // 这样确保调用链的两端都有对应的节点
+    for (const chain of moduleCallChains) {
+      // 添加源函数
+      if (!result.has(chain.sourceFunctionId)) {
+        const sourceFunc = funcInfoIndex?.get(chain.sourceFunctionId);
+        if (sourceFunc) {
+          result.set(chain.sourceFunctionId, sourceFunc);
+        }
+      }
+      // 添加目标函数
+      if (!result.has(chain.targetFunctionId)) {
+        const targetFunc = funcInfoIndex?.get(chain.targetFunctionId);
+        if (targetFunc) {
+          result.set(chain.targetFunctionId, targetFunc);
+        }
+      }
     }
 
     // 添加展开的函数
@@ -241,16 +273,16 @@ const ModuleDetail: React.FC = () => {
     }
 
     return result;
-  }, [baseFunctions, expandedFuncIds, funcInfoIndex]);
+  }, [baseFunctions, moduleCallChains, funcInfoIndex, expandedFuncIds]);
 
   // 获取与显示函数相关的调用链
   const displayedCallChains = useMemo(() => {
-    if (!data?.call_chains) return [];
+    if (!callChains) return [];
 
     const funcIds = new Set(displayedFunctions.keys());
     const result: CallChain[] = [];
 
-    for (const chain of data.call_chains) {
+    for (const chain of callChains) {
       const sourceInGraph = funcIds.has(chain.sourceFunctionId);
       const targetInGraph = funcIds.has(chain.targetFunctionId);
 
@@ -261,7 +293,8 @@ const ModuleDetail: React.FC = () => {
     }
 
     return result;
-  }, [data?.call_chains, displayedFunctions]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [callChains]);
 
   // 计算 Dagre 布局
   const layoutPositions = useMemo(() => {
@@ -296,6 +329,9 @@ const ModuleDetail: React.FC = () => {
   const initialEdges = useMemo((): Edge[] => {
     const funcIds = new Set(displayedFunctions.keys());
 
+    // 只渲染两端函数都在图中的调用链
+    // 注意：displayedCallChains 可能包含外部函数调用（一端在图中，一端不在）
+    // 这些边不应该被渲染，因为目标节点不存在
     return displayedCallChains
       .filter((c) => funcIds.has(c.sourceFunctionId) && funcIds.has(c.targetFunctionId))
       .map((chain, index) => {
@@ -334,41 +370,48 @@ const ModuleDetail: React.FC = () => {
   }, [initialNodes, initialEdges, setNodes, setEdges]);
 
   // 模块切换时自动展开前几个中间节点的调用链
+  // 只在模块 ID 变化时执行，避免其他依赖项变化导致的重复执行
   useEffect(() => {
-    if (!currentModule || !callersIndex || !calleesIndex || !funcInfoIndex) return;
+    if (!currentModule?.id || !callersIndex || !calleesIndex || !funcInfoIndex) return;
 
-    // 重置展开状态
-    setExpandedFuncIds(new Set());
-    expandDepthRef.current.clear();
+    // 使用 requestAnimationFrame 避免同步 setState
+    const timeoutId = setTimeout(() => {
+      // 重置展开状态
+      setExpandedFuncIds(new Set());
+      expandDepthRef.current.clear();
 
-    // 找前 5 个中间节点并自动展开
-    const topMiddleNodes = middleNodes.slice(0, 5);
-    const newExpanded = new Set<string>();
+      // 找前 5 个中间节点并自动展开
+      const topMiddleNodes = middleNodes.slice(0, 5);
+      const newExpanded = new Set<string>();
 
-    for (const func of topMiddleNodes) {
-      // 展开调用者
-      const callers = callersIndex.get(func.id) ?? [];
-      for (const chain of callers.slice(0, 3)) {
-        if (funcInfoIndex.has(chain.sourceFunctionId)) {
-          newExpanded.add(chain.sourceFunctionId);
-          expandDepthRef.current.set(chain.sourceFunctionId, 1);
+      for (const func of topMiddleNodes) {
+        // 展开调用者
+        const callers = callersIndex.get(func.id) ?? [];
+        for (const chain of callers.slice(0, 3)) {
+          if (funcInfoIndex.has(chain.sourceFunctionId)) {
+            newExpanded.add(chain.sourceFunctionId);
+            expandDepthRef.current.set(chain.sourceFunctionId, 1);
+          }
+        }
+
+        // 展开被调用者
+        const callees = calleesIndex.get(func.id) ?? [];
+        for (const chain of callees.slice(0, 5)) {
+          if (funcInfoIndex.has(chain.targetFunctionId)) {
+            newExpanded.add(chain.targetFunctionId);
+            expandDepthRef.current.set(chain.targetFunctionId, 1);
+          }
         }
       }
 
-      // 展开被调用者
-      const callees = calleesIndex.get(func.id) ?? [];
-      for (const chain of callees.slice(0, 5)) {
-        if (funcInfoIndex.has(chain.targetFunctionId)) {
-          newExpanded.add(chain.targetFunctionId);
-          expandDepthRef.current.set(chain.targetFunctionId, 1);
-        }
+      if (newExpanded.size > 0) {
+        setExpandedFuncIds(newExpanded);
       }
-    }
+    }, 50); // 增加延迟，等待状态稳定
 
-    if (newExpanded.size > 0) {
-      setExpandedFuncIds(newExpanded);
-    }
-  }, [currentModule?.id, middleNodes, callersIndex, calleesIndex, funcInfoIndex]);
+    return () => clearTimeout(timeoutId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentModule?.id]); // 只依赖模块 ID，其他数据通过 ref 或直接访问获取
 
   // 点击节点展开调用链
   const onNodeClick = useCallback(
@@ -448,6 +491,16 @@ const ModuleDetail: React.FC = () => {
     [setSelectedFunction, callersIndex, calleesIndex]
   );
 
+  // 加载中状态
+  if (moduleLoading) {
+    return (
+      <div style={styles.loading}>
+        <Spin size="large" />
+        <span style={{ color: "#7888a8", marginTop: 16 }}>加载模块详情...</span>
+      </div>
+    );
+  }
+
   if (!currentModule) {
     return (
       <div style={styles.empty}>
@@ -520,14 +573,19 @@ const ModuleDetail: React.FC = () => {
             模块列表
           </div>
           <div style={styles.treeList}>
-            {data?.modules.map((m) => (
+            {overview?.modules.map((m) => (
               <div
                 key={m.id}
-                onClick={() => setSelectedModule(m.id)}
+                onClick={async () => {
+                  if (m.id !== currentModuleId && overview?.repo_id) {
+                    setSelectedModule(m.id);
+                    await loadModuleDetail(overview.repo_id, m.id);
+                  }
+                }}
                 style={{
                   ...styles.treeItem,
-                  background: m.id === selectedModuleId ? "rgba(0,212,255,0.1)" : "transparent",
-                  borderLeft: m.id === selectedModuleId ? "2px solid #00d4ff" : "2px solid transparent",
+                  background: m.id === currentModuleId ? "rgba(0,212,255,0.1)" : "transparent",
+                  borderLeft: m.id === currentModuleId ? "2px solid #00d4ff" : "2px solid transparent",
                 }}
               >
                 <span style={styles.treeItemName}>{m.name}</span>
@@ -639,7 +697,7 @@ const ModuleDetail: React.FC = () => {
                 <div style={styles.moduleName}>{currentModule.name}</div>
                 <div style={styles.moduleDesc}>{currentModule.displayName}</div>
                 <div style={styles.moduleStats}>
-                  {currentModule.functionCount} 函数 · 显示 {displayedFunctions.size} 个
+                  {currentModule.functions.length} 函数 · 显示 {displayedFunctions.size} 个
                 </div>
               </div>
             </Panel>
@@ -686,6 +744,14 @@ const styles: Record<string, React.CSSProperties> = {
   rightPanel: {
     flex: 1,
     position: "relative",
+  },
+  loading: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    height: "100%",
+    width: "100%",
   },
   // 控制面板
   controlPanel: {

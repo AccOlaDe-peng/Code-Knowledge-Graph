@@ -1,7 +1,7 @@
 /**
  * ModuleOverview - 模块总览视图
  *
- * 展示模块节点和模块间调用边
+ * 展示模块节点和模块间调用边（使用轻量级概览数据）
  */
 import React, { useMemo, useCallback } from "react";
 import {
@@ -121,28 +121,28 @@ const nodeTypes = { moduleNode: ModuleNode };
 // ─── 主组件 ──────────────────────────────────────────────────────────────────
 
 const ModuleOverview: React.FC = () => {
-  const { data, setCurrentView, setSelectedModule } = useFunctionCallStore();
+  const { overview, setCurrentView, setSelectedModule, loadModuleDetail } = useFunctionCallStore();
 
   // 计算最大值用于归一化
   const maxFunctions = useMemo(
-    () => Math.max(...(data?.modules.map((m) => m.functionCount) || [1])),
-    [data?.modules]
+    () => Math.max(...(overview?.modules.map((m) => m.functionCount) || [1])),
+    [overview?.modules]
   );
   const maxCallChains = useMemo(
-    () => Math.max(...(data?.modules.map((m) => m.callChainCount) || [1])),
-    [data?.modules]
+    () => Math.max(...(overview?.modules.map((m) => m.callChainCount) || [1])),
+    [overview?.modules]
   );
   const maxModuleCalls = useMemo(
-    () => Math.max(...(data?.module_calls.map((mc) => mc.count) || [1])),
-    [data?.module_calls]
+    () => Math.max(...(overview?.module_calls.map((mc) => mc.count) || [1])),
+    [overview?.module_calls]
   );
 
   // 转换为 ReactFlow 节点
   const initialNodes = useMemo((): Node[] => {
-    if (!data?.modules) return [];
+    if (!overview?.modules) return [];
 
-    return data.modules.map((module, index) => {
-      const cols = Math.ceil(Math.sqrt(data.modules.length));
+    return overview.modules.map((module, index) => {
+      const cols = Math.ceil(Math.sqrt(overview.modules.length));
       const col = index % cols;
       const row = Math.floor(index / cols);
       const heat =
@@ -163,13 +163,13 @@ const ModuleOverview: React.FC = () => {
         },
       };
     });
-  }, [data?.modules, maxFunctions, maxCallChains]);
+  }, [overview?.modules, maxFunctions, maxCallChains]);
 
   // 转换为 ReactFlow 边
   const initialEdges = useMemo((): Edge[] => {
-    if (!data?.module_calls) return [];
+    if (!overview?.module_calls) return [];
 
-    return data.module_calls.slice(0, 100).map((mc, index) => {
+    return overview.module_calls.slice(0, 100).map((mc, index) => {
       const width = calculateEdgeWidth(mc.count, 1, 5, maxModuleCalls);
 
       return {
@@ -203,21 +203,28 @@ const ModuleOverview: React.FC = () => {
         labelBgBorderRadius: 3,
       };
     });
-  }, [data?.module_calls, maxModuleCalls]);
+  }, [overview?.module_calls, maxModuleCalls]);
 
   const [nodes, , onNodesChange] = useNodesState(initialNodes);
   const [edges, , onEdgesChange] = useEdgesState(initialEdges);
 
   // 点击模块进入详情
   const onNodeClick = useCallback(
-    (_: React.MouseEvent, node: Node) => {
+    async (_: React.MouseEvent, node: Node) => {
+      const repoId = overview?.repo_id;
+      if (!repoId) return;
+
+      // 先设置选中模块和视图
       setSelectedModule(node.id);
       setCurrentView("detail");
+
+      // 然后加载模块详情数据
+      await loadModuleDetail(repoId, node.id);
     },
-    [setSelectedModule, setCurrentView]
+    [overview?.repo_id, setSelectedModule, setCurrentView, loadModuleDetail]
   );
 
-  if (!data) return null;
+  if (!overview) return null;
 
   return (
     <div style={{ width: "100%", height: "100%" }}>

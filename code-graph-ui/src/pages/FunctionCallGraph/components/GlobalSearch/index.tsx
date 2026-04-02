@@ -1,7 +1,8 @@
 /**
- * GlobalSearch - 全局搜索组件
+ * GlobalSearch - 当前模块搜索组件
  *
  * 支持函数名模糊搜索，点击跳转到函数详情
+ * 注：由于两阶段加载，只在当前已加载的模块内搜索
  */
 import React, { useState, useMemo, useCallback } from "react";
 import { Input, Empty } from "antd";
@@ -9,24 +10,28 @@ import { SearchOutlined } from "@ant-design/icons";
 import { useFunctionCallStore } from "../../../../store/functionCallStore";
 
 const GlobalSearch: React.FC = () => {
-  const { data, setSelectedModule, setSelectedFunction, funcToModuleIndex } = useFunctionCallStore();
+  const { currentModuleId, moduleDetails, setSelectedFunction } = useFunctionCallStore();
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<Array<{ funcId: string; name: string; moduleName: string }>>([]);
   const [showResults, setShowResults] = useState(false);
 
-  // 搜索函数
+  // 获取当前模块
+  const currentModule = currentModuleId ? moduleDetails.get(currentModuleId)?.module : null;
+
+  // 搜索函数（只在当前模块内搜索）
   const doSearch = useCallback(
     (text: string) => {
-      if (!text || !data?.modules) {
+      if (!text) {
         setResults([]);
         return;
       }
 
-      const searchLower = text.toLowerCase();
-      const matches: Array<{ funcId: string; name: string; moduleName: string }> = [];
+      // 如果有当前模块，在当前模块内搜索
+      if (currentModule) {
+        const searchLower = text.toLowerCase();
+        const matches: Array<{ funcId: string; name: string; moduleName: string }> = [];
 
-      for (const module of data.modules) {
-        for (const func of module.functions) {
+        for (const func of currentModule.functions) {
           if (
             func.name.toLowerCase().includes(searchLower) ||
             func.fullName.toLowerCase().includes(searchLower) ||
@@ -35,17 +40,19 @@ const GlobalSearch: React.FC = () => {
             matches.push({
               funcId: func.id,
               name: func.name,
-              moduleName: module.name,
+              moduleName: currentModule.name,
             });
             if (matches.length >= 20) break;
           }
         }
-        if (matches.length >= 20) break;
-      }
 
-      setResults(matches);
+        setResults(matches);
+      } else {
+        // 没有选中模块时，提示用户
+        setResults([]);
+      }
     },
-    [data]
+    [currentModule]
   );
 
   // 防抖搜索
@@ -67,10 +74,6 @@ const GlobalSearch: React.FC = () => {
   };
 
   const handleSelect = (funcId: string) => {
-    const module = funcToModuleIndex?.get(funcId);
-    if (module) {
-      setSelectedModule(module.id);
-    }
     setSelectedFunction(funcId);
     setShowResults(false);
     setSearch("");
@@ -80,7 +83,7 @@ const GlobalSearch: React.FC = () => {
   return (
     <div style={{ position: "relative" }}>
       <Input
-        placeholder="搜索函数..."
+        placeholder={currentModule ? `在 ${currentModule.name} 中搜索...` : "选择模块后搜索函数..."}
         prefix={<SearchOutlined style={{ color: "#5a6a8a" }} />}
         value={search}
         onChange={(e) => handleSearch(e.target.value)}
@@ -93,6 +96,7 @@ const GlobalSearch: React.FC = () => {
           borderRadius: 4,
         }}
         allowClear
+        disabled={!currentModule}
       />
 
       {/* 搜索结果下拉 */}

@@ -1766,6 +1766,37 @@ class FunctionCallGraphResponse(BaseModel):
     module_calls: list[ModuleCall]
 
 
+class ModuleSummary(BaseModel):
+    """模块概览（不含函数详情）"""
+    id: str
+    name: str
+    display_name: str = Field(alias="displayName")
+    description: str
+    path: str
+    function_count: int = Field(alias="functionCount")
+    call_chain_count: int = Field(alias="callChainCount")
+
+    class Config:
+        populate_by_name = True
+
+
+class FunctionCallOverviewResponse(BaseModel):
+    """函数调用图概览响应（轻量级）"""
+    repo_id: str
+    project_name: str
+    total_modules: int
+    total_functions: int
+    total_call_chains: int
+    modules: list[ModuleSummary]
+    module_calls: list[ModuleCall]
+
+
+class ModuleDetailResponse(BaseModel):
+    """单个模块详情响应"""
+    module: dict  # 含完整 functions
+    call_chains: list[dict]  # 仅该模块相关的调用链
+
+
 class PathNode(BaseModel):
     """路径上的节点"""
     id: str
@@ -2144,4 +2175,253 @@ def trace_function_path(
         paths=paths,
         max_depth_reached=max_depth_reached,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 函数调用图 - 两阶段加载 API
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/graph/function-call/overview", tags=["图谱视图"])
+def get_function_call_overview(repo_id: str = Query(..., description="仓库 ID")) -> FunctionCallOverviewResponse:
+    """
+    获取函数调用图概览（轻量级，不含函数详情）。
+
+    用于模块总览页面，只返回模块列表和模块间调用统计。
+    不包含每个模块的函数详情，大幅减少响应数据量。
+
+    返回格式：
+    {
+        "repo_id": "adms",
+        "project_name": "adms",
+        "total_modules": 15,
+        "total_functions": 23037,
+        "total_call_chains": 40075,
+        "modules": [{ "id", "name", "displayName", "functionCount", ... }],  // 无 functions 数组
+        "module_calls": [{ "from": "mod_001", "to": "mod_002", "count": 150 }]
+    }
+    """
+    file_path = _find_function_call_graph_file(repo_id)
+
+    if file_path is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"函数调用图文件不存在: {repo_id}-function-call-graph.json，请先分析仓库生成调用图",
+        )
+
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            raw_data = json.load(f)
+    except json.JSONDecodeError as e:
+        logger.exception("函数调用图 JSON 解析失败: %s", file_path)
+        raise HTTPException(
+            status_code=500,
+            detail=f"函数调用图 JSON 解析失败: {e}",
+        )
+    except Exception as e:
+        logger.exception("读取函数调用图文件失败: %s", file_path)
+        raise HTTPException(
+            status_code=500,
+            detail=f"读取函数调用图文件失败: {e}",
+        )
+
+    modules = raw_data.get("modules", [])
+
+    # 构建轻量级模块列表（不含 functions）
+    module_summaries: list[ModuleSummary] = []
+    for m in modules:
+        # 统计模块内部调用链数量
+        internal_count = len(m.get("internalCallChains", []))
+        module_summaries.append(ModuleSummary(
+            id=m.get("id", ""),
+            name=m.get("name", ""),
+            displayName=m.get("displayName", m.get("name", "")),
+            description=m.get("description", ""),
+            path=m.get("path", ""),
+            functionCount=len(m.get("functions", [])),
+            callChainCount=internal_count,
+        ))
+
+    # 计算调用链总数（内部 + 跨模块）
+    total_internal = sum(len(m.get("internalCallChains", [])) for m in modules)
+    total_cross = len(raw_data.get("crossModuleCalls", []))
+    total_call_chains = total_internal + total_cross
+
+    # 计算模块间调用统计
+    call_chains = _build_call_chains(modules, raw_data.get("crossModuleCalls", []))
+    module_calls = _compute_module_calls(modules, call_chains)
+
+    return FunctionCallOverviewResponse(
+        repo_id=repo_id,
+        project_name=raw_data.get("projectName", repo_id),
+        total_modules=raw_data.get("totalModules", len(modules)),
+        total_functions=raw_data.get("totalFunctions", sum(len(m.get("functions", [])) for m in modules)),
+        total_call_chains=total_call_chains,
+        modules=module_summaries,
+        module_calls=[ModuleCall(**mc) for mc in module_calls],
+    )
+
+
+@router.get("/graph/function-call/module/{module_id}", tags=["图谱视图"])
+def get_function_call_module_detail(
+    module_id: str,
+    repo_id: str = Query(..., description="仓库 ID"),
+) -> ModuleDetailResponse:
+    """
+    获取单个模块的函数调用详情。
+
+    用于模块详情页面，返回该模块的完整函数列表和相关调用链。
+    调用链包括：模块内部调用 + 以该模块为源/目标的跨模块调用。
+
+    返回格式：
+    {
+        "module": { "id", "name", "functions": [...], ... },
+        "call_chains": [...]  // 仅该模块相关的调用链
+    }
+    """
+    file_path = _find_function_call_graph_file(repo_id)
+
+    if file_path is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"函数调用图文件不存在: {repo_id}-function-call-graph.json",
+        )
+
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            raw_data = json.load(f)
+    except Exception as e:
+        logger.exception("读取函数调用图文件失败: %s", file_path)
+        raise HTTPException(
+            status_code=500,
+            detail=f"读取函数调用图文件失败: {e}",
+        )
+
+    modules = raw_data.get("modules", [])
+
+    # 查找目标模块
+    target_module = None
+    for m in modules:
+        if m.get("id") == module_id:
+            target_module = m
+            break
+
+    if target_module is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"模块不存在: {module_id}",
+        )
+
+    # 构建该模块相关的调用链
+    call_chains = _build_module_call_chains(target_module, raw_data.get("crossModuleCalls", []))
+
+    # 更新函数的 callerCount 和 calleeCount
+    _update_function_counts(target_module, call_chains)
+
+    return ModuleDetailResponse(
+        module=target_module,
+        call_chains=call_chains,
+    )
+
+
+def _build_call_chains(modules: list[dict], cross_module_calls: list[dict]) -> list[dict]:
+    """构建完整的调用链列表（内部 + 跨模块）。"""
+    call_chains = []
+
+    # 模块内部调用链
+    for module in modules:
+        module_id = module.get("id", "")
+        module_name = module.get("name", "")
+        for chain in module.get("internalCallChains", []):
+            call_chains.append({
+                "sourceModule": module_name,
+                "sourceModuleId": module_id,
+                "sourceFunctionId": chain.get("callerId", ""),
+                "sourceFunctionName": chain.get("callerName", ""),
+                "targetModule": module_name,
+                "targetModuleId": module_id,
+                "targetFunctionId": chain.get("calleeId", ""),
+                "targetFunctionName": chain.get("calleeName", ""),
+                "callType": chain.get("callType", "direct"),
+                "sourceLine": chain.get("sourceLine", 0),
+            })
+
+    # 跨模块调用链
+    for chain in cross_module_calls:
+        call_chains.append({
+            "sourceModule": chain.get("sourceModule", ""),
+            "sourceModuleId": chain.get("sourceModuleId", ""),
+            "sourceFunctionId": chain.get("sourceFunctionId", ""),
+            "sourceFunctionName": chain.get("sourceFunctionName", ""),
+            "targetModule": chain.get("targetModule", ""),
+            "targetModuleId": chain.get("targetModuleId", ""),
+            "targetFunctionId": chain.get("targetFunctionId", ""),
+            "targetFunctionName": chain.get("targetFunctionName", ""),
+            "callType": chain.get("callType", "direct"),
+            "sourceLine": chain.get("sourceLine", 0),
+        })
+
+    return call_chains
+
+
+def _build_module_call_chains(module: dict, cross_module_calls: list[dict]) -> list[dict]:
+    """构建单个模块相关的调用链。"""
+    call_chains = []
+    module_id = module.get("id", "")
+    module_name = module.get("name", "")
+
+    # 1. 模块内部调用链
+    for chain in module.get("internalCallChains", []):
+        call_chains.append({
+            "sourceModule": module_name,
+            "sourceModuleId": module_id,
+            "sourceFunctionId": chain.get("callerId", ""),
+            "sourceFunctionName": chain.get("callerName", ""),
+            "targetModule": module_name,
+            "targetModuleId": module_id,
+            "targetFunctionId": chain.get("calleeId", ""),
+            "targetFunctionName": chain.get("calleeName", ""),
+            "callType": chain.get("callType", "direct"),
+            "sourceLine": chain.get("sourceLine", 0),
+        })
+
+    # 2. 该模块相关的跨模块调用链（作为源或目标）
+    for chain in cross_module_calls:
+        source_module_id = chain.get("sourceModuleId", "")
+        target_module_id = chain.get("targetModuleId", "")
+
+        if source_module_id == module_id or target_module_id == module_id:
+            call_chains.append({
+                "sourceModule": chain.get("sourceModule", ""),
+                "sourceModuleId": source_module_id,
+                "sourceFunctionId": chain.get("sourceFunctionId", ""),
+                "sourceFunctionName": chain.get("sourceFunctionName", ""),
+                "targetModule": chain.get("targetModule", ""),
+                "targetModuleId": target_module_id,
+                "targetFunctionId": chain.get("targetFunctionId", ""),
+                "targetFunctionName": chain.get("targetFunctionName", ""),
+                "callType": chain.get("callType", "direct"),
+                "sourceLine": chain.get("sourceLine", 0),
+            })
+
+    return call_chains
+
+
+def _update_function_counts(module: dict, call_chains: list[dict]) -> None:
+    """更新模块内函数的 callerCount 和 calleeCount。"""
+    func_caller_count: dict[str, int] = {}
+    func_callee_count: dict[str, int] = {}
+
+    for chain in call_chains:
+        target_id = chain.get("targetFunctionId", "")
+        source_id = chain.get("sourceFunctionId", "")
+        if target_id:
+            func_caller_count[target_id] = func_caller_count.get(target_id, 0) + 1
+        if source_id:
+            func_callee_count[source_id] = func_callee_count.get(source_id, 0) + 1
+
+    for func in module.get("functions", []):
+        func_id = func.get("id", "")
+        func["callerCount"] = func_caller_count.get(func_id, 0)
+        func["calleeCount"] = func_callee_count.get(func_id, 0)
 

@@ -1,0 +1,2 @@
+[      98ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5178/node_modules/.vite/deps/chunk-PBTLMIPI.js?v=6f900a17:20102
+[     379ms] [ERROR] Warning: [antd: Drawer] `width` is deprecated. Please use `size` instead. @ http://localhost:5178/node_modules/.vite/deps/chunk-IYCDMJH5.js?v=6f900a17:1247
