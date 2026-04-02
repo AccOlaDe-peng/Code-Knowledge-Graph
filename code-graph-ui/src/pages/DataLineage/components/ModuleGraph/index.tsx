@@ -8,11 +8,11 @@
  * - 支持悬停边显示描述
  * - 支持悬停节点高亮关联元素
  *
- * v2.2 - 添加悬浮高亮交互：
- * - 悬浮模块时高亮关联模块和边
- * - 其他元素变暗
+ * v2.3 - 修复拖动节点后位置重置问题：
+ * - 初始布局只在 modules 变化时计算
+ * - 悬浮高亮通过 useMemo 动态计算样式，不触发重新布局
  */
-import React, { useEffect, useMemo, useCallback, useState } from "react";
+import React, { useEffect, useMemo, useCallback, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import ReactFlow, {
   Background,
@@ -228,6 +228,9 @@ const ModuleGraph: React.FC<ModuleGraphProps> = ({
   // 悬浮高亮状态
   const [hoveredModuleId, setHoveredModuleId] = useState<string | null>(null);
 
+  // 标记是否已完成初始布局
+  const initializedRef = useRef(false);
+
   // 构建模块 ID 到模块的映射
   const moduleMap = useMemo(() => {
     const map = new Map<string, Module>();
@@ -257,49 +260,42 @@ const ModuleGraph: React.FC<ModuleGraphProps> = ({
   }, [hoveredModuleId, dependencies]);
 
   // 判断边是否与悬浮节点关联
-  const isRelatedEdge = useCallback(
-    (dep: ModuleDependency) => {
-      if (!hoveredModuleId) return true;
-      return dep.from === hoveredModuleId || dep.to === hoveredModuleId;
-    },
-    [hoveredModuleId]
-  );
+  const relatedEdges = useMemo(() => {
+    if (!hoveredModuleId) return null;
+    const related = new Set<string>();
+    dependencies.forEach((dep) => {
+      if (dep.from === hoveredModuleId || dep.to === hoveredModuleId) {
+        related.add(`${dep.from}--${dep.type}--${dep.to}`);
+      }
+    });
+    return related;
+  }, [hoveredModuleId, dependencies]);
 
-  // 构建 ReactFlow 节点和边
+  // 仅在 modules 变化时初始化布局（不包含悬浮状态依赖）
   useEffect(() => {
     if (!modules.length) {
       return;
     }
 
-    // 创建节点（带悬浮高亮样式）
-    const flowNodes: Node[] = modules.map((module) => {
-      const isRelated = !hoveredModuleId || relatedNodes?.has(module.id);
-      return {
-        id: module.id,
-        type: "module",
-        position: { x: module.position?.x ?? 0, y: module.position?.y ?? 0 },
-        data: {
-          module,
-          isSelected: selectedModuleId === module.id,
-        },
-        style: {
-          opacity: isRelated ? 1 : 0.15,
-          transition: "opacity 0.2s ease",
-        },
-      };
-    });
+    // 创建节点
+    const flowNodes: Node[] = modules.map((module) => ({
+      id: module.id,
+      type: "module",
+      position: { x: module.position?.x ?? 0, y: module.position?.y ?? 0 },
+      data: {
+        module,
+        isSelected: selectedModuleId === module.id,
+      },
+    }));
 
-    // 创建边（带悬浮高亮样式）
-    // 注意：JSON 中 from/to 表示依赖关系（from 依赖 to）
-    // 但可视化时我们需要展示数据流向（to → from，即被依赖方 → 依赖方）
+    // 创建边
     const flowEdges: Edge[] = dependencies.map((dep) => {
       const style = EDGE_STYLES[dep.type] || EDGE_STYLES.data;
-      const isRelated = isRelatedEdge(dep);
 
       return {
         id: `${dep.from}--${dep.type}--${dep.to}`,
-        source: dep.to,    // 数据来源（被依赖方）
-        target: dep.from,  // 数据去向（依赖方）
+        source: dep.to,
+        target: dep.from,
         type: "smoothstep",
         animated: dep.type === "data" || dep.type === "service",
         label: dep.type,
@@ -311,10 +307,10 @@ const ModuleGraph: React.FC<ModuleGraphProps> = ({
         },
         labelBgStyle: {
           fill: "#0a0f18",
-          fillOpacity: 0.98,      // 提升背景不透明度
+          fillOpacity: 0.98,
           stroke: style.color,
-          strokeWidth: 1,         // 提升边框宽度
-          strokeOpacity: 0.8,     // 提升边框不透明度
+          strokeWidth: 1,
+          strokeOpacity: 0.8,
         },
         labelBgPadding: [6, 4] as [number, number],
         labelBgBorderRadius: 4,
@@ -322,9 +318,8 @@ const ModuleGraph: React.FC<ModuleGraphProps> = ({
           stroke: style.color,
           strokeWidth: style.width,
           strokeDasharray: style.dash,
-          opacity: isRelated ? 0.95 : 0.15,
+          opacity: 0.95,
           cursor: "pointer",
-          transition: "opacity 0.2s ease",
         },
         markerEnd: {
           type: MarkerType.ArrowClosed,
@@ -341,7 +336,56 @@ const ModuleGraph: React.FC<ModuleGraphProps> = ({
 
     setRfNodes(laidNodes);
     setRfEdges(flowEdges);
-  }, [modules, dependencies, selectedModuleId, hoveredModuleId, relatedNodes, isRelatedEdge, setRfNodes, setRfEdges]);
+    initializedRef.current = true;
+  }, [modules, dependencies, setRfNodes, setRfEdges]);  // 不依赖 selectedModuleId 和 hoveredModuleId
+
+  // 动态计算节点样式（不触发重新布局）
+  const nodesWithHighlight = useMemo(() => {
+    if (!hoveredModuleId || !relatedNodes) {
+      // 无悬浮时，仅更新选中状态
+      return rfNodes.map((node) => ({
+        ...node,
+        data: {
+          ...node.data,
+          isSelected: selectedModuleId === node.id,
+        },
+      }));
+    }
+
+    return rfNodes.map((node) => {
+      const isRelated = relatedNodes.has(node.id);
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          isSelected: selectedModuleId === node.id,
+        },
+        style: {
+          opacity: isRelated ? 1 : 0.15,
+          transition: "opacity 0.2s ease",
+        },
+      };
+    });
+  }, [rfNodes, hoveredModuleId, relatedNodes, selectedModuleId]);
+
+  // 动态计算边样式（不触发重新布局）
+  const edgesWithHighlight = useMemo(() => {
+    if (!hoveredModuleId || !relatedEdges) {
+      return rfEdges;
+    }
+
+    return rfEdges.map((edge) => {
+      const isRelated = relatedEdges.has(edge.id);
+      return {
+        ...edge,
+        style: {
+          ...edge.style,
+          opacity: isRelated ? 0.95 : 0.15,
+          transition: "opacity 0.2s ease",
+        },
+      };
+    });
+  }, [rfEdges, hoveredModuleId, relatedEdges]);
 
   // 处理节点点击
   const handleNodeClick = useCallback(
@@ -432,8 +476,8 @@ const ModuleGraph: React.FC<ModuleGraphProps> = ({
       background: "linear-gradient(180deg, #080c14 0%, #0a0f18 100%)"
     }}>
       <ReactFlow
-        nodes={rfNodes}
-        edges={rfEdges}
+        nodes={nodesWithHighlight}
+        edges={edgesWithHighlight}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={handleNodeClick}
