@@ -5,6 +5,7 @@ import type {
   FunctionInfo,
   CallChain,
   ViewLevel,
+  ViewMode,
   ModuleSummary,
   ExternalFunction,
 } from "../pages/FunctionCallGraph/types";
@@ -28,6 +29,11 @@ interface FunctionCallStore {
   selectedFunctionId: string | null;
   currentView: ViewLevel;
 
+  // === 调用链视图状态 ===
+  viewMode: ViewMode;  // 模块详情页视图模式
+  callChainRootId: string | null;  // 调用链根节点（选中的函数）
+  collapsedNodes: Set<string>;  // 折叠的虚拟节点 ID
+
   // === 索引（仅当前模块） ===
   callersIndex: Map<string, CallChain[]> | null;
   calleesIndex: Map<string, CallChain[]> | null;
@@ -42,6 +48,12 @@ interface FunctionCallStore {
   setCurrentView: (view: ViewLevel) => void;
   setSelectedModule: (id: string | null) => void;
   setSelectedFunction: (id: string | null) => void;
+
+  // === Actions - 调用链视图 ===
+  setViewMode: (mode: ViewMode) => void;
+  setCallChainRoot: (funcId: string | null) => void;
+  toggleCollapsedNode: (nodeId: string) => void;
+  resetCallChain: () => void;
 
   // === 辅助方法 ===
   getCurrentModule: () => Module | null;
@@ -132,6 +144,11 @@ export const useFunctionCallStore = create<FunctionCallStore>((set, get) => ({
   selectedFunctionId: null,
   currentView: "overview",
 
+  // 调用链视图状态
+  viewMode: "heatmap",
+  callChainRootId: null,
+  collapsedNodes: new Set(),
+
   callersIndex: null,
   calleesIndex: null,
   funcInfoIndex: null,
@@ -163,6 +180,10 @@ export const useFunctionCallStore = create<FunctionCallStore>((set, get) => ({
         currentModuleId: null,
         selectedFunctionId: null,
         moduleDetails: new Map(),
+        // 重置调用链状态
+        viewMode: "heatmap",
+        callChainRootId: null,
+        collapsedNodes: new Set(),
         // 清除索引
         callersIndex: null,
         calleesIndex: null,
@@ -233,6 +254,10 @@ export const useFunctionCallStore = create<FunctionCallStore>((set, get) => ({
       moduleError: null,
       selectedFunctionId: null,
       currentView: "overview",
+      // 重置调用链状态
+      viewMode: "heatmap",
+      callChainRootId: null,
+      collapsedNodes: new Set(),
       callersIndex: null,
       calleesIndex: null,
       funcInfoIndex: null,
@@ -249,6 +274,31 @@ export const useFunctionCallStore = create<FunctionCallStore>((set, get) => ({
   }),
 
   setSelectedFunction: (id) => set({ selectedFunctionId: id }),
+
+  // === Actions - 调用链视图 ===
+
+  setViewMode: (mode) => set({ viewMode: mode }),
+
+  setCallChainRoot: (funcId) => set({
+    callChainRootId: funcId,
+    collapsedNodes: new Set(),  // 切换根节点时重置折叠状态
+  }),
+
+  toggleCollapsedNode: (nodeId) => {
+    const { collapsedNodes } = get();
+    const newSet = new Set(collapsedNodes);
+    if (newSet.has(nodeId)) {
+      newSet.delete(nodeId);
+    } else {
+      newSet.add(nodeId);
+    }
+    set({ collapsedNodes: newSet });
+  },
+
+  resetCallChain: () => set({
+    callChainRootId: null,
+    collapsedNodes: new Set(),
+  }),
 
   // === 辅助方法 ===
 

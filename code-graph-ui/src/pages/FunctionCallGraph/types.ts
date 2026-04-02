@@ -137,6 +137,34 @@ export interface FunctionCallGraphResponse {
 
 export type ViewLevel = "overview" | "detail";
 
+// 视图模式（模块详情页）
+export type ViewMode = "heatmap" | "callchain";
+
+// 调用链节点数据（扩展 FunctionInfo）
+export interface CallChainNodeData extends FunctionInfo {
+  distance: number;  // 距离根节点的层数
+  direction: "caller" | "callee" | "root";  // 方向
+  isCollapsed?: boolean;  // 是否为折叠节点
+  collapsedCount?: number;  // 折叠的节点数量
+  isRoot?: boolean;  // 是否为根节点（选中的函数）
+}
+
+// 调用链边数据
+export interface CallChainEdgeData {
+  sourceLine: number;  // 调用行号
+  callType: "direct" | "interface";  // 调用类型
+  isCrossModule: boolean;  // 是否跨模块调用
+}
+
+// 折叠节点信息
+export interface CollapsedNodeInfo {
+  id: string;  // 折叠节点 ID
+  direction: "caller" | "callee";  // 方向
+  distance: number;  // 所在层级
+  count: number;  // 折叠的节点数量
+  parentNodeId: string;  // 父节点 ID（用于展开）
+}
+
 export interface FunctionCallStoreState {
   // 数据
   data: FunctionCallGraphResponse | null;

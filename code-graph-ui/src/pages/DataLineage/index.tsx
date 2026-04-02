@@ -149,7 +149,7 @@ const DataLineageInner: React.FC = () => {
               height: 9,
               borderRadius: 2,
               background: "#ff66cc",
-              boxShadow: "0 0 12px #b08effaa",
+              boxShadow: "0 0 12px rgba(255,102,204,0.6)",
             }}
           />
           <span
@@ -186,7 +186,7 @@ const DataLineageInner: React.FC = () => {
                 style={{
                   fontFamily: "var(--font-ui)",
                   fontSize: 11,
-                  color: "#7888a8",
+                  color: "#a8b8d8",
                 }}
               >
                 模块
@@ -207,7 +207,7 @@ const DataLineageInner: React.FC = () => {
                 style={{
                   fontFamily: "var(--font-ui)",
                   fontSize: 11,
-                  color: "#7888a8",
+                  color: "#a8b8d8",
                 }}
               >
                 服务
@@ -228,7 +228,7 @@ const DataLineageInner: React.FC = () => {
                 style={{
                   fontFamily: "var(--font-ui)",
                   fontSize: 11,
-                  color: "#7888a8",
+                  color: "#a8b8d8",
                 }}
               >
                 依赖关系
@@ -247,7 +247,7 @@ const DataLineageInner: React.FC = () => {
             style={{
               background: "var(--s-float)",
               border: "1px solid var(--b-subtle)",
-              color: "#7888a8",
+              color: "#a8b8d8",
             }}
           />
         </Tooltip>
@@ -279,7 +279,7 @@ const DataLineageInner: React.FC = () => {
               style={{
                 fontFamily: "var(--font-mono)",
                 fontSize: 13,
-                color: "#5a6a8a",
+                color: "#8898b8",
                 letterSpacing: "0.04em",
               }}
             >
@@ -307,7 +307,7 @@ const DataLineageInner: React.FC = () => {
               style={{
                 fontFamily: "var(--font-mono)",
                 fontSize: 13,
-                color: "#7888a8",
+                color: "#a8b8d8",
                 letterSpacing: "0.04em",
               }}
             >
@@ -361,7 +361,7 @@ const DataLineageInner: React.FC = () => {
               style={{
                 fontFamily: "var(--font-mono)",
                 fontSize: 13,
-                color: "#5a6a8a",
+                color: "#8898b8",
                 letterSpacing: "0.04em",
               }}
             >

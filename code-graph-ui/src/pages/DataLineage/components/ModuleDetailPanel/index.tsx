@@ -49,7 +49,7 @@ const TAB_ITEMS = [
     key: "entities",
     label: "实体",
     icon: <DatabaseOutlined />,
-    color: "#b08eff",
+    color: "#00f084",  // 从紫色改为绿色，更清晰
   },
   {
     key: "functions",
@@ -238,7 +238,7 @@ const ModuleDetailPanel: React.FC<ModuleDetailPanelProps> = ({
                 style={{
                   fontFamily: "'IBM Plex Mono', monospace",
                   fontSize: 10,
-                  color: "#7888a8",
+                  color: "#a8b8d8",
                   letterSpacing: "0.02em",
                 }}
               >
@@ -266,7 +266,7 @@ const ModuleDetailPanel: React.FC<ModuleDetailPanelProps> = ({
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           {/* 统计徽章 */}
           <div style={{ display: "flex", gap: 6, marginRight: 8 }}>
-            <StatBadge count={module.entities.length} label="实体" color="#b08eff" />
+            <StatBadge count={module.entities.length} label="实体" color="#00f084" />
             <StatBadge count={module.businessFlows.length} label="流程" color="#ffc145" />
             <StatBadge count={module.subFunctions.length} label="功能" color="#00d4ff" />
           </div>
@@ -279,7 +279,7 @@ const ModuleDetailPanel: React.FC<ModuleDetailPanelProps> = ({
                 size="small"
                 icon={isFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
                 onClick={toggleFullscreen}
-                style={{ color: "#7888a8", fontSize: 12 }}
+                style={{ color: "#a8b8d8", fontSize: 12 }}
               />
             </Tooltip>
           )}
@@ -291,7 +291,7 @@ const ModuleDetailPanel: React.FC<ModuleDetailPanelProps> = ({
               size="small"
               icon={collapsed ? <RightOutlined /> : <DownOutlined />}
               onClick={() => onCollapseChange?.(!collapsed)}
-              style={{ color: "#7888a8" }}
+              style={{ color: "#a8b8d8" }}
             />
           </Tooltip>
         </div>
@@ -328,7 +328,7 @@ const ModuleDetailPanel: React.FC<ModuleDetailPanelProps> = ({
                   padding: "8px 14px",
                   border: "none",
                   background: activeTab === tab.key ? `${tab.color}12` : "transparent",
-                  color: activeTab === tab.key ? tab.color : "#6a7a9a",
+                  color: activeTab === tab.key ? tab.color : "#98a8c8",
                   fontFamily: "'IBM Plex Mono', monospace",
                   fontSize: 11,
                   fontWeight: 500,
@@ -338,7 +338,7 @@ const ModuleDetailPanel: React.FC<ModuleDetailPanelProps> = ({
                   transition: "all 0.15s ease",
                 }}
               >
-                <span style={{ fontSize: 12 }}>{React.cloneElement(tab.icon, { style: { color: activeTab === tab.key ? tab.color : "#6a7a9a" } })}</span>
+                <span style={{ fontSize: 12 }}>{React.cloneElement(tab.icon, { style: { color: activeTab === tab.key ? tab.color : "#98a8c8" } })}</span>
                 {tab.label}
               </button>
             ))}

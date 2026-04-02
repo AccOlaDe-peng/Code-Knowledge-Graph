@@ -206,7 +206,7 @@ const FunctionCard: React.FC<{ subFunction: SubFunction; moduleColor: string }> 
               style={{
                 fontFamily: "'IBM Plex Mono', monospace",
                 fontSize: 9,
-                color: "#5a6a8a",
+                color: "#8898b8",
               }}
             >
               输入来源
@@ -257,7 +257,7 @@ const FunctionCard: React.FC<{ subFunction: SubFunction; moduleColor: string }> 
               style={{
                 fontFamily: "'IBM Plex Mono', monospace",
                 fontSize: 9,
-                color: "#5a6a8a",
+                color: "#8898b8",
               }}
             >
               输出目标
@@ -301,7 +301,7 @@ const FunctionCard: React.FC<{ subFunction: SubFunction; moduleColor: string }> 
             icon={<DatabaseOutlined />}
             count={subFunction.relatedEntities.length}
             label="实体"
-            color="#b08eff"
+            color="#00f084"
           />
         )}
         {subFunction.relatedServices.length > 0 && (
@@ -359,7 +359,7 @@ const RelationBadge: React.FC<{
       style={{
         fontFamily: "'IBM Plex Mono', monospace",
         fontSize: 9,
-        color: "#6a7a9a",
+        color: "#98a8c8",
       }}
     >
       {label}

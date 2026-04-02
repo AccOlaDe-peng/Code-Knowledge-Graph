@@ -137,7 +137,7 @@ const EdgeTooltip: React.FC<EdgeTooltipProps> = ({ dep, x, y, moduleMap }) => {
         <span style={{ color: style.color, fontWeight: 600 }}>
           {toModule?.name || dep.to}
         </span>
-        <span style={{ color: "#6a7a9a", margin: "0 6px" }}>→</span>
+        <span style={{ color: "#98a8c8", margin: "0 6px" }}>→</span>
         <span style={{ color: "#c8d4e8" }}>
           {fromModule?.name || dep.from}
         </span>
@@ -162,7 +162,7 @@ const EdgeTooltip: React.FC<EdgeTooltipProps> = ({ dep, x, y, moduleMap }) => {
           style={{
             fontFamily: "var(--font-mono)",
             fontSize: 11,
-            color: "#6a7a9a",
+            color: "#98a8c8",
             lineHeight: 1.6,
             borderTop: "1px solid #1a2840",
             paddingTop: 8,
@@ -468,7 +468,7 @@ const ModuleGraph: React.FC<ModuleGraphProps> = ({
             border: "1px solid #1a2840",
             borderRadius: 8,
           }}
-          nodeColor="#b08eff"
+          nodeColor="#00d4ff"
           maskColor="rgba(7, 9, 13, 0.8)"
         />
       </ReactFlow>

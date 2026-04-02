@@ -139,7 +139,7 @@ const FlowDetail: React.FC<{ flow: BusinessFlow; moduleColor: string }> = ({
             style={{
               fontFamily: "'IBM Plex Mono', monospace",
               fontSize: 10,
-              color: "#5a6a8a",
+              color: "#8898b8",
             }}
           >
             触发：
@@ -233,12 +233,12 @@ const FlowDetail: React.FC<{ flow: BusinessFlow; moduleColor: string }> = ({
               marginBottom: 6,
             }}
           >
-            <AppstoreOutlined style={{ fontSize: 10, color: "#b08eff" }} />
+            <AppstoreOutlined style={{ fontSize: 10, color: "#00d4ff" }} />
             <span
               style={{
                 fontFamily: "'IBM Plex Mono', monospace",
                 fontSize: 10,
-                color: "#5a6a8a",
+                color: "#8898b8",
               }}
             >
               关联服务
@@ -251,9 +251,9 @@ const FlowDetail: React.FC<{ flow: BusinessFlow; moduleColor: string }> = ({
                 style={{
                   fontFamily: "'IBM Plex Mono', monospace",
                   fontSize: 9,
-                  color: "#b08eff",
+                  color: "#00d4ff",
                   padding: "3px 8px",
-                  background: "rgba(176, 142, 255, 0.08)",
+                  background: "rgba(0, 212, 255, 0.08)",
                   borderRadius: 4,
                 }}
               >
@@ -381,7 +381,7 @@ const StepNode: React.FC<{
           {step.input.length > 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
               <ImportOutlined style={{ fontSize: 9, color: "#00d4ff" }} />
-              <span style={{ fontSize: 9, color: "#5a6a8a" }}>入:</span>
+              <span style={{ fontSize: 9, color: "#8898b8" }}>入:</span>
               <span style={{ fontSize: 9, color: "#00d4ff" }}>
                 {step.input.join(", ")}
               </span>
@@ -390,7 +390,7 @@ const StepNode: React.FC<{
           {step.output.length > 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
               <ExportOutlined style={{ fontSize: 9, color: "#00f084" }} />
-              <span style={{ fontSize: 9, color: "#5a6a8a" }}>出:</span>
+              <span style={{ fontSize: 9, color: "#8898b8" }}>出:</span>
               <span style={{ fontSize: 9, color: "#00f084" }}>
                 {step.output.join(", ")}
               </span>
@@ -431,7 +431,7 @@ const DataCard: React.FC<{
         style={{
           fontFamily: "'IBM Plex Mono', monospace",
           fontSize: 10,
-          color: "#6a7a9a",
+          color: "#98a8c8",
         }}
       >
         {title}

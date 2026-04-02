@@ -127,7 +127,7 @@ const EntityCard: React.FC<{ entity: Entity; moduleColor: string }> = ({
               style={{
                 fontFamily: "'IBM Plex Mono', monospace",
                 fontSize: 10,
-                color: "#5a6a8a",
+                color: "#8898b8",
                 marginTop: 2,
               }}
             >
@@ -139,7 +139,7 @@ const EntityCard: React.FC<{ entity: Entity; moduleColor: string }> = ({
         <DownOutlined
           style={{
             fontSize: 10,
-            color: "#5a6a8a",
+            color: "#8898b8",
             transform: expanded ? "rotate(180deg)" : "none",
             transition: "transform 0.2s ease",
           }}
@@ -182,7 +182,7 @@ const EntityCard: React.FC<{ entity: Entity; moduleColor: string }> = ({
                 style={{
                   fontFamily: "'IBM Plex Mono', monospace",
                   fontSize: 10,
-                  color: "#5a6a8a",
+                  color: "#8898b8",
                 }}
               >
                 字段定义
@@ -230,12 +230,12 @@ const EntityCard: React.FC<{ entity: Entity; moduleColor: string }> = ({
               borderRadius: 6,
             }}
           >
-            <FileTextOutlined style={{ fontSize: 11, color: "#5a6a8a" }} />
+            <FileTextOutlined style={{ fontSize: 11, color: "#8898b8" }} />
             <span
               style={{
                 fontFamily: "'IBM Plex Mono', monospace",
                 fontSize: 9,
-                color: "#6a7a9a",
+                color: "#98a8c8",
               }}
               title={entity.sourceFile}
             >
