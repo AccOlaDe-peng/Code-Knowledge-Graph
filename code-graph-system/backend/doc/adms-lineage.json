@@ -1,0 +1,3492 @@
+{
+  "meta": {
+    "name": "ADMS 数据血缘图",
+    "version": "2.0.0",
+    "generatedAt": "2026-03-31",
+    "description": "ADMS 企业级数据中心运维管理系统数据血缘关系图，包含模块间关系、业务流程、数据流向、数据关联"
+  },
+  "businessGlossary": {
+    "description": "业务术语表",
+    "terms": [
+      {
+        "term": "DRS",
+        "fullName": "Database Recovery Service",
+        "description": "数据库检测服务，支持静态/快速/深度/随机四种检测模式"
+      },
+      {
+        "term": "FRS",
+        "fullName": "File Recovery Service",
+        "description": "文件安全检测服务，支持勒索/弱口令/权限/扩展名/安全五种检测类型"
+      },
+      {
+        "term": "MDM",
+        "fullName": "Master Data Management",
+        "description": "主机数据管理，管理数据中心的服务器和应用资产"
+      },
+      {
+        "term": "ADMC",
+        "fullName": "ActiveIO Data Management Client",
+        "description": "ADMS客户端代理，部署在目标主机上执行检测和恢复任务"
+      },
+      {
+        "term": "AGM",
+        "fullName": "ActiveIO Gateway Manager",
+        "description": "ActiveIO备份引擎，管理备份任务和镜像数据"
+      },
+      {
+        "term": "NBU",
+        "fullName": "NetBackup Unit",
+        "description": "Veritas NetBackup备份引擎"
+      },
+      {
+        "term": "Playbook",
+        "fullName": "剧本",
+        "description": "工作流定义，描述任务执行的步骤和节点"
+      },
+      {
+        "term": "基线",
+        "fullName": "Baseline",
+        "description": "检测结果的基准记录，用于对比和趋势分析"
+      },
+      {
+        "term": "推荐算法",
+        "fullName": "Recommend Algorithm",
+        "description": "根据主机配置匹配最优执行主机的算法"
+      },
+      {
+        "term": "策略",
+        "fullName": "Policy",
+        "description": "定时调度配置，绑定业务模块实现自动触发"
+      },
+      {
+        "term": "检测对象",
+        "fullName": "Application",
+        "description": "创建检测策略的基础数据，包含数据库对象和文件系统对象两种类型"
+      },
+      {
+        "term": "数据库对象",
+        "fullName": "Database Application",
+        "description": "数据库类型的检测对象，支持MySQL、Oracle、SQL Server、PostgreSQL等"
+      },
+      {
+        "term": "文件系统对象",
+        "fullName": "Filesystem Application",
+        "description": "文件系统类型的检测对象，支持Local、NFS、S3、Samba等"
+      }
+    ]
+  },
+  "businessRules": {
+    "description": "业务规则定义",
+    "rules": [
+      {
+        "id": "rule-detection-score",
+        "name": "检测评分规则",
+        "description": "检测结果评分计算规则",
+        "formula": "总分 = 100 - (异常数 * 权重)",
+        "weights": {
+          "高风险": 10,
+          "中风险": 5,
+          "低风险": 2
+        }
+      },
+      {
+        "id": "rule-risk-level",
+        "name": "风险等级判定",
+        "description": "根据检测结果判定风险等级",
+        "conditions": [
+          {
+            "level": "高风险",
+            "condition": "总分 < 60 或 存在勒索特征"
+          },
+          {
+            "level": "中风险",
+            "condition": "60 <= 总分 < 80"
+          },
+          {
+            "level": "低风险",
+            "condition": "总分 >= 80"
+          }
+        ]
+      },
+      {
+        "id": "rule-policy-trigger",
+        "name": "策略触发规则",
+        "description": "策略如何触发业务模块执行",
+        "mapping": {
+          "DRS": "databaseDetectionService.onlineAutostart()",
+          "FRS全量": "frsService.launch(fullPolicyId)",
+          "FRS增量": "frsService.launch(incrementPolicyId)"
+        }
+      },
+      {
+        "id": "rule-recommend-algorithm",
+        "name": "推荐算法规则",
+        "description": "主机推荐算法的过滤条件",
+        "algorithms": {
+          "A": "基础过滤 - 按条件筛选主机",
+          "B": "CPU类型过滤 - 匹配CPU架构",
+          "C": "引擎ID过滤 - 匹配引擎归属",
+          "D": "OS兼容性过滤 - 检查OS版本兼容",
+          "E": "状态过滤 - 检查挂载数/推荐级别/预留状态",
+          "F": "主机状态过滤 - 检查心跳状态",
+          "G": "已有资源过滤 - 排除已占用资源",
+          "H": "标签过滤 - 按标签筛选",
+          "J": "使用率过滤 - 检查CPU/内存使用率",
+          "K": "同网段过滤 - 优先选择同网段主机"
+        }
+      },
+      {
+        "id": "rule-baseline-save",
+        "name": "基线保存规则",
+        "description": "自动检测任务保存基线的条件",
+        "condition": "仅策略自动触发的检测任务会保存基线，手动发起的不保存"
+      },
+      {
+        "id": "rule-whitelist-filter",
+        "name": "白名单过滤规则",
+        "description": "检测结果汇总时过滤白名单文件",
+        "process": "检测结果 -> 白名单匹配 -> 过滤白名单文件 -> 统计异常数 -> 计算分数"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "id": "drs",
+      "name": "数据库检测",
+      "fullName": "Database Recovery Service",
+      "description": "数据库安全检测服务，支持静态检测、快速检测、深度检测、随机检测四种模式",
+      "icon": "database",
+      "position": {
+        "x": 300,
+        "y": 150
+      },
+      "color": "#1890ff",
+      "dependsOn": [
+        "policy",
+        "engine",
+        "application",
+        "integration",
+        "permission"
+      ],
+      "providesTo": ["dashboard", "report"],
+      "entities": [
+        {
+          "id": "drs-entity-detection",
+          "name": "DatabaseDetection",
+          "tableName": "adms_db_detection_record",
+          "description": "数据库检测策略记录",
+          "fields": [
+            "name",
+            "type",
+            "attendedMode",
+            "rapidTest",
+            "randomDetection",
+            "staticDetecting",
+            "deepInspection",
+            "algorithm",
+            "policy",
+            "status",
+            "applicationId",
+            "admcIp"
+          ],
+          "sourceFile": "adms-core/src/main/java/com/activeio/adms/entity/direct/drs/entity/DatabaseDetection.java",
+          "relations": [
+            {
+              "field": "admsApplicationId",
+              "targetEntity": "AdmsApplication",
+              "relationType": "ManyToOne",
+              "description": "关联检测对象"
+            },
+            {
+              "field": "applicationId",
+              "targetEntity": "Application",
+              "relationType": "ManyToOne",
+              "description": "关联备份应用"
+            },
+            {
+              "field": "policy",
+              "targetEntity": "Policy",
+              "relationType": "ManyToOne",
+              "description": "关联调度策略"
+            }
+          ]
+        },
+        {
+          "id": "drs-entity-job",
+          "name": "DatabaseDetectionDetail",
+          "tableName": "adms_db_detection_job",
+          "description": "数据库检测作业详情",
+          "fields": [
+            "jobId",
+            "jobUuid",
+            "databaseDetectionUuid",
+            "databaseType",
+            "status",
+            "startTime",
+            "endTime",
+            "score",
+            "rapidTestErrNum",
+            "randomDetectionErrNum",
+            "staticDetectingErrNum",
+            "deepInspectionErrNum"
+          ],
+          "sourceFile": "adms-core/src/main/java/com/activeio/adms/entity/direct/drs/entity/DatabaseDetectionDetail.java",
+          "relations": [
+            {
+              "field": "databaseDetectionUuid",
+              "targetEntity": "DatabaseDetection",
+              "relationType": "ManyToOne",
+              "description": "归属检测策略"
+            },
+            {
+              "field": "jobId",
+              "targetEntity": "FlowJob",
+              "relationType": "OneToOne",
+              "description": "关联流程任务"
+            }
+          ]
+        },
+        {
+          "id": "drs-entity-baseline",
+          "name": "DrsBaseline",
+          "tableName": "adms_drs_baseline",
+          "description": "DRS基线记录，保存自动检测的基准数据",
+          "fields": [
+            "drsUuid",
+            "baselineJobId",
+            "rapidTest",
+            "randomDetection",
+            "staticDetecting",
+            "deepInspection",
+            "baselineTotal",
+            "applicationId"
+          ],
+          "sourceFile": "adms-core/src/main/java/com/activeio/adms/entity/direct/drs/entity/DrsBaseline.java",
+          "relations": [
+            {
+              "field": "drsUuid",
+              "targetEntity": "DatabaseDetection",
+              "relationType": "ManyToOne",
+              "description": "归属检测策略"
+            },
+            {
+              "field": "applicationId",
+              "targetEntity": "AdmsApplication",
+              "relationType": "ManyToOne",
+              "description": "关联应用"
+            }
+          ]
+        },
+        {
+          "id": "drs-entity-table",
+          "name": "DrsTable",
+          "tableName": "adms_drs_table",
+          "description": "DRS检测表配置，记录包含/排除的表",
+          "fields": [
+            "tableName",
+            "schemaName",
+            "databaseName",
+            "drsUuid",
+            "sourceType",
+            "isExclude"
+          ],
+          "sourceFile": "adms-core/src/main/java/com/activeio/adms/entity/direct/drs/entity/DrsTable.java",
+          "relations": [
+            {
+              "field": "drsUuid",
+              "targetEntity": "DatabaseDetection",
+              "relationType": "ManyToOne",
+              "description": "归属检测策略"
+            }
+          ]
+        }
+      ],
+      "businessFlows": [
+        {
+          "id": "drs-flow-static",
+          "name": "静态检测流程",
+          "description": "基于元数据检测，检测表结构和数据特征，适用于无需读取实际数据的场景",
+          "trigger": "手动发起或策略自动触发",
+          "businessContext": "用于检测数据库配置合规性，如字段命名规范、表结构合理性等",
+          "steps": [
+            {
+              "step": 1,
+              "name": "策略配置",
+              "description": "用户创建DRS策略，配置静态检测参数",
+              "input": ["用户输入"],
+              "output": ["DatabaseDetection"],
+              "serviceCall": "DatabaseDetectionService.create()"
+            },
+            {
+              "step": 2,
+              "name": "分发节点",
+              "description": "获取数据库连接参数，分发检测任务到ADMC客户端",
+              "input": ["DatabaseDetection", "AdmsApplication"],
+              "output": ["分发参数"],
+              "serviceCall": "DistributeLibService.buildMetaOperate()"
+            },
+            {
+              "step": 3,
+              "name": "静态检测",
+              "description": "执行静态检测算法，检测表结构元数据",
+              "input": ["分发参数"],
+              "output": ["检测结果"],
+              "serviceCall": "ADMC执行"
+            },
+            {
+              "step": 4,
+              "name": "汇总节点",
+              "description": "汇总检测结果，计算分数，保存异常记录",
+              "input": ["检测结果"],
+              "output": ["DatabaseDetectionDetail", "AdmsDetectionErr"],
+              "serviceCall": "DistributeResultDrsServiceImpl.execute()"
+            }
+          ],
+          "dataInputs": ["用户配置", "AdmsApplication", "Policy"],
+          "dataOutputs": [
+            "DatabaseDetectionDetail",
+            "AdmsDetectionErr",
+            "DrsBaseline"
+          ],
+          "relatedServices": [
+            "DatabaseDetectionService",
+            "DistributeResultDrsServiceImpl",
+            "DrsNodeBuild"
+          ],
+          "businessRules": ["rule-detection-score", "rule-baseline-save"]
+        },
+        {
+          "id": "drs-flow-rapid",
+          "name": "快速检测流程",
+          "description": "快速扫描数据库状态，跳过分发节点，适用于快速健康检查",
+          "trigger": "手动发起",
+          "businessContext": "用于快速了解数据库整体状态，不深入检测具体数据",
+          "steps": [
+            {
+              "step": 1,
+              "name": "发起检测",
+              "description": "用户发起快速检测",
+              "input": ["用户输入"],
+              "output": ["DatabaseDetection"],
+              "serviceCall": "DatabaseDetectionService.launch()"
+            },
+            {
+              "step": 2,
+              "name": "检测执行",
+              "description": "直接执行快速检测，无需分发预处理",
+              "input": ["DatabaseDetection", "AdmcIp"],
+              "output": ["检测结果"],
+              "serviceCall": "DatabaseRapidCheckBuild构建"
+            },
+            {
+              "step": 3,
+              "name": "结果汇总",
+              "description": "汇总检测结果",
+              "input": ["检测结果"],
+              "output": ["DatabaseDetectionDetail"],
+              "serviceCall": "检测服务处理结果"
+            }
+          ],
+          "dataInputs": ["用户配置", "AdmcIp"],
+          "dataOutputs": ["DatabaseDetectionDetail"],
+          "relatedServices": [
+            "DatabaseDetectionService",
+            "DatabaseRapidCheckBuild"
+          ],
+          "businessRules": ["rule-detection-score"]
+        },
+        {
+          "id": "drs-flow-random",
+          "name": "随机检测流程",
+          "description": "按概率随机抽取数据行进行检测，支持勒索软件检测概率配置",
+          "trigger": "手动发起或策略自动触发",
+          "businessContext": "用于检测数据是否被勒索软件加密，通过概率抽样提高检测效率",
+          "steps": [
+            {
+              "step": 1,
+              "name": "策略配置",
+              "description": "配置随机检测参数(勒索概率阈值、检测概率、行数限制)",
+              "input": ["用户输入"],
+              "output": ["DatabaseDetection"],
+              "serviceCall": "DatabaseDetectionService.create()"
+            },
+            {
+              "step": 2,
+              "name": "分发节点",
+              "description": "分发检测任务到ADMC客户端，传递采样参数",
+              "input": ["DatabaseDetection"],
+              "output": ["分发参数"],
+              "serviceCall": "DistributeLibService"
+            },
+            {
+              "step": 3,
+              "name": "随机检测",
+              "description": "按配置概率随机抽取数据行检测勒索特征",
+              "input": ["分发参数"],
+              "output": ["检测结果"],
+              "serviceCall": "DatabaseRandomCheckBuild构建"
+            },
+            {
+              "step": 4,
+              "name": "汇总节点",
+              "description": "汇总检测结果，判定勒索风险",
+              "input": ["检测结果"],
+              "output": ["DatabaseDetectionDetail", "AdmsDetectionErr"],
+              "serviceCall": "结果处理服务"
+            }
+          ],
+          "dataInputs": ["用户配置", "RandomObj配置"],
+          "dataOutputs": ["DatabaseDetectionDetail", "AdmsDetectionErr"],
+          "relatedServices": [
+            "DatabaseDetectionService",
+            "DatabaseRandomCheckBuild"
+          ],
+          "businessRules": ["rule-detection-score", "rule-risk-level"]
+        },
+        {
+          "id": "drs-flow-deep",
+          "name": "深度检测流程",
+          "description": "全量数据扫描，支持深度转随机优化大表检测",
+          "trigger": "手动发起或策略自动触发",
+          "businessContext": "用于全面检测数据库中的敏感数据和加密数据，大表自动转为随机检测以优化性能",
+          "steps": [
+            {
+              "step": 1,
+              "name": "策略配置",
+              "description": "配置深度检测参数(算法类型、行数阈值)",
+              "input": ["用户输入"],
+              "output": ["DatabaseDetection"],
+              "serviceCall": "DatabaseDetectionService.create()"
+            },
+            {
+              "step": 2,
+              "name": "分发节点",
+              "description": "分发检测任务",
+              "input": ["DatabaseDetection"],
+              "output": ["分发参数"],
+              "serviceCall": "DistributeLibService"
+            },
+            {
+              "step": 3,
+              "name": "深度检测",
+              "description": "执行全量检测，大表自动转为随机检测",
+              "input": ["分发参数"],
+              "output": ["检测结果"],
+              "serviceCall": "DatabaseDeepCheckBuild构建"
+            },
+            {
+              "step": 4,
+              "name": "汇总节点",
+              "description": "汇总检测结果",
+              "input": ["检测结果"],
+              "output": ["DatabaseDetectionDetail", "AdmsDetectionErr"],
+              "serviceCall": "结果处理服务"
+            }
+          ],
+          "dataInputs": ["用户配置", "DeepObj配置"],
+          "dataOutputs": ["DatabaseDetectionDetail", "AdmsDetectionErr"],
+          "relatedServices": [
+            "DatabaseDetectionService",
+            "DatabaseDeepCheckBuild"
+          ],
+          "businessRules": ["rule-detection-score"]
+        },
+        {
+          "id": "drs-flow-baseline",
+          "name": "基线管理流程",
+          "description": "自动发起的检测任务会保存基线，用于趋势分析",
+          "trigger": "策略自动触发",
+          "businessContext": "基线记录作为对比基准，用于检测结果的对比分析和趋势报告",
+          "steps": [
+            {
+              "step": 1,
+              "name": "执行检测",
+              "description": "执行检测并缓存表数据到RocksDB",
+              "input": ["检测结果"],
+              "output": ["缓存数据"],
+              "serviceCall": "检测执行"
+            },
+            {
+              "step": 2,
+              "name": "保存基线",
+              "description": "保存基线信息到adms_drs_baseline表",
+              "input": ["缓存数据"],
+              "output": ["DrsBaseline"],
+              "serviceCall": "DistributeResultDrsServiceImpl.handlerBaseLine()"
+            },
+            {
+              "step": 3,
+              "name": "记录表统计",
+              "description": "记录物理表、逻辑表数量统计",
+              "input": ["DrsBaseline"],
+              "output": ["统计数据"],
+              "serviceCall": "统计服务"
+            }
+          ],
+          "dataInputs": ["检测结果"],
+          "dataOutputs": ["DrsBaseline", "DrsTable"],
+          "relatedServices": ["DistributeResultDrsServiceImpl"],
+          "businessRules": ["rule-baseline-save"]
+        }
+      ],
+      "subFunctions": [
+        {
+          "id": "drs-func-policy",
+          "name": "检测策略管理",
+          "description": "创建、修改、删除、查询数据库检测策略",
+          "apiEndpoint": "/api/drs/detection",
+          "inputSource": ["用户输入"],
+          "outputTarget": ["DatabaseDetection"],
+          "relatedEntities": ["DatabaseDetection"],
+          "relatedServices": ["DatabaseDetectionService"],
+          "relatedDAO": ["DatabaseDetectionRepository"]
+        },
+        {
+          "id": "drs-func-job",
+          "name": "检测作业管理",
+          "description": "查询检测作业列表、作业详情、作业报表",
+          "apiEndpoint": "/api/drs/job",
+          "inputSource": ["DatabaseDetection"],
+          "outputTarget": ["DatabaseDetectionDetail"],
+          "relatedEntities": ["DatabaseDetectionDetail"],
+          "relatedServices": ["DatabaseDetectionService"],
+          "relatedDAO": ["DatabaseDetectionDetailRepository"]
+        },
+        {
+          "id": "drs-func-distribute",
+          "name": "分发处理",
+          "description": "获取数据库连接参数，分发检测任务到ADMC客户端",
+          "apiEndpoint": "内部调用",
+          "inputSource": ["DatabaseDetection", "AdmsApplication"],
+          "outputTarget": ["分发参数", "DrsTable"],
+          "relatedEntities": ["DrsTable"],
+          "relatedServices": [
+            "DistributeLibService",
+            "DistributeResultDrsServiceImpl"
+          ],
+          "relatedDAO": ["DrsTableRepository"]
+        },
+        {
+          "id": "drs-func-platform",
+          "name": "平台集成",
+          "description": "TDSQL、OceanBase等平台集群/租户/代理查询",
+          "apiEndpoint": "/api/drs/platform",
+          "inputSource": ["平台API"],
+          "outputTarget": ["平台配置数据"],
+          "relatedEntities": [],
+          "relatedServices": ["DrsPlatformService"],
+          "relatedDAO": []
+        },
+        {
+          "id": "drs-func-cycle",
+          "name": "周期报表",
+          "description": "生成周期性检测报告，趋势分析",
+          "apiEndpoint": "/api/drs/cycle/report",
+          "inputSource": ["DatabaseDetectionDetail"],
+          "outputTarget": ["周期报表"],
+          "relatedEntities": ["DatabaseDetectionDetail"],
+          "relatedServices": ["DatabaseDetectionCycleService"],
+          "relatedDAO": ["DatabaseDetectionDetailRepository"]
+        }
+      ],
+      "serviceDependencies": {
+        "description": "DRS模块服务调用依赖",
+        "calls": [
+          {
+            "service": "PolicyService",
+            "purpose": "策略绑定/解绑"
+          },
+          {
+            "service": "FlowService",
+            "purpose": "发起检测流程"
+          },
+          {
+            "service": "AdmsApplicationRepository",
+            "purpose": "在线应用查询"
+          },
+          {
+            "service": "ApplicationRepository",
+            "purpose": "备份对象查询"
+          },
+          {
+            "service": "MdmHostRepository",
+            "purpose": "主机推荐查询"
+          },
+          {
+            "service": "AdmcHostService",
+            "purpose": "ADMC主机服务"
+          },
+          {
+            "service": "WhiteListService",
+            "purpose": "白名单服务"
+          },
+          {
+            "service": "ImageService",
+            "purpose": "镜像服务"
+          },
+          {
+            "service": "NotificationProducer",
+            "purpose": "通知生产者"
+          }
+        ]
+      }
+    },
+    {
+      "id": "frs",
+      "name": "文件安全检测",
+      "fullName": "File Recovery Service",
+      "description": "文件安全检测服务，支持勒索检测、弱口令检测、权限检测、扩展名检测、安全检测五种模式",
+      "icon": "file",
+      "position": {
+        "x": 600,
+        "y": 150
+      },
+      "color": "#52c41a",
+      "dependsOn": [
+        "policy",
+        "engine",
+        "application",
+        "integration",
+        "permission"
+      ],
+      "providesTo": ["dashboard", "report"],
+      "entities": [
+        {
+          "id": "frs-entity-policy",
+          "name": "Frs",
+          "tableName": "adms_frs",
+          "description": "文件安全检测策略",
+          "fields": [
+            "name",
+            "osType",
+            "extortionDetection",
+            "pwdDetection",
+            "permissionDetection",
+            "extensionDetection",
+            "securityDetection",
+            "fullPolicyId",
+            "incrementPolicyId",
+            "fromType",
+            "applicationId",
+            "targetPath",
+            "status"
+          ],
+          "sourceFile": "adms-core/src/main/java/com/activeio/adms/entity/direct/frs/entity/Frs.java",
+          "relations": [
+            {
+              "field": "fullPolicyId",
+              "targetEntity": "Policy",
+              "relationType": "ManyToOne",
+              "description": "全量检测策略"
+            },
+            {
+              "field": "incrementPolicyId",
+              "targetEntity": "Policy",
+              "relationType": "ManyToOne",
+              "description": "增量检测策略"
+            },
+            {
+              "field": "admsApplicationId",
+              "targetEntity": "AdmsApplication",
+              "relationType": "ManyToOne",
+              "description": "关联检测对象"
+            }
+          ]
+        },
+        {
+          "id": "frs-entity-job",
+          "name": "FrsJob",
+          "tableName": "adms_frs_job",
+          "description": "文件安全检测作业",
+          "fields": [
+            "frsUuid",
+            "jobId",
+            "ip",
+            "path",
+            "osType",
+            "extortionDetection",
+            "pwdDetection",
+            "permissionDetection",
+            "extensionDetection",
+            "securityDetection",
+            "extortionDetectionErrNum",
+            "pwdDetectionErrNum",
+            "permissionDetectionErrNum",
+            "extensionDetectionErrNum",
+            "securityDetectionErrNum",
+            "fileCount",
+            "totalScore",
+            "highRiskCount",
+            "middleRiskCount",
+            "lowRiskCount",
+            "runType"
+          ],
+          "sourceFile": "adms-core/src/main/java/com/activeio/adms/entity/direct/frs/entity/FrsJob.java",
+          "relations": [
+            {
+              "field": "frsUuid",
+              "targetEntity": "Frs",
+              "relationType": "ManyToOne",
+              "description": "归属FRS策略"
+            },
+            {
+              "field": "jobId",
+              "targetEntity": "FlowJob",
+              "relationType": "OneToOne",
+              "description": "关联流程任务"
+            },
+            {
+              "field": "admsApplicationId",
+              "targetEntity": "AdmsApplication",
+              "relationType": "ManyToOne",
+              "description": "关联检测对象"
+            }
+          ]
+        },
+        {
+          "id": "frs-entity-version",
+          "name": "FrsDataVersion",
+          "tableName": "adms_frs_data_version",
+          "description": "FRS数据版本，用于增量检测",
+          "fields": ["applicationId", "paramHash", "version"],
+          "sourceFile": "adms-core/src/main/java/com/activeio/adms/entity/direct/frs/entity/FrsDataVersion.java",
+          "relations": [
+            {
+              "field": "applicationId",
+              "targetEntity": "AdmsApplication",
+              "relationType": "ManyToOne",
+              "description": "关联应用"
+            }
+          ]
+        }
+      ],
+      "businessFlows": [
+        {
+          "id": "frs-flow-detection",
+          "name": "文件完整性检测流程",
+          "description": "完整的文件安全检测流程，包含多种检测类型",
+          "trigger": "手动发起或策略自动触发",
+          "businessContext": "检测文件系统的安全性，包括勒索病毒检测、弱口令文件检测、权限问题检测、扩展名伪装检测、安全威胁检测",
+          "steps": [
+            {
+              "step": 1,
+              "name": "策略配置",
+              "description": "创建FRS策略，配置检测类型和参数",
+              "input": ["用户输入"],
+              "output": ["Frs"],
+              "serviceCall": "FrsService.add()"
+            },
+            {
+              "step": 2,
+              "name": "作业发起",
+              "description": "创建FrsJob记录，构建Flow流程节点",
+              "input": ["Frs"],
+              "output": ["FrsJob"],
+              "serviceCall": "FrsLaunchService.launch()"
+            },
+            {
+              "step": 3,
+              "name": "挂载扫描",
+              "description": "挂载目标存储，扫描文件列表",
+              "input": ["FrsJob", "targetPath"],
+              "output": ["文件列表"],
+              "serviceCall": "FrsBuildScanMountFlowNode"
+            },
+            {
+              "step": 4,
+              "name": "检测执行",
+              "description": "执行各类检测(安全/勒索/弱口令/权限/扩展名)",
+              "input": ["文件列表"],
+              "output": ["检测结果"],
+              "serviceCall": "各检测节点Builder"
+            },
+            {
+              "step": 5,
+              "name": "结果汇总",
+              "description": "汇总检测结果，白名单过滤，计算分数",
+              "input": ["检测结果", "CheckWhiteList"],
+              "output": ["FrsJob更新", "检测详情存RocksDB"],
+              "serviceCall": "FrsSummarizingService.doSummarizing()"
+            }
+          ],
+          "dataInputs": [
+            "用户配置",
+            "AdmsApplication",
+            "Policy",
+            "CheckWhiteList"
+          ],
+          "dataOutputs": ["FrsJob", "RocksDB检测结果"],
+          "relatedServices": [
+            "FrsService",
+            "FrsLaunchService",
+            "FrsCheckService",
+            "FrsSummarizingService"
+          ],
+          "businessRules": [
+            "rule-detection-score",
+            "rule-risk-level",
+            "rule-whitelist-filter"
+          ]
+        },
+        {
+          "id": "frs-flow-whitelist",
+          "name": "白名单管理流程",
+          "description": "白名单的增删改查及导入导出",
+          "trigger": "用户操作",
+          "businessContext": "白名单用于排除已知安全的文件，避免误报",
+          "steps": [
+            {
+              "step": 1,
+              "name": "白名单创建",
+              "description": "解析白名单信息，存储到RocksDB",
+              "input": ["用户输入"],
+              "output": ["CheckWhiteList"],
+              "serviceCall": "FrsWhiteService.add()"
+            },
+            {
+              "step": 2,
+              "name": "白名单应用",
+              "description": "检测结果汇总时过滤白名单文件",
+              "input": ["检测结果", "CheckWhiteList"],
+              "output": ["过滤后结果"],
+              "serviceCall": "汇总时自动过滤"
+            },
+            {
+              "step": 3,
+              "name": "白名单导入导出",
+              "description": "Excel导入导出白名单",
+              "input": ["Excel文件"],
+              "output": ["CheckWhiteList"],
+              "serviceCall": "FrsWhiteService.importExcel()"
+            }
+          ],
+          "dataInputs": ["用户输入", "Excel文件"],
+          "dataOutputs": ["CheckWhiteList"],
+          "relatedServices": ["FrsWhiteService", "FrsWhiteListService"],
+          "businessRules": ["rule-whitelist-filter"]
+        },
+        {
+          "id": "frs-flow-report",
+          "name": "报表查询流程",
+          "description": "查询检测结果和生成报表",
+          "trigger": "用户查询",
+          "businessContext": "提供检测结果的查询和导出功能，支持周期报表和趋势分析",
+          "steps": [
+            {
+              "step": 1,
+              "name": "作业列表查询",
+              "description": "分页查询作业列表",
+              "input": ["查询条件"],
+              "output": ["FrsJob列表"],
+              "serviceCall": "FrsJobService.findAll()"
+            },
+            {
+              "step": 2,
+              "name": "报表详情查询",
+              "description": "读取RocksDB检测结果，组装报表",
+              "input": ["jobId"],
+              "output": ["报表详情"],
+              "serviceCall": "FrsJobService.getFrsJobReport()"
+            },
+            {
+              "step": 3,
+              "name": "周期报表",
+              "description": "生成周期性报表，趋势分析",
+              "input": ["时间范围"],
+              "output": ["周期报表"],
+              "serviceCall": "FrsJobService.cycleReport()"
+            }
+          ],
+          "dataInputs": ["查询条件", "jobId"],
+          "dataOutputs": ["报表数据"],
+          "relatedServices": ["FrsJobService"]
+        }
+      ],
+      "subFunctions": [
+        {
+          "id": "frs-func-policy",
+          "name": "检测策略管理",
+          "description": "创建、修改、删除、查询文件检测策略",
+          "apiEndpoint": "/api/frs",
+          "inputSource": ["用户输入"],
+          "outputTarget": ["Frs"],
+          "relatedEntities": ["Frs"],
+          "relatedServices": ["FrsService"],
+          "relatedDAO": ["FrsRepository"]
+        },
+        {
+          "id": "frs-func-job",
+          "name": "检测作业管理",
+          "description": "查询作业列表、作业详情、下载报表",
+          "apiEndpoint": "/api/frs/job",
+          "inputSource": ["Frs"],
+          "outputTarget": ["FrsJob"],
+          "relatedEntities": ["FrsJob"],
+          "relatedServices": ["FrsJobService"],
+          "relatedDAO": ["FrsJobRepository"]
+        },
+        {
+          "id": "frs-func-check",
+          "name": "检测处理",
+          "description": "处理检测结果、文件合并、分块上传下载",
+          "apiEndpoint": "/api/frs/check",
+          "inputSource": ["ADMC客户端检测结果"],
+          "outputTarget": ["RocksDB检测结果"],
+          "relatedEntities": [],
+          "relatedServices": ["FrsCheckService", "FrsSuspiciousCheckService"],
+          "relatedDAO": []
+        },
+        {
+          "id": "frs-func-whitelist",
+          "name": "白名单管理",
+          "description": "白名单增删改查、导入导出",
+          "apiEndpoint": "/api/white/frs",
+          "inputSource": ["用户输入", "Excel文件"],
+          "outputTarget": ["CheckWhiteList"],
+          "relatedEntities": [],
+          "relatedServices": ["FrsWhiteService"],
+          "relatedDAO": ["CheckWhiteListRepository"]
+        },
+        {
+          "id": "frs-func-summarizing",
+          "name": "结果汇总",
+          "description": "汇总检测结果、计算分数、刷新报表",
+          "apiEndpoint": "内部调用",
+          "inputSource": ["RocksDB检测结果", "CheckWhiteList"],
+          "outputTarget": ["FrsJob更新"],
+          "relatedEntities": ["FrsJob"],
+          "relatedServices": ["FrsSummarizingService"],
+          "relatedDAO": ["FrsJobRepository"]
+        }
+      ],
+      "serviceDependencies": {
+        "description": "FRS模块服务调用依赖",
+        "calls": [
+          {
+            "service": "PolicyService",
+            "purpose": "策略管理"
+          },
+          {
+            "service": "FlowService",
+            "purpose": "流程引擎"
+          },
+          {
+            "service": "MdmHostService",
+            "purpose": "主机管理"
+          },
+          {
+            "service": "AdmcHostService",
+            "purpose": "ADMC主机服务"
+          },
+          {
+            "service": "AdmcUtils",
+            "purpose": "ADMC工具类"
+          },
+          {
+            "service": "NbuImageService",
+            "purpose": "NBU镜像服务"
+          },
+          {
+            "service": "WhiteListServiceImpl",
+            "purpose": "白名单服务"
+          },
+          {
+            "service": "ImageService",
+            "purpose": "镜像服务"
+          },
+          {
+            "service": "AdmsApplicationRepository",
+            "purpose": "应用仓储"
+          }
+        ]
+      }
+    },
+    {
+      "id": "mdm",
+      "name": "主机数据管理",
+      "fullName": "Master Data Management",
+      "description": "主机和应用资产管理，包括主机注册、应用注册、拓扑管理、推荐算法",
+      "icon": "server",
+      "position": {
+        "x": 150,
+        "y": 300
+      },
+      "color": "#fa8c16",
+      "dependsOn": ["engine", "integration", "permission"],
+      "providesTo": ["drs", "frs", "dashboard"],
+      "entities": [
+        {
+          "id": "mdm-entity-host",
+          "name": "MdmHost",
+          "tableName": "adms_mdm_host",
+          "description": "主机实体，记录数据中心服务器资产",
+          "fields": [
+            "ipaddress",
+            "hostName",
+            "osRelease",
+            "osType",
+            "osKernelVersion",
+            "hardwareType",
+            "cpuType",
+            "cpuNumber",
+            "memoryTotal",
+            "engineHostId",
+            "isReserved",
+            "mountNum",
+            "vcenterIp",
+            "esxiIp",
+            "isRecommend",
+            "kernelVersion",
+            "vulnerableVersion",
+            "virusVersion",
+            "installStatus",
+            "installPath"
+          ],
+          "sourceFile": "adms-core/src/main/java/com/activeio/adms/entity/direct/mdm/entity/MdmHost.java",
+          "relations": [
+            {
+              "field": "engineHostId",
+              "targetEntity": "Host",
+              "relationType": "ManyToOne",
+              "description": "关联引擎主机"
+            }
+          ]
+        },
+        {
+          "id": "mdm-entity-application",
+          "name": "MdmApplication",
+          "tableName": "adms_mdm_application",
+          "description": "应用实体，记录数据库应用配置",
+          "fields": [
+            "mdmHostId",
+            "hostIp",
+            "type",
+            "homedir",
+            "isAsm",
+            "dbUser",
+            "conflevel",
+            "instance",
+            "opatch",
+            "version",
+            "osUser",
+            "osPassword",
+            "osType",
+            "baseDir"
+          ],
+          "sourceFile": "adms-core/src/main/java/com/activeio/adms/entity/direct/mdm/entity/MdmApplication.java",
+          "relations": [
+            {
+              "field": "mdmHostId",
+              "targetEntity": "MdmHost",
+              "relationType": "ManyToOne",
+              "description": "归属主机"
+            }
+          ]
+        },
+        {
+          "id": "mdm-entity-hostip",
+          "name": "MdmHostIp",
+          "tableName": "adms_mdm_host_ip",
+          "description": "主机IP信息，支持多网卡和多IP",
+          "fields": [
+            "hostUuid",
+            "masterIp",
+            "ipaddress",
+            "ipVersion",
+            "ipType",
+            "networkCard",
+            "isPrimary",
+            "isEnable",
+            "isVirtual"
+          ],
+          "sourceFile": "adms-core/src/main/java/com/activeio/adms/entity/direct/mdm/entity/MdmHostIp.java",
+          "relations": [
+            {
+              "field": "hostUuid",
+              "targetEntity": "MdmHost",
+              "relationType": "ManyToOne",
+              "description": "归属主机"
+            }
+          ]
+        },
+        {
+          "id": "mdm-entity-relation",
+          "name": "MdmHostAppRelation",
+          "tableName": "adms_mdm_host_app_relation",
+          "description": "主机-应用关联关系",
+          "fields": ["hostId", "applicationId"],
+          "sourceFile": "adms-core/src/main/java/com/activeio/adms/entity/direct/mdm/entity/MdmHostAppRelation.java",
+          "relations": [
+            {
+              "field": "hostId",
+              "targetEntity": "MdmHost",
+              "relationType": "ManyToOne",
+              "description": "关联主机"
+            },
+            {
+              "field": "applicationId",
+              "targetEntity": "MdmApplication",
+              "relationType": "ManyToOne",
+              "description": "关联应用"
+            }
+          ]
+        },
+        {
+          "id": "mdm-entity-history",
+          "name": "MdmHistory",
+          "tableName": "adms_mdm_history_log",
+          "description": "操作历史记录，记录挂载/卸载/备份/恢复等操作",
+          "fields": [
+            "hostId",
+            "applicationId",
+            "operationType",
+            "mountNum",
+            "scanMethod",
+            "jobId",
+            "targetLibrary",
+            "operator",
+            "engineType",
+            "oldValue",
+            "newValue",
+            "version",
+            "errorCode",
+            "errorMsg",
+            "operationResult",
+            "username"
+          ],
+          "sourceFile": "adms-core/src/main/java/com/activeio/adms/entity/direct/mdm/entity/MdmHistory.java",
+          "relations": [
+            {
+              "field": "hostId",
+              "targetEntity": "MdmHost",
+              "relationType": "ManyToOne",
+              "description": "关联主机"
+            },
+            {
+              "field": "applicationId",
+              "targetEntity": "MdmApplication",
+              "relationType": "ManyToOne",
+              "description": "关联应用"
+            }
+          ]
+        }
+      ],
+      "businessFlows": [
+        {
+          "id": "mdm-flow-host-register",
+          "name": "主机注册流程",
+          "description": "静态新增或Excel导入主机",
+          "trigger": "用户操作",
+          "businessContext": "将数据中心服务器注册到系统，以便进行检测和恢复操作",
+          "steps": [
+            {
+              "step": 1,
+              "name": "校验IP",
+              "description": "校验IP是否已存在",
+              "input": ["用户输入"],
+              "output": ["校验结果"],
+              "serviceCall": "MdmHostRepository.findByIpaddress()"
+            },
+            {
+              "step": 2,
+              "name": "创建实体",
+              "description": "创建MdmHost实体",
+              "input": ["用户输入"],
+              "output": ["MdmHost"],
+              "serviceCall": "MdmHostService.add()"
+            },
+            {
+              "step": 3,
+              "name": "获取详情",
+              "description": "调用LIB包获取主机详情(操作系统、硬件配置等)",
+              "input": ["MdmHost"],
+              "output": ["主机详情"],
+              "serviceCall": "MdmLibService.hostInfo()"
+            },
+            {
+              "step": 4,
+              "name": "设置网络",
+              "description": "设置网络信息(MdmHostIp)",
+              "input": ["主机详情"],
+              "output": ["MdmHostIp"],
+              "serviceCall": "网络信息处理"
+            },
+            {
+              "step": 5,
+              "name": "保存数据",
+              "description": "保存到数据库",
+              "input": ["MdmHost", "MdmHostIp"],
+              "output": ["数据库记录"],
+              "serviceCall": "MdmHostRepository.save()"
+            }
+          ],
+          "dataInputs": ["用户输入", "Excel文件"],
+          "dataOutputs": ["MdmHost", "MdmHostIp"],
+          "relatedServices": ["MdmHostService", "MdmLibService"]
+        },
+        {
+          "id": "mdm-flow-app-register",
+          "name": "应用注册流程",
+          "description": "静态新增或Excel导入应用",
+          "trigger": "用户操作",
+          "businessContext": "将数据库应用注册到系统，配置连接参数以便检测使用",
+          "steps": [
+            {
+              "step": 1,
+              "name": "校验应用",
+              "description": "校验应用是否已存在(hostIp+homedir+type)",
+              "input": ["用户输入"],
+              "output": ["校验结果"],
+              "serviceCall": "MdmApplicationRepository查询"
+            },
+            {
+              "step": 2,
+              "name": "校验主机",
+              "description": "校验主机是否存在",
+              "input": ["hostIp"],
+              "output": ["MdmHost"],
+              "serviceCall": "MdmHostRepository.findByIpaddress()"
+            },
+            {
+              "step": 3,
+              "name": "创建实体",
+              "description": "创建MdmApplication实体并关联主机",
+              "input": ["用户输入", "MdmHost"],
+              "output": ["MdmApplication"],
+              "serviceCall": "MdmApplicationService.add()"
+            },
+            {
+              "step": 4,
+              "name": "获取详情",
+              "description": "调用LIB包获取应用详情(版本、实例等)",
+              "input": ["MdmApplication"],
+              "output": ["应用详情"],
+              "serviceCall": "MdmLibService.appInfo()"
+            },
+            {
+              "step": 5,
+              "name": "保存数据",
+              "description": "保存到数据库",
+              "input": ["MdmApplication"],
+              "output": ["数据库记录"],
+              "serviceCall": "MdmApplicationRepository.save()"
+            }
+          ],
+          "dataInputs": ["用户输入", "Excel文件", "MdmHost"],
+          "dataOutputs": ["MdmApplication"],
+          "relatedServices": ["MdmApplicationService", "MdmLibService"]
+        },
+        {
+          "id": "mdm-flow-sync",
+          "name": "资产同步流程",
+          "description": "手动或定时同步主机/应用信息",
+          "trigger": "手动扫描或定时任务",
+          "businessContext": "保持资产信息的实时性，检测配置变化并记录历史",
+          "steps": [
+            {
+              "step": 1,
+              "name": "检测心跳",
+              "description": "检查主机心跳状态",
+              "input": ["hostIp"],
+              "output": ["心跳状态"],
+              "serviceCall": "AdmcUtils.isLive()"
+            },
+            {
+              "step": 2,
+              "name": "获取数据",
+              "description": "调用LIB包获取最新数据",
+              "input": ["hostIp"],
+              "output": ["最新数据"],
+              "serviceCall": "MdmLibService.hostInfo()"
+            },
+            {
+              "step": 3,
+              "name": "对比变更",
+              "description": "对比数据变更",
+              "input": ["最新数据", "MdmHost"],
+              "output": ["变更字段"],
+              "serviceCall": "FieldContrastUtils.compareFields()"
+            },
+            {
+              "step": 4,
+              "name": "记录历史",
+              "description": "记录变更历史到MdmHistory",
+              "input": ["变更字段"],
+              "output": ["MdmHistory"],
+              "serviceCall": "MdmHistoryRepository.save()"
+            },
+            {
+              "step": 5,
+              "name": "更新数据",
+              "description": "更新主机/应用信息",
+              "input": ["最新数据"],
+              "output": ["MdmHost/MdmApplication更新"],
+              "serviceCall": "Repository.save()"
+            }
+          ],
+          "dataInputs": ["MdmHost", "MdmApplication"],
+          "dataOutputs": ["MdmHost", "MdmApplication", "MdmHistory"],
+          "relatedServices": ["MdmLibService"]
+        },
+        {
+          "id": "mdm-flow-recommend",
+          "name": "推荐算法流程",
+          "description": "根据算法条件推荐合适的主机",
+          "trigger": "用户请求推荐",
+          "businessContext": "为检测任务推荐最优执行主机，考虑CPU、内存、网络、状态等因素",
+          "steps": [
+            {
+              "step": 1,
+              "name": "解析算法",
+              "description": "解析算法keys(A-K)",
+              "input": ["RecommendParam"],
+              "output": ["算法条件"],
+              "serviceCall": "RecommenderService.execute()"
+            },
+            {
+              "step": 2,
+              "name": "SQL过滤",
+              "description": "执行SQL算法过滤",
+              "input": ["算法条件"],
+              "output": ["候选主机"],
+              "serviceCall": "executeSql()"
+            },
+            {
+              "step": 3,
+              "name": "内存过滤",
+              "description": "执行代码算法过滤(CPU类型、兼容性、状态、使用率)",
+              "input": ["候选主机"],
+              "output": ["推荐结果"],
+              "serviceCall": "executeCode()"
+            },
+            {
+              "step": 4,
+              "name": "返回结果",
+              "description": "返回推荐主机列表",
+              "input": ["推荐结果"],
+              "output": ["MdmQueryResult"],
+              "serviceCall": "返回结果"
+            }
+          ],
+          "dataInputs": ["RecommendParam", "MdmHost", "MdmApplication"],
+          "dataOutputs": ["推荐结果列表"],
+          "relatedServices": ["RecommenderService"],
+          "businessRules": ["rule-recommend-algorithm"]
+        }
+      ],
+      "subFunctions": [
+        {
+          "id": "mdm-func-host",
+          "name": "主机管理",
+          "description": "主机增删改查、Excel导入导出、推荐开关",
+          "apiEndpoint": "/api/mdm/host",
+          "inputSource": ["用户输入", "Excel文件"],
+          "outputTarget": ["MdmHost", "MdmHostIp"],
+          "relatedEntities": ["MdmHost", "MdmHostIp"],
+          "relatedServices": ["MdmHostService"],
+          "relatedDAO": ["MdmHostRepository"]
+        },
+        {
+          "id": "mdm-func-application",
+          "name": "应用管理",
+          "description": "应用增删改查、Excel导入导出、推荐级别重置",
+          "apiEndpoint": "/api/mdm/application",
+          "inputSource": ["用户输入", "Excel文件", "MdmHost"],
+          "outputTarget": ["MdmApplication"],
+          "relatedEntities": ["MdmApplication"],
+          "relatedServices": ["MdmApplicationService"],
+          "relatedDAO": ["MdmApplicationRepository"]
+        },
+        {
+          "id": "mdm-func-topology",
+          "name": "拓扑管理",
+          "description": "按标签查询拓扑图、获取标签列表",
+          "apiEndpoint": "/api/mdm/topology",
+          "inputSource": ["MdmHost"],
+          "outputTarget": ["拓扑视图"],
+          "relatedEntities": ["MdmHost"],
+          "relatedServices": ["MdmTopologyService"],
+          "relatedDAO": ["MdmHostRepository"]
+        },
+        {
+          "id": "mdm-func-history",
+          "name": "历史记录",
+          "description": "记录操作历史、时间树查询",
+          "apiEndpoint": "/api/mdm/history",
+          "inputSource": ["MdmHost", "MdmApplication"],
+          "outputTarget": ["MdmHistory"],
+          "relatedEntities": ["MdmHistory"],
+          "relatedServices": ["MdmHistoryService"],
+          "relatedDAO": ["MdmHistoryRepository"]
+        },
+        {
+          "id": "mdm-func-recommend",
+          "name": "推荐算法",
+          "description": "静态推荐、动态推荐",
+          "apiEndpoint": "/api/mdm/recommender",
+          "inputSource": ["MdmHost", "MdmApplication", "RecommendParam"],
+          "outputTarget": ["推荐结果"],
+          "relatedEntities": ["MdmHost", "MdmApplication"],
+          "relatedServices": ["RecommenderService"],
+          "relatedDAO": ["MdmHostRepository", "MdmApplicationRepository"]
+        },
+        {
+          "id": "mdm-func-sync",
+          "name": "资产扫描",
+          "description": "手动扫描主机/应用信息",
+          "apiEndpoint": "/api/mdm/info",
+          "inputSource": ["MdmHost"],
+          "outputTarget": ["MdmHost", "MdmApplication更新"],
+          "relatedEntities": ["MdmHost", "MdmApplication"],
+          "relatedServices": ["MdmLibService"],
+          "relatedDAO": ["MdmHostRepository", "MdmApplicationRepository"]
+        }
+      ]
+    },
+    {
+      "id": "application",
+      "name": "检测对象",
+      "fullName": "Application Management",
+      "description": "检测对象管理，包含数据库对象和文件系统对象两种类型，是创建检测策略的基础。数据库对象支持MySQL、Oracle、SQL Server、PostgreSQL、DM、GoldenDB、DB2等；文件系统对象支持Local、NFS、S3、Samba等",
+      "icon": "appstore",
+      "position": {
+        "x": 150,
+        "y": 300
+      },
+      "color": "#722ed1",
+      "dependsOn": ["permission"],
+      "providesTo": ["drs", "frs", "dashboard"],
+      "entities": [
+        {
+          "id": "app-entity-adms-application",
+          "name": "AdmsApplication",
+          "tableName": "adms_application",
+          "description": "检测对象实体，创建检测策略的基础数据",
+          "fields": [
+            "type",
+            "name",
+            "address",
+            "version",
+            "access",
+            "attribute",
+            "targetData",
+            "dataInfo",
+            "dataSize",
+            "status",
+            "category",
+            "osType",
+            "username",
+            "password",
+            "isAutoDiscover",
+            "initDatabase",
+            "businessUuid",
+            "allowSegment",
+            "otherSegment"
+          ],
+          "sourceFile": "adms-core/src/main/java/com/activeio/adms/entity/direct/application/entity/AdmsApplication.java",
+          "relations": [
+            {
+              "field": "businessUuid",
+              "targetEntity": "AdmsBusiness",
+              "relationType": "ManyToOne",
+              "description": "关联业务"
+            },
+            {
+              "field": "applications",
+              "targetEntity": "Application",
+              "relationType": "ManyToMany",
+              "description": "关联备份应用"
+            }
+          ]
+        }
+      ],
+      "businessFlows": [
+        {
+          "id": "app-flow-register",
+          "name": "检测对象注册流程",
+          "description": "创建检测对象，配置连接信息",
+          "trigger": "用户操作",
+          "businessContext": "将数据库或文件系统注册为检测对象，作为创建检测策略的基础",
+          "steps": [
+            {
+              "step": 1,
+              "name": "校验对象",
+              "description": "校验检测对象是否已存在",
+              "input": ["用户输入"],
+              "output": ["校验结果"],
+              "serviceCall": "AdmsApplicationRepository查询"
+            },
+            {
+              "step": 2,
+              "name": "创建实体",
+              "description": "创建AdmsApplication实体",
+              "input": ["用户输入"],
+              "output": ["AdmsApplication"],
+              "serviceCall": "AdmsApplicationService.add()"
+            },
+            {
+              "step": 3,
+              "name": "获取详情",
+              "description": "调用LIB包获取应用详情(版本、实例等)",
+              "input": ["AdmsApplication"],
+              "output": ["应用详情"],
+              "serviceCall": "ApplicationLibService.getInfo()"
+            },
+            {
+              "step": 4,
+              "name": "保存数据",
+              "description": "保存到数据库",
+              "input": ["AdmsApplication"],
+              "output": ["数据库记录"],
+              "serviceCall": "AdmsApplicationRepository.save()"
+            }
+          ],
+          "dataInputs": ["用户输入", "业务选择"],
+          "dataOutputs": ["AdmsApplication"],
+          "relatedServices": ["AdmsApplicationService"],
+          "businessRules": []
+        },
+        {
+          "id": "app-flow-auto-discover",
+          "name": "自动发现流程",
+          "description": "自动发现并创建检测对象",
+          "trigger": "手动触发或定时任务",
+          "businessContext": "通过ADMC客户端扫描主机资源，自动创建检测对象",
+          "steps": [
+            {
+              "step": 1,
+              "name": "触发发现",
+              "description": "手动或定时触发自动发现",
+              "input": ["触发请求"],
+              "output": ["发现任务"],
+              "serviceCall": "AutoDiscoverService.trigger()"
+            },
+            {
+              "step": 2,
+              "name": "扫描资源",
+              "description": "通过ADMC客户端扫描资源",
+              "input": ["MdmHost"],
+              "output": ["资源列表"],
+              "serviceCall": "ADMC扫描"
+            },
+            {
+              "step": 3,
+              "name": "创建对象",
+              "description": "自动创建检测对象",
+              "input": ["资源列表"],
+              "output": ["AdmsApplication列表"],
+              "serviceCall": "AdmsApplicationService.batchAdd()"
+            }
+          ],
+          "dataInputs": ["MdmHost", "触发配置"],
+          "dataOutputs": ["AdmsApplication"],
+          "relatedServices": ["AutoDiscoverService", "AdmsApplicationService"],
+          "businessRules": []
+        }
+      ],
+      "subFunctions": [
+        {
+          "id": "app-func-manage",
+          "name": "检测对象管理",
+          "description": "检测对象增删改查、启用禁用",
+          "apiEndpoint": "/api/application",
+          "inputSource": ["用户输入"],
+          "outputTarget": ["AdmsApplication"],
+          "relatedEntities": ["AdmsApplication"],
+          "relatedServices": ["AdmsApplicationService"],
+          "relatedDAO": ["AdmsApplicationRepository"]
+        },
+        {
+          "id": "app-func-database",
+          "name": "数据库对象管理",
+          "description": "MySQL、Oracle、SQL Server等数据库对象管理",
+          "apiEndpoint": "/api/application/database",
+          "inputSource": ["用户输入"],
+          "outputTarget": ["AdmsApplication"],
+          "relatedEntities": ["AdmsApplication"],
+          "relatedServices": ["AdmsApplicationService"],
+          "relatedDAO": ["AdmsApplicationRepository"]
+        },
+        {
+          "id": "app-func-filesystem",
+          "name": "文件系统对象管理",
+          "description": "Local、NFS、S3、Samba等文件系统对象管理",
+          "apiEndpoint": "/api/application/filesystem",
+          "inputSource": ["用户输入"],
+          "outputTarget": ["AdmsApplication"],
+          "relatedEntities": ["AdmsApplication"],
+          "relatedServices": ["AdmsApplicationService"],
+          "relatedDAO": ["AdmsApplicationRepository"]
+        }
+      ]
+    },
+    {
+      "id": "permission",
+      "name": "权限管理",
+      "fullName": "Permission Management",
+      "description": "用户、角色、菜单、组织管理，提供认证授权功能",
+      "icon": "lock",
+      "position": {
+        "x": 100,
+        "y": 100
+      },
+      "color": "#722ed1",
+      "dependsOn": [],
+      "providesTo": [
+        "drs",
+        "frs",
+        "application",
+        "mdm",
+        "engine",
+        "policy",
+        "dashboard"
+      ],
+      "entities": [
+        {
+          "id": "perm-entity-user",
+          "name": "User",
+          "tableName": "adms_user",
+          "description": "用户实体",
+          "fields": [
+            "username",
+            "password",
+            "email",
+            "mobile",
+            "userStatus",
+            "lastLoginTime",
+            "passwordLastModifyTime"
+          ],
+          "sourceFile": "adms-core/src/main/java/com/activeio/adms/entity/direct/permission/entity/User.java",
+          "relations": []
+        },
+        {
+          "id": "perm-entity-role",
+          "name": "Role",
+          "tableName": "adms_role",
+          "description": "角色实体",
+          "fields": ["name"],
+          "sourceFile": "adms-core/src/main/java/com/activeio/adms/entity/direct/permission/entity/Role.java",
+          "relations": []
+        },
+        {
+          "id": "perm-entity-menu",
+          "name": "Menu",
+          "tableName": "adms_menu",
+          "description": "菜单实体",
+          "fields": ["code", "name", "parentCode"],
+          "sourceFile": "adms-core/src/main/java/com/activeio/adms/entity/direct/permission/entity/Menu.java",
+          "relations": []
+        },
+        {
+          "id": "perm-entity-org",
+          "name": "Organization",
+          "tableName": "adms_org",
+          "description": "组织实体",
+          "fields": ["name"],
+          "sourceFile": "adms-core/src/main/java/com/activeio/adms/entity/direct/permission/entity/Organization.java",
+          "relations": []
+        },
+        {
+          "id": "perm-entity-userrole",
+          "name": "UserRole",
+          "tableName": "adms_user_role",
+          "description": "用户角色关联",
+          "fields": ["userId", "roleId"],
+          "sourceFile": "adms-core/src/main/java/com/activeio/adms/entity/direct/permission/entity/UserRole.java",
+          "relations": [
+            {
+              "field": "userId",
+              "targetEntity": "User",
+              "relationType": "ManyToOne",
+              "description": "关联用户"
+            },
+            {
+              "field": "roleId",
+              "targetEntity": "Role",
+              "relationType": "ManyToOne",
+              "description": "关联角色"
+            }
+          ]
+        },
+        {
+          "id": "perm-entity-userresource",
+          "name": "UserResource",
+          "tableName": "adms_user_resource",
+          "description": "用户资源关联，控制用户可访问的业务资源",
+          "fields": ["userId", "resourceType", "resourceId"],
+          "sourceFile": "adms-core/src/main/java/com/activeio/adms/entity/direct/permission/entity/UserResource.java",
+          "relations": [
+            {
+              "field": "userId",
+              "targetEntity": "User",
+              "relationType": "ManyToOne",
+              "description": "关联用户"
+            }
+          ],
+          "resourceTypes": ["MDM_HOST", "APP", "BUSINESS"]
+        }
+      ],
+      "businessFlows": [
+        {
+          "id": "perm-flow-auth",
+          "name": "用户认证流程",
+          "description": "用户登录、Token刷新、权限验证",
+          "trigger": "用户登录",
+          "businessContext": "用户登录后获取JWT Token，权限信息缓存到Redis",
+          "steps": [
+            {
+              "step": 1,
+              "name": "登录验证",
+              "description": "验证用户名密码",
+              "input": ["用户输入"],
+              "output": ["验证结果"],
+              "serviceCall": "AuthService.login()"
+            },
+            {
+              "step": 2,
+              "name": "生成Token",
+              "description": "生成JWT Token",
+              "input": ["User"],
+              "output": ["Token"],
+              "serviceCall": "JwtUtil.generateToken()"
+            },
+            {
+              "step": 3,
+              "name": "加载权限",
+              "description": "加载用户权限到Redis缓存",
+              "input": ["User", "Role", "Menu"],
+              "output": ["权限缓存"],
+              "serviceCall": "权限加载服务"
+            }
+          ],
+          "dataInputs": ["用户输入"],
+          "dataOutputs": ["Token", "权限缓存"],
+          "relatedServices": ["AuthService", "UserRoleService"]
+        },
+        {
+          "id": "perm-flow-resource",
+          "name": "资源权限控制流程",
+          "description": "用户只能访问分配给自己的业务资源",
+          "trigger": "业务请求",
+          "businessContext": "通过UserResource表控制用户可访问的主机、应用、业务等资源",
+          "steps": [
+            {
+              "step": 1,
+              "name": "权限检查",
+              "description": "检查用户是否有权限访问资源",
+              "input": ["userId", "resourceId"],
+              "output": ["权限结果"],
+              "serviceCall": "权限切面检查"
+            },
+            {
+              "step": 2,
+              "name": "资源过滤",
+              "description": "查询时自动过滤用户无权限的资源",
+              "input": ["查询条件"],
+              "output": ["过滤后结果"],
+              "serviceCall": "资源权限过滤"
+            }
+          ],
+          "dataInputs": ["UserResource"],
+          "dataOutputs": ["权限控制结果"],
+          "relatedServices": ["AutoAllowAspect"]
+        }
+      ],
+      "subFunctions": [
+        {
+          "id": "perm-func-user",
+          "name": "用户管理",
+          "description": "用户CRUD、角色分配、组织分配、密码管理",
+          "apiEndpoint": "/api/permission/user",
+          "inputSource": ["用户输入"],
+          "outputTarget": ["User", "UserRole", "UserOrganization"],
+          "relatedEntities": ["User"],
+          "relatedServices": ["UserService"],
+          "relatedDAO": ["UserRepository"]
+        },
+        {
+          "id": "perm-func-role",
+          "name": "角色管理",
+          "description": "角色CRUD、权限分配、菜单分配",
+          "apiEndpoint": "/api/permission/role",
+          "inputSource": ["用户输入"],
+          "outputTarget": ["Role", "RoleMenu"],
+          "relatedEntities": ["Role"],
+          "relatedServices": ["RoleService"],
+          "relatedDAO": ["RoleRepository"]
+        },
+        {
+          "id": "perm-func-org",
+          "name": "组织管理",
+          "description": "组织树管理、资源池分配",
+          "apiEndpoint": "/api/permission/organization",
+          "inputSource": ["用户输入"],
+          "outputTarget": ["Organization"],
+          "relatedEntities": ["Organization"],
+          "relatedServices": ["OrganizationService"],
+          "relatedDAO": []
+        },
+        {
+          "id": "perm-func-menu",
+          "name": "菜单管理",
+          "description": "菜单树管理、操作配置",
+          "apiEndpoint": "/api/permission/menu",
+          "inputSource": ["用户输入"],
+          "outputTarget": ["Menu"],
+          "relatedEntities": ["Menu"],
+          "relatedServices": ["MenuService"],
+          "relatedDAO": []
+        }
+      ]
+    },
+    {
+      "id": "engine",
+      "name": "引擎管理",
+      "fullName": "Engine Management",
+      "description": "备份引擎(AGM/NBU)、在线引擎(TCP)管理，应用和镜像管理",
+      "icon": "cloud-server",
+      "position": {
+        "x": 450,
+        "y": 300
+      },
+      "color": "#13c2c2",
+      "dependsOn": ["integration", "permission"],
+      "providesTo": ["drs", "frs", "bav", "dashboard"],
+      "entities": [
+        {
+          "id": "engine-entity-engine",
+          "name": "Engine",
+          "tableName": "adms_engine",
+          "description": "引擎实体，记录备份引擎配置",
+          "fields": [
+            "type",
+            "name",
+            "ip",
+            "port",
+            "status",
+            "version",
+            "syncStatus",
+            "config",
+            "policy"
+          ],
+          "sourceFile": "adms-core/src/main/java/com/activeio/adms/entity/direct/engine/entity/Engine.java",
+          "relations": []
+        },
+        {
+          "id": "engine-entity-host",
+          "name": "Host",
+          "tableName": "adms_host",
+          "description": "引擎主机实体，从引擎同步的主机数据",
+          "fields": [
+            "name",
+            "ip",
+            "osType",
+            "osRelease",
+            "engineId",
+            "resourceId",
+            "status"
+          ],
+          "sourceFile": "adms-core/src/main/java/com/activeio/adms/entity/direct/engine/entity/Host.java",
+          "relations": [
+            {
+              "field": "engineId",
+              "targetEntity": "Engine",
+              "relationType": "ManyToOne",
+              "description": "归属引擎"
+            },
+            {
+              "field": "resourceId",
+              "targetEntity": "Resource",
+              "relationType": "ManyToOne",
+              "description": "关联资源"
+            }
+          ]
+        },
+        {
+          "id": "engine-entity-application",
+          "name": "Application",
+          "tableName": "adms_backup_application",
+          "description": "备份应用实体，从引擎同步的备份数据",
+          "fields": [
+            "name",
+            "type",
+            "engineId",
+            "resourceId",
+            "config",
+            "status",
+            "engineType"
+          ],
+          "sourceFile": "adms-core/src/main/java/com/activeio/adms/entity/direct/engine/entity/Application.java",
+          "relations": [
+            {
+              "field": "engineId",
+              "targetEntity": "Engine",
+              "relationType": "ManyToOne",
+              "description": "归属引擎"
+            },
+            {
+              "field": "resourceId",
+              "targetEntity": "Resource",
+              "relationType": "ManyToOne",
+              "description": "关联资源"
+            }
+          ]
+        },
+        {
+          "id": "engine-entity-image",
+          "name": "MirrorImage",
+          "tableName": "adms_mirror_image",
+          "description": "镜像实体，备份镜像数据",
+          "fields": [
+            "name",
+            "applicationId",
+            "engineId",
+            "reportType",
+            "backupDate",
+            "expirationDate"
+          ],
+          "sourceFile": "adms-core/src/main/java/com/activeio/adms/entity/direct/image/entity/MirrorImage.java",
+          "relations": [
+            {
+              "field": "applicationId",
+              "targetEntity": "Application",
+              "relationType": "ManyToOne",
+              "description": "归属应用"
+            },
+            {
+              "field": "engineId",
+              "targetEntity": "Engine",
+              "relationType": "ManyToOne",
+              "description": "归属引擎"
+            }
+          ]
+        }
+      ],
+      "businessFlows": [
+        {
+          "id": "engine-flow-sync",
+          "name": "引擎数据同步流程",
+          "description": "从AGM/NBU引擎同步主机、应用、镜像数据",
+          "trigger": "手动同步或定时同步",
+          "businessContext": "保持引擎数据与ADMS同步，使检测任务可以使用最新的备份数据",
+          "steps": [
+            {
+              "step": 1,
+              "name": "连接引擎",
+              "description": "连接AGM/NBU引擎API",
+              "input": ["Engine配置"],
+              "output": ["连接结果"],
+              "serviceCall": "引擎连接验证"
+            },
+            {
+              "step": 2,
+              "name": "同步主机",
+              "description": "同步引擎主机数据",
+              "input": ["Engine"],
+              "output": ["Host列表"],
+              "serviceCall": "DataSyncService.syncHost()"
+            },
+            {
+              "step": 3,
+              "name": "同步应用",
+              "description": "同步备份应用数据",
+              "input": ["Engine"],
+              "output": ["Application列表"],
+              "serviceCall": "DataSyncService.syncApplication()"
+            },
+            {
+              "step": 4,
+              "name": "同步镜像",
+              "description": "同步镜像数据",
+              "input": ["Application"],
+              "output": ["MirrorImage列表"],
+              "serviceCall": "DataSyncService.syncImage()"
+            },
+            {
+              "step": 5,
+              "name": "数据转换",
+              "description": "转换数据格式并存储到数据库",
+              "input": ["同步数据"],
+              "output": ["数据库记录"],
+              "serviceCall": "IDataTransformer.transform()"
+            }
+          ],
+          "dataInputs": ["Engine配置"],
+          "dataOutputs": ["Host", "Application", "MirrorImage"],
+          "relatedServices": [
+            "EngineService",
+            "AgmDataSyncImpl",
+            "NbuDataSyncImpl"
+          ]
+        }
+      ],
+      "subFunctions": [
+        {
+          "id": "engine-func-manage",
+          "name": "引擎管理",
+          "description": "引擎CRUD、状态监控、同步配置",
+          "apiEndpoint": "/api/engine",
+          "inputSource": ["用户输入"],
+          "outputTarget": ["Engine"],
+          "relatedEntities": ["Engine"],
+          "relatedServices": ["EngineService"],
+          "relatedDAO": ["EngineRepository"]
+        },
+        {
+          "id": "engine-func-host",
+          "name": "主机管理",
+          "description": "引擎主机查询",
+          "apiEndpoint": "/api/engine/host",
+          "inputSource": ["Engine"],
+          "outputTarget": ["Host"],
+          "relatedEntities": ["Host"],
+          "relatedServices": ["HostService"],
+          "relatedDAO": ["HostRepository"]
+        },
+        {
+          "id": "engine-func-application",
+          "name": "应用管理",
+          "description": "备份应用管理",
+          "apiEndpoint": "/api/engine/application",
+          "inputSource": ["Engine"],
+          "outputTarget": ["Application"],
+          "relatedEntities": ["Application"],
+          "relatedServices": ["ApplicationService"],
+          "relatedDAO": ["ApplicationRepository"]
+        },
+        {
+          "id": "engine-func-image",
+          "name": "镜像管理",
+          "description": "镜像挂载、卸载、查询",
+          "apiEndpoint": "/api/engine/image",
+          "inputSource": ["Application"],
+          "outputTarget": ["MirrorImage"],
+          "relatedEntities": ["MirrorImage"],
+          "relatedServices": ["ImageMountService"],
+          "relatedDAO": []
+        }
+      ]
+    },
+    {
+      "id": "policy",
+      "name": "策略管理",
+      "fullName": "Policy Management",
+      "description": "策略CRUD、策略绑定、XXL-JOB调度集成",
+      "icon": "schedule",
+      "position": {
+        "x": 300,
+        "y": 400
+      },
+      "color": "#eb2f96",
+      "dependsOn": [],
+      "providesTo": ["drs", "frs", "dashboard"],
+      "entities": [
+        {
+          "id": "policy-entity-policy",
+          "name": "Policy",
+          "tableName": "adms_policy",
+          "description": "策略实体，定义定时调度规则",
+          "fields": [
+            "name",
+            "cron",
+            "cycle",
+            "rate",
+            "startTime",
+            "endTime",
+            "xxlJobId",
+            "status",
+            "options",
+            "monthlyExcludeDays",
+            "weeklyExcludeDays"
+          ],
+          "sourceFile": "adms-core/src/main/java/com/activeio/adms/entity/direct/policy/entity/Policy.java",
+          "relations": []
+        },
+        {
+          "id": "policy-entity-relation",
+          "name": "PolicyAppRelation",
+          "tableName": "adms_policy_app_relation",
+          "description": "策略应用关联，绑定策略到业务模块",
+          "fields": ["policyUuid", "appUuid", "type"],
+          "sourceFile": "adms-core/src/main/java/com/activeio/adms/entity/direct/policy/entity/PolicyAppRelation.java",
+          "relations": [
+            {
+              "field": "policyUuid",
+              "targetEntity": "Policy",
+              "relationType": "ManyToOne",
+              "description": "关联策略"
+            }
+          ]
+        }
+      ],
+      "businessFlows": [
+        {
+          "id": "policy-flow-schedule",
+          "name": "策略调度流程",
+          "description": "策略绑定到业务模块，自动触发任务执行",
+          "trigger": "定时触发(XXL-JOB)",
+          "businessContext": "通过Cron表达式配置定时任务，自动触发DRS/FRS/BAV/SRS等业务模块执行检测",
+          "steps": [
+            {
+              "step": 1,
+              "name": "创建策略",
+              "description": "创建策略配置Cron表达式",
+              "input": ["用户输入"],
+              "output": ["Policy"],
+              "serviceCall": "PolicyService.create()"
+            },
+            {
+              "step": 2,
+              "name": "注册任务",
+              "description": "注册到XXL-JOB调度器",
+              "input": ["Policy"],
+              "output": ["xxlJobId"],
+              "serviceCall": "XxlJobUtil.save()"
+            },
+            {
+              "step": 3,
+              "name": "绑定业务",
+              "description": "绑定策略到业务模块(DRS/FRS/BAV/SRS)",
+              "input": ["Policy"],
+              "output": ["PolicyAppRelation"],
+              "serviceCall": "PolicyService.bind()"
+            },
+            {
+              "step": 4,
+              "name": "自动触发",
+              "description": "定时触发业务任务执行",
+              "input": ["Policy", "PolicyAppRelation"],
+              "output": ["业务任务"],
+              "serviceCall": "BusinessClazzEnum路由"
+            }
+          ],
+          "dataInputs": ["用户输入"],
+          "dataOutputs": ["Policy", "PolicyAppRelation"],
+          "relatedServices": ["PolicyService"],
+          "businessRules": ["rule-policy-trigger"]
+        }
+      ],
+      "subFunctions": [
+        {
+          "id": "policy-func-manage",
+          "name": "策略管理",
+          "description": "策略CRUD、启用/禁用",
+          "apiEndpoint": "/api/policy",
+          "inputSource": ["用户输入"],
+          "outputTarget": ["Policy"],
+          "relatedEntities": ["Policy"],
+          "relatedServices": ["PolicyService"],
+          "relatedDAO": ["PolicyRepository"]
+        },
+        {
+          "id": "policy-func-bind",
+          "name": "策略绑定",
+          "description": "绑定策略到业务模块(DRS/FRS)",
+          "apiEndpoint": "/api/policy/bind",
+          "inputSource": ["Policy"],
+          "outputTarget": ["PolicyAppRelation"],
+          "relatedEntities": ["PolicyAppRelation"],
+          "relatedServices": ["PolicyService"],
+          "relatedDAO": ["PolicyAppRelationRepository"]
+        }
+      ],
+      "businessTypeMapping": {
+        "description": "策略类型与业务模块映射",
+        "mapping": [
+          {
+            "type": "FULL_FRS",
+            "code": 1,
+            "service": "frsService",
+            "field": "full_policy_id",
+            "description": "FRS全量检测"
+          },
+          {
+            "type": "INCREMENT_FRS",
+            "code": 2,
+            "service": "frsService",
+            "field": "increment_policy_id",
+            "description": "FRS增量检测"
+          },
+          {
+            "type": "DRS",
+            "code": 3,
+            "service": "databaseDetectionService",
+            "field": "policy",
+            "description": "数据库检测"
+          },
+          {
+            "type": "SRS",
+            "code": 7,
+            "service": "srsService",
+            "field": "policy_id",
+            "description": "存储恢复检测"
+          },
+          {
+            "type": "BAV",
+            "code": 8,
+            "service": "admsBavService",
+            "field": "policy",
+            "description": "备份验证"
+          },
+          {
+            "type": "ASSET_INSPECTION",
+            "code": 9,
+            "service": "assetInspectionService",
+            "field": "policy_id",
+            "description": "资产巡检"
+          },
+          {
+            "type": "BACKUP",
+            "code": 10,
+            "service": "backupService",
+            "field": "policy_id",
+            "description": "自备份"
+          }
+        ]
+      }
+    },
+    {
+      "id": "dashboard",
+      "name": "仪表盘",
+      "fullName": "Dashboard",
+      "description": "数据聚合展示，提供管理员看板、业务看板、高管看板",
+      "icon": "dashboard",
+      "position": {
+        "x": 450,
+        "y": 450
+      },
+      "color": "#faad14",
+      "dependsOn": ["drs", "frs", "engine", "application"],
+      "providesTo": [],
+      "entities": [],
+      "businessFlows": [
+        {
+          "id": "dashboard-flow-overview",
+          "name": "概览统计流程",
+          "description": "聚合各模块统计数据",
+          "trigger": "用户查询",
+          "businessContext": "聚合展示各业务模块的检测状态、风险统计、引擎状态等",
+          "steps": [
+            {
+              "step": 1,
+              "name": "查询FRS统计",
+              "description": "查询FRS作业统计(最近7天)",
+              "input": ["FrsJobRepository"],
+              "output": ["FRS统计"],
+              "serviceCall": "DashbordService.overview()"
+            },
+            {
+              "step": 2,
+              "name": "查询DRS统计",
+              "description": "查询DRS检测统计(最近7天)",
+              "input": ["DatabaseDetectionDetailRepository"],
+              "output": ["DRS统计"],
+              "serviceCall": "DashbordService.overview()"
+            },
+            {
+              "step": 3,
+              "name": "查询引擎状态",
+              "description": "查询引擎状态列表",
+              "input": ["EngineRepository"],
+              "output": ["引擎状态"],
+              "serviceCall": "DashbordService.backupSled()"
+            },
+            {
+              "step": 4,
+              "name": "聚合展示",
+              "description": "聚合所有数据展示到仪表盘",
+              "input": ["各模块统计"],
+              "output": ["仪表盘数据"],
+              "serviceCall": "数据聚合"
+            }
+          ],
+          "dataInputs": [
+            "FrsJob",
+            "DatabaseDetectionDetail",
+            "Engine",
+            "License"
+          ],
+          "dataOutputs": ["仪表盘视图"],
+          "relatedServices": [
+            "DashbordService",
+            "AdminDashBoardService",
+            "BusinessDashboardService"
+          ]
+        }
+      ],
+      "subFunctions": [
+        {
+          "id": "dashboard-func-admin",
+          "name": "管理员看板",
+          "description": "管理员视角的数据统计",
+          "apiEndpoint": "/api/dashboard/admin",
+          "inputSource": ["各业务模块Repository"],
+          "outputTarget": ["管理员看板视图"],
+          "relatedEntities": [],
+          "relatedServices": ["AdminDashBoardService"],
+          "relatedDAO": [
+            "FrsJobRepository",
+            "DatabaseDetectionDetailRepository",
+            "EngineRepository"
+          ]
+        },
+        {
+          "id": "dashboard-func-business",
+          "name": "业务看板",
+          "description": "业务视角的数据统计",
+          "apiEndpoint": "/api/dashboard/business",
+          "inputSource": ["各业务模块Repository"],
+          "outputTarget": ["业务看板视图"],
+          "relatedEntities": [],
+          "relatedServices": ["BusinessDashboardService"],
+          "relatedDAO": []
+        }
+      ]
+    },
+    {
+      "id": "integration",
+      "name": "客户端集成",
+      "fullName": "Client Integration",
+      "description": "ADMC客户端通信、AGM/NBU引擎通信",
+      "icon": "api",
+      "position": {
+        "x": 450,
+        "y": 550
+      },
+      "color": "#595959",
+      "dependsOn": [],
+      "providesTo": ["drs", "frs", "engine", "application"],
+      "entities": [],
+      "businessFlows": [
+        {
+          "id": "integration-flow-admc",
+          "name": "ADMC客户端通信流程",
+          "description": "与ADMC客户端的HTTP通信",
+          "trigger": "业务请求",
+          "businessContext": "ADMC客户端部署在目标主机上，执行检测、恢复、扫描等任务",
+          "steps": [
+            {
+              "step": 1,
+              "name": "验证存活",
+              "description": "验证客户端存活状态",
+              "input": ["hostIp"],
+              "output": ["存活状态"],
+              "serviceCall": "AdmcHostService.checkStatus()"
+            },
+            {
+              "step": 2,
+              "name": "发送请求",
+              "description": "发送HTTP请求到客户端",
+              "input": ["请求数据"],
+              "output": ["响应数据"],
+              "serviceCall": "HTTP POST"
+            },
+            {
+              "step": 3,
+              "name": "处理响应",
+              "description": "处理客户端响应",
+              "input": ["响应数据"],
+              "output": ["业务数据"],
+              "serviceCall": "响应解析"
+            }
+          ],
+          "dataInputs": ["业务请求"],
+          "dataOutputs": ["业务响应"],
+          "relatedServices": ["AdmcHostService"]
+        },
+        {
+          "id": "integration-flow-engine-sync",
+          "name": "引擎数据同步流程",
+          "description": "从AGM/NBU引擎同步数据",
+          "trigger": "引擎同步请求",
+          "businessContext": "从备份引擎同步主机、应用、镜像数据到ADMS",
+          "steps": [
+            {
+              "step": 1,
+              "name": "连接引擎",
+              "description": "通过HTTP连接引擎API",
+              "input": ["Engine配置"],
+              "output": ["连接结果"],
+              "serviceCall": "引擎连接"
+            },
+            {
+              "step": 2,
+              "name": "获取数据",
+              "description": "获取主机、应用、镜像数据",
+              "input": ["连接结果"],
+              "output": ["同步数据"],
+              "serviceCall": "AgmDataSync/NbuDataSync"
+            },
+            {
+              "step": 3,
+              "name": "数据转换",
+              "description": "转换数据格式",
+              "input": ["同步数据"],
+              "output": ["业务数据"],
+              "serviceCall": "IDataTransformer"
+            }
+          ],
+          "dataInputs": ["Engine配置"],
+          "dataOutputs": ["Host", "Application", "MirrorImage"],
+          "relatedServices": ["AgmDataSyncImpl", "NbuDataSyncImpl"]
+        }
+      ],
+      "subFunctions": [
+        {
+          "id": "integration-func-admc",
+          "name": "ADMC通信",
+          "description": "与ADMC客户端的HTTP通信",
+          "apiEndpoint": "内部调用",
+          "inputSource": ["业务请求"],
+          "outputTarget": ["ADMC响应"],
+          "relatedEntities": [],
+          "relatedServices": ["AdmcHostService"],
+          "relatedDAO": []
+        },
+        {
+          "id": "integration-func-agm",
+          "name": "AGM通信",
+          "description": "与AGM引擎的HTTP通信",
+          "apiEndpoint": "内部调用",
+          "inputSource": ["同步请求"],
+          "outputTarget": ["AGM数据"],
+          "relatedEntities": [],
+          "relatedServices": ["AgmDataSyncImpl"],
+          "relatedDAO": []
+        },
+        {
+          "id": "integration-func-nbu",
+          "name": "NBU通信",
+          "description": "与NBU引擎的HTTP通信",
+          "apiEndpoint": "内部调用",
+          "inputSource": ["同步请求"],
+          "outputTarget": ["NBU数据"],
+          "relatedEntities": [],
+          "relatedServices": ["NbuDataSyncImpl"],
+          "relatedDAO": []
+        }
+      ]
+    }
+  ],
+  "dataLineage": {
+    "description": "数据血缘关系",
+    "nodes": [
+      {
+        "id": "node-user-input",
+        "name": "用户输入",
+        "type": "external",
+        "module": "external",
+        "description": "用户界面输入"
+      },
+      {
+        "id": "node-policy",
+        "name": "Policy",
+        "type": "entity",
+        "module": "policy",
+        "description": "策略配置"
+      },
+      {
+        "id": "node-mdm-host",
+        "name": "MdmHost",
+        "type": "entity",
+        "module": "mdm",
+        "description": "主机信息"
+      },
+      {
+        "id": "node-mdm-application",
+        "name": "MdmApplication",
+        "type": "entity",
+        "module": "mdm",
+        "description": "应用信息"
+      },
+      {
+        "id": "node-engine",
+        "name": "Engine",
+        "type": "entity",
+        "module": "engine",
+        "description": "引擎配置"
+      },
+      {
+        "id": "node-engine-host",
+        "name": "Host(Engine)",
+        "type": "entity",
+        "module": "engine",
+        "description": "引擎主机"
+      },
+      {
+        "id": "node-engine-application",
+        "name": "Application(Engine)",
+        "type": "entity",
+        "module": "engine",
+        "description": "备份应用"
+      },
+      {
+        "id": "node-engine-image",
+        "name": "MirrorImage",
+        "type": "entity",
+        "module": "engine",
+        "description": "备份镜像"
+      },
+      {
+        "id": "node-drs-detection",
+        "name": "DatabaseDetection",
+        "type": "entity",
+        "module": "drs",
+        "description": "DRS检测策略"
+      },
+      {
+        "id": "node-drs-job",
+        "name": "DatabaseDetectionDetail",
+        "type": "entity",
+        "module": "drs",
+        "description": "DRS检测作业"
+      },
+      {
+        "id": "node-drs-baseline",
+        "name": "DrsBaseline",
+        "type": "entity",
+        "module": "drs",
+        "description": "DRS基线"
+      },
+      {
+        "id": "node-frs-policy",
+        "name": "Frs",
+        "type": "entity",
+        "module": "frs",
+        "description": "FRS检测策略"
+      },
+      {
+        "id": "node-frs-job",
+        "name": "FrsJob",
+        "type": "entity",
+        "module": "frs",
+        "description": "FRS检测作业"
+      },
+      {
+        "id": "node-report-result",
+        "name": "ReportResult",
+        "type": "storage",
+        "module": "common",
+        "description": "检测结果报告(RocksDB)"
+      },
+      {
+        "id": "node-admc",
+        "name": "ADMC Client",
+        "type": "external",
+        "module": "integration",
+        "description": "ADMC客户端"
+      },
+      {
+        "id": "node-flow-engine",
+        "name": "FlowEngine",
+        "type": "service",
+        "module": "flow",
+        "description": "工作流引擎"
+      },
+      {
+        "id": "node-dashboard",
+        "name": "Dashboard",
+        "type": "view",
+        "module": "dashboard",
+        "description": "仪表盘视图"
+      },
+      {
+        "id": "node-xxl-job",
+        "name": "XXL-JOB",
+        "type": "external",
+        "module": "external",
+        "description": "定时任务调度器"
+      },
+      {
+        "id": "node-user",
+        "name": "User",
+        "type": "entity",
+        "module": "permission",
+        "description": "用户"
+      },
+      {
+        "id": "node-user-resource",
+        "name": "UserResource",
+        "type": "entity",
+        "module": "permission",
+        "description": "用户资源关联"
+      },
+      {
+        "id": "node-adms-application",
+        "name": "AdmsApplication",
+        "type": "entity",
+        "module": "application",
+        "description": "检测对象"
+      },
+      {
+        "id": "node-business",
+        "name": "AdmsBusiness",
+        "type": "entity",
+        "module": "mdm",
+        "description": "业务"
+      }
+    ],
+    "edges": [
+      {
+        "id": "edge-1",
+        "source": "node-user-input",
+        "target": "node-mdm-host",
+        "label": "主机注册",
+        "flowType": "api",
+        "description": "用户注册主机信息"
+      },
+      {
+        "id": "edge-2",
+        "source": "node-user-input",
+        "target": "node-mdm-application",
+        "label": "应用注册",
+        "flowType": "api",
+        "description": "用户注册应用信息"
+      },
+      {
+        "id": "edge-3",
+        "source": "node-mdm-host",
+        "target": "node-mdm-application",
+        "label": "关联",
+        "flowType": "relation",
+        "description": "应用关联到主机(mdmHostId)"
+      },
+      {
+        "id": "edge-4",
+        "source": "node-engine",
+        "target": "node-engine-host",
+        "label": "同步",
+        "flowType": "sync",
+        "description": "从引擎同步主机数据"
+      },
+      {
+        "id": "edge-5",
+        "source": "node-engine",
+        "target": "node-engine-application",
+        "label": "同步",
+        "flowType": "sync",
+        "description": "从引擎同步应用数据"
+      },
+      {
+        "id": "edge-6",
+        "source": "node-engine-application",
+        "target": "node-engine-image",
+        "label": "包含",
+        "flowType": "relation",
+        "description": "应用包含备份镜像"
+      },
+      {
+        "id": "edge-7",
+        "source": "node-user-input",
+        "target": "node-policy",
+        "label": "策略配置",
+        "flowType": "api",
+        "description": "用户配置调度策略"
+      },
+      {
+        "id": "edge-8",
+        "source": "node-policy",
+        "target": "node-xxl-job",
+        "label": "注册任务",
+        "flowType": "register",
+        "description": "策略注册到XXL-JOB调度器"
+      },
+      {
+        "id": "edge-9",
+        "source": "node-xxl-job",
+        "target": "node-policy",
+        "label": "定时触发",
+        "flowType": "trigger",
+        "description": "XXL-JOB定时触发策略"
+      },
+      {
+        "id": "edge-10",
+        "source": "node-policy",
+        "target": "node-drs-detection",
+        "label": "绑定",
+        "flowType": "relation",
+        "description": "策略绑定到DRS(policy字段)"
+      },
+      {
+        "id": "edge-11",
+        "source": "node-policy",
+        "target": "node-frs-policy",
+        "label": "绑定全量策略",
+        "flowType": "relation",
+        "description": "策略绑定到FRS(fullPolicyId字段)"
+      },
+      {
+        "id": "edge-14",
+        "source": "node-user-input",
+        "target": "node-drs-detection",
+        "label": "DRS配置",
+        "flowType": "api",
+        "description": "用户配置DRS检测策略"
+      },
+      {
+        "id": "edge-15",
+        "source": "node-drs-detection",
+        "target": "node-flow-engine",
+        "label": "发起检测",
+        "flowType": "trigger",
+        "description": "触发DRS检测流程"
+      },
+      {
+        "id": "edge-16",
+        "source": "node-adms-application",
+        "target": "node-drs-detection",
+        "label": "关联",
+        "flowType": "relation",
+        "description": "DRS检测关联检测对象(admsApplicationId)"
+      },
+      {
+        "id": "edge-17",
+        "source": "node-engine-application",
+        "target": "node-drs-detection",
+        "label": "关联备份对象",
+        "flowType": "relation",
+        "description": "DRS检测关联备份应用(applicationId)"
+      },
+      {
+        "id": "edge-18",
+        "source": "node-flow-engine",
+        "target": "node-admc",
+        "label": "执行任务",
+        "flowType": "netty",
+        "description": "Flow引擎调用ADMC执行检测"
+      },
+      {
+        "id": "edge-19",
+        "source": "node-admc",
+        "target": "node-report-result",
+        "label": "检测结果",
+        "flowType": "response",
+        "description": "ADMC返回检测结果"
+      },
+      {
+        "id": "edge-20",
+        "source": "node-report-result",
+        "target": "node-drs-job",
+        "label": "汇总",
+        "flowType": "process",
+        "description": "汇总检测结果到作业记录"
+      },
+      {
+        "id": "edge-21",
+        "source": "node-drs-job",
+        "target": "node-drs-baseline",
+        "label": "保存基线",
+        "flowType": "process",
+        "description": "自动检测保存基线"
+      },
+      {
+        "id": "edge-22",
+        "source": "node-user-input",
+        "target": "node-frs-policy",
+        "label": "FRS配置",
+        "flowType": "api",
+        "description": "用户配置FRS检测策略"
+      },
+      {
+        "id": "edge-23",
+        "source": "node-frs-policy",
+        "target": "node-flow-engine",
+        "label": "发起检测",
+        "flowType": "trigger",
+        "description": "触发FRS检测流程"
+      },
+      {
+        "id": "edge-24",
+        "source": "node-report-result",
+        "target": "node-frs-job",
+        "label": "汇总",
+        "flowType": "process",
+        "description": "汇总检测结果到作业记录"
+      },
+      {
+        "id": "edge-31",
+        "source": "node-drs-job",
+        "target": "node-dashboard",
+        "label": "统计",
+        "flowType": "aggregate",
+        "description": "DRS作业数据聚合到仪表盘"
+      },
+      {
+        "id": "edge-32",
+        "source": "node-frs-job",
+        "target": "node-dashboard",
+        "label": "统计",
+        "flowType": "aggregate",
+        "description": "FRS作业数据聚合到仪表盘"
+      },
+      {
+        "id": "edge-33",
+        "source": "node-engine",
+        "target": "node-dashboard",
+        "label": "状态展示",
+        "flowType": "aggregate",
+        "description": "引擎状态展示到仪表盘"
+      },
+      {
+        "id": "edge-34",
+        "source": "node-engine-host",
+        "target": "node-mdm-host",
+        "label": "数据同步",
+        "flowType": "sync",
+        "description": "引擎主机可关联到MDM主机"
+      },
+      {
+        "id": "edge-35",
+        "source": "node-user",
+        "target": "node-user-resource",
+        "label": "资源授权",
+        "flowType": "relation",
+        "description": "用户关联资源权限"
+      },
+      {
+        "id": "edge-36",
+        "source": "node-user-resource",
+        "target": "node-mdm-host",
+        "label": "主机权限",
+        "flowType": "auth",
+        "description": "用户对主机的访问权限(resourceType=MDM_HOST)"
+      },
+      {
+        "id": "edge-37",
+        "source": "node-user-resource",
+        "target": "node-mdm-application",
+        "label": "应用权限",
+        "flowType": "auth",
+        "description": "用户对应用的访问权限(resourceType=APP)"
+      },
+      {
+        "id": "edge-app-frs",
+        "source": "node-adms-application",
+        "target": "node-frs-policy",
+        "label": "关联",
+        "flowType": "relation",
+        "description": "FRS检测关联检测对象(admsApplicationId)"
+      },
+      {
+        "id": "edge-app-business",
+        "source": "node-adms-application",
+        "target": "node-business",
+        "label": "归属",
+        "flowType": "relation",
+        "description": "检测对象归属业务(businessUuid)"
+      },
+      {
+        "id": "edge-user-app",
+        "source": "node-user-input",
+        "target": "node-adms-application",
+        "label": "注册",
+        "flowType": "api",
+        "description": "用户注册检测对象"
+      },
+      {
+        "id": "edge-permission-app",
+        "source": "node-user-resource",
+        "target": "node-adms-application",
+        "label": "应用权限",
+        "flowType": "auth",
+        "description": "用户对检测对象的访问权限"
+      }
+    ]
+  },
+  "dataRelations": {
+    "description": "数据关联关系详细定义",
+    "foreignKeyRelations": [
+      {
+        "source": "adms_db_detection_record",
+        "sourceField": "adms_application_id",
+        "target": "adms_application",
+        "targetField": "uuid",
+        "description": "DRS关联检测对象"
+      },
+      {
+        "source": "adms_db_detection_record",
+        "sourceField": "application_id",
+        "target": "adms_backup_application",
+        "targetField": "uuid",
+        "description": "DRS关联备份应用"
+      },
+      {
+        "source": "adms_db_detection_record",
+        "sourceField": "policy",
+        "target": "adms_policy",
+        "targetField": "uuid",
+        "description": "DRS关联策略"
+      },
+      {
+        "source": "adms_drs_baseline",
+        "sourceField": "drs_uuid",
+        "target": "adms_db_detection_record",
+        "targetField": "uuid",
+        "description": "基线归属检测配置"
+      },
+      {
+        "source": "adms_drs_baseline",
+        "sourceField": "application_id",
+        "target": "adms_application",
+        "targetField": "uuid",
+        "description": "DRS基线关联检测对象"
+      },
+      {
+        "source": "adms_drs_table",
+        "sourceField": "drs_uuid",
+        "target": "adms_db_detection_record",
+        "targetField": "uuid",
+        "description": "检测表归属检测配置"
+      },
+      {
+        "source": "adms_frs",
+        "sourceField": "full_policy_id",
+        "target": "adms_policy",
+        "targetField": "uuid",
+        "description": "FRS全量策略"
+      },
+      {
+        "source": "adms_frs",
+        "sourceField": "increment_policy_id",
+        "target": "adms_policy",
+        "targetField": "uuid",
+        "description": "FRS增量策略"
+      },
+      {
+        "source": "adms_frs",
+        "sourceField": "adms_application_id",
+        "target": "adms_application",
+        "targetField": "uuid",
+        "description": "FRS关联检测对象"
+      },
+      {
+        "source": "adms_frs_job",
+        "sourceField": "frs_uuid",
+        "target": "adms_frs",
+        "targetField": "uuid",
+        "description": "FRS Job归属FRS配置"
+      },
+      {
+        "source": "adms_frs_job",
+        "sourceField": "job_id",
+        "target": "adms_flow_job",
+        "targetField": "id",
+        "description": "FRS Job关联流程任务"
+      },
+      {
+        "source": "adms_host",
+        "sourceField": "engine_id",
+        "target": "adms_engine",
+        "targetField": "uuid",
+        "description": "主机关联引擎"
+      },
+      {
+        "source": "adms_host",
+        "sourceField": "resource_id",
+        "target": "adms_resource",
+        "targetField": "uuid",
+        "description": "主机关联资源"
+      },
+      {
+        "source": "adms_backup_application",
+        "sourceField": "engine_id",
+        "target": "adms_engine",
+        "targetField": "uuid",
+        "description": "备份应用关联引擎"
+      },
+      {
+        "source": "adms_resource",
+        "sourceField": "engine_id",
+        "target": "adms_engine",
+        "targetField": "uuid",
+        "description": "资源关联引擎"
+      },
+      {
+        "source": "adms_mdm_application",
+        "sourceField": "mdm_host_id",
+        "target": "adms_mdm_host",
+        "targetField": "uuid",
+        "description": "应用归属主机"
+      },
+      {
+        "source": "adms_mdm_host_ip",
+        "sourceField": "host_uuid",
+        "target": "adms_mdm_host",
+        "targetField": "uuid",
+        "description": "主机IP归属主机"
+      },
+      {
+        "source": "adms_policy_app_relation",
+        "sourceField": "policy_uuid",
+        "target": "adms_policy",
+        "targetField": "uuid",
+        "description": "策略应用关联"
+      },
+      {
+        "source": "adms_user_resource",
+        "sourceField": "user_id",
+        "target": "adms_user",
+        "targetField": "uuid",
+        "description": "用户资源关联"
+      },
+      {
+        "source": "adms_application",
+        "sourceField": "business_uuid",
+        "target": "adms_business",
+        "targetField": "uuid",
+        "description": "检测对象关联业务"
+      }
+    ],
+    "entityInheritance": {
+      "description": "实体继承关系",
+      "hierarchy": [
+        {
+          "base": "BaseEntity",
+          "description": "基础实体，包含uuid、remark、tag、deleted、createDate等通用字段",
+          "children": [
+            {
+              "name": "MdmBase",
+              "description": "主机管理基类，包含mdmHostId字段",
+              "children": ["DatabaseDetection", "Frs", "AdmsDrsData"]
+            },
+            "AdmsApplication",
+            "Application",
+            "Engine",
+            "Host",
+            "Resource",
+            "Policy",
+            "FlowJob",
+            "User",
+            "Role"
+          ]
+        }
+      ]
+    },
+    "sharedResources": {
+      "description": "共享资源说明",
+      "resources": [
+        {
+          "entity": "AdmsApplication",
+          "description": "检测对象实体，被DRS和FRS模块引用",
+          "referencedBy": [
+            {
+              "module": "drs",
+              "field": "admsApplicationId",
+              "purpose": "DRS检测关联检测对象"
+            },
+            {
+              "module": "frs",
+              "field": "admsApplicationId",
+              "purpose": "FRS检测关联检测对象"
+            },
+            {
+              "module": "permission",
+              "field": "applicationId",
+              "purpose": "权限控制"
+            }
+          ]
+        },
+        {
+          "entity": "MdmHost",
+          "description": "主机实体，被多个模块引用",
+          "referencedBy": [
+            {
+              "module": "mdm",
+              "field": "mdmHostId",
+              "purpose": "应用归属主机"
+            }
+          ]
+        },
+        {
+          "entity": "Application",
+          "description": "备份应用实体，从引擎同步",
+          "referencedBy": [
+            {
+              "module": "drs",
+              "field": "applicationId",
+              "purpose": "DRS备份检测"
+            },
+            {
+              "module": "frs",
+              "field": "applicationId",
+              "purpose": "FRS备份检测"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "keyDataFlows": {
+    "description": "关键数据链路",
+    "flows": [
+      {
+        "id": "flow-host-to-detection",
+        "name": "主机注册到检测执行",
+        "description": "从主机注册到检测任务执行的完整链路",
+        "steps": [
+          {
+            "step": 1,
+            "entity": "Engine",
+            "action": "引擎注册",
+            "description": "用户注册备份引擎"
+          },
+          {
+            "step": 2,
+            "entity": "Host/Application",
+            "action": "数据同步",
+            "description": "从引擎同步主机和应用数据"
+          },
+          {
+            "step": 3,
+            "entity": "MdmHost/MdmApplication",
+            "action": "在线应用创建",
+            "description": "用户创建在线应用配置"
+          },
+          {
+            "step": 4,
+            "entity": "DatabaseDetection",
+            "action": "创建检测任务",
+            "description": "用户创建DRS检测任务并关联应用"
+          },
+          {
+            "step": 5,
+            "entity": "Policy",
+            "action": "绑定策略",
+            "description": "用户绑定调度策略"
+          },
+          {
+            "step": 6,
+            "entity": "FlowJob",
+            "action": "执行检测",
+            "description": "策略触发或手动发起检测"
+          },
+          {
+            "step": 7,
+            "entity": "DatabaseDetectionDetail",
+            "action": "结果保存",
+            "description": "检测结果保存到作业记录"
+          }
+        ]
+      },
+      {
+        "id": "flow-policy-to-execution",
+        "name": "策略触发到任务执行",
+        "description": "从策略配置到任务自动执行的链路",
+        "steps": [
+          {
+            "step": 1,
+            "entity": "Policy",
+            "action": "创建策略",
+            "description": "用户创建策略配置Cron表达式"
+          },
+          {
+            "step": 2,
+            "entity": "PolicyAppRelation",
+            "action": "绑定业务",
+            "description": "策略绑定到业务模块"
+          },
+          {
+            "step": 3,
+            "entity": "XXL-JOB",
+            "action": "注册任务",
+            "description": "策略注册到XXL-JOB调度器"
+          },
+          {
+            "step": 4,
+            "entity": "Service",
+            "action": "定时触发",
+            "description": "XXL-JOB定时触发业务Service"
+          },
+          {
+            "step": 5,
+            "entity": "FlowJob",
+            "action": "创建流程任务",
+            "description": "FlowService创建执行任务"
+          },
+          {
+            "step": 6,
+            "entity": "ADMC",
+            "action": "执行检测",
+            "description": "ADMC客户端执行检测"
+          },
+          {
+            "step": 7,
+            "entity": "Job",
+            "action": "结果保存",
+            "description": "检测结果保存"
+          }
+        ]
+      },
+      {
+        "id": "flow-engine-sync",
+        "name": "引擎数据同步",
+        "description": "从引擎同步数据到业务使用的链路",
+        "steps": [
+          {
+            "step": 1,
+            "entity": "Engine",
+            "action": "引擎注册",
+            "description": "用户注册AGM/NBU引擎"
+          },
+          {
+            "step": 2,
+            "entity": "EngineService",
+            "action": "触发同步",
+            "description": "手动或定时触发数据同步"
+          },
+          {
+            "step": 3,
+            "entity": "DataSync",
+            "action": "调用引擎API",
+            "description": "调用AGM/NBU API获取数据"
+          },
+          {
+            "step": 4,
+            "entity": "Host/Application",
+            "action": "数据存储",
+            "description": "主机和应用数据存储到数据库"
+          },
+          {
+            "step": 5,
+            "entity": "DRS/FRS",
+            "action": "业务使用",
+            "description": "业务模块查询使用备份数据"
+          }
+        ]
+      }
+    ]
+  },
+  "moduleDependencies": {
+    "description": "模块间依赖关系",
+    "dependencies": [
+      {
+        "from": "drs",
+        "to": "application",
+        "type": "data",
+        "description": "DRS依赖Application获取检测目标",
+        "detail": "通过admsApplicationId关联检测对象，获取数据库连接信息"
+      },
+      {
+        "from": "drs",
+        "to": "policy",
+        "type": "config",
+        "description": "DRS依赖Policy进行调度",
+        "detail": "通过policy字段关联策略，策略触发时自动执行检测"
+      },
+      {
+        "from": "drs",
+        "to": "engine",
+        "type": "data",
+        "description": "DRS依赖Engine获取备份数据",
+        "detail": "备份检测需要从引擎同步的应用和镜像数据"
+      },
+      {
+        "from": "drs",
+        "to": "integration",
+        "type": "service",
+        "description": "DRS依赖Integration执行检测",
+        "detail": "通过ADMC客户端执行实际的数据库检测操作"
+      },
+      {
+        "from": "drs",
+        "to": "permission",
+        "type": "auth",
+        "description": "DRS依赖Permission控制资源权限",
+        "detail": "通过UserResource控制用户可访问的检测资源"
+      },
+      {
+        "from": "frs",
+        "to": "application",
+        "type": "data",
+        "description": "FRS依赖Application获取检测目标",
+        "detail": "通过admsApplicationId关联检测对象，获取文件系统路径信息"
+      },
+      {
+        "from": "frs",
+        "to": "policy",
+        "type": "config",
+        "description": "FRS依赖Policy进行调度",
+        "detail": "通过fullPolicyId和incrementPolicyId关联全量和增量策略"
+      },
+      {
+        "from": "frs",
+        "to": "engine",
+        "type": "data",
+        "description": "FRS依赖Engine获取备份数据",
+        "detail": "备份文件检测需要从引擎同步的文件系统数据"
+      },
+      {
+        "from": "frs",
+        "to": "integration",
+        "type": "service",
+        "description": "FRS依赖Integration执行检测",
+        "detail": "通过ADMC客户端执行实际的文件检测操作"
+      },
+      {
+        "from": "frs",
+        "to": "permission",
+        "type": "auth",
+        "description": "FRS依赖Permission控制资源权限",
+        "detail": "通过UserResource控制用户可访问的检测资源"
+      },
+      {
+        "from": "dashboard",
+        "to": "drs",
+        "type": "aggregate",
+        "description": "Dashboard聚合DRS数据",
+        "detail": "统计DRS检测结果和作业数据"
+      },
+      {
+        "from": "dashboard",
+        "to": "frs",
+        "type": "aggregate",
+        "description": "Dashboard聚合FRS数据",
+        "detail": "统计FRS检测结果和作业数据"
+      },
+      {
+        "from": "dashboard",
+        "to": "engine",
+        "type": "aggregate",
+        "description": "Dashboard聚合Engine数据",
+        "detail": "展示引擎状态和备份统计"
+      },
+      {
+        "from": "engine",
+        "to": "integration",
+        "type": "service",
+        "description": "Engine依赖Integration同步数据",
+        "detail": "通过HTTP调用AGM/NBU引擎API同步数据"
+      },
+      {
+        "from": "mdm",
+        "to": "engine",
+        "type": "data",
+        "description": "MDM可关联引擎主机",
+        "detail": "通过engineHostId关联引擎同步的主机"
+      },
+      {
+        "from": "mdm",
+        "to": "integration",
+        "type": "service",
+        "description": "MDM依赖Integration获取主机详情",
+        "detail": "通过LIB包和ADMC获取主机和应用详情"
+      },
+      {
+        "from": "mdm",
+        "to": "permission",
+        "type": "auth",
+        "description": "MDM为Permission提供资源",
+        "detail": "主机和应用作为资源被UserResource控制"
+      },
+      {
+        "from": "permission",
+        "to": "drs",
+        "type": "auth",
+        "description": "Permission为DRS提供资源权限控制"
+      },
+      {
+        "from": "permission",
+        "to": "frs",
+        "type": "auth",
+        "description": "Permission为FRS提供资源权限控制"
+      },
+      {
+        "from": "permission",
+        "to": "mdm",
+        "type": "auth",
+        "description": "Permission为MDM提供资源权限控制"
+      },
+      {
+        "from": "dashboard",
+        "to": "application",
+        "type": "aggregate",
+        "description": "Dashboard聚合检测对象数据",
+        "detail": "统计检测对象数量、类型分布等"
+      },
+      {
+        "from": "application",
+        "to": "permission",
+        "type": "auth",
+        "description": "Application依赖Permission控制资源权限"
+      }
+    ]
+  },
+  "flowEngine": {
+    "description": "工作流引擎说明",
+    "components": [
+      {
+        "id": "flow-netty-server",
+        "name": "NettyServer",
+        "description": "TCP服务端，与ADMC客户端建立长连接通信",
+        "source": "adms-flow/src/main/java/com/activeio/adms/netty/NettyServer.java"
+      },
+      {
+        "id": "flow-execution-cmd",
+        "name": "ExecutionCmd",
+        "description": "执行命令基类，定义执行器接口",
+        "source": "adms-flow/src/main/java/com/activeio/adms/flow/execution/ExecutionCmd.java"
+      },
+      {
+        "id": "flow-execution-factory",
+        "name": "ExecutionFactory",
+        "description": "执行器工厂，创建不同类型的执行器",
+        "source": "adms-flow/src/main/java/com/activeio/adms/flow/execution/ExecutionFactory.java"
+      },
+      {
+        "id": "flow-consumer",
+        "name": "ExecutionConsumer",
+        "description": "RocketMQ消费者，消费执行消息",
+        "source": "adms-flow/src/main/java/com/activeio/adms/flow/consumer/ExecutionConsumer.java"
+      },
+      {
+        "id": "flow-producer",
+        "name": "ExecutionProducer",
+        "description": "RocketMQ生产者，发送执行消息",
+        "source": "adms-flow/src/main/java/com/activeio/adms/flow/producer/ExecutionProducer.java"
+      },
+      {
+        "id": "flow-playbook-process",
+        "name": "PlaybookProcess",
+        "description": "剧本流程处理",
+        "source": "adms-flow/src/main/java/com/activeio/adms/flow/start/PlaybookProcess.java"
+      }
+    ],
+    "flowTypes": [
+      {
+        "type": "DRS_STATIC",
+        "description": "DRS静态检测流程",
+        "nodes": ["分发节点", "静态检测节点", "汇总节点"]
+      },
+      {
+        "type": "DRS_RAPID",
+        "description": "DRS快速检测流程",
+        "nodes": ["快速检测节点", "汇总节点"]
+      },
+      {
+        "type": "DRS_RANDOM",
+        "description": "DRS随机检测流程",
+        "nodes": ["分发节点", "随机检测节点", "汇总节点"]
+      },
+      {
+        "type": "DRS_DEEP",
+        "description": "DRS深度检测流程",
+        "nodes": ["分发节点", "深度检测节点", "汇总节点"]
+      },
+      {
+        "type": "FRS_FULL",
+        "description": "FRS全量检测流程",
+        "nodes": ["挂载扫描节点", "各检测节点", "汇总节点"]
+      },
+      {
+        "type": "FRS_INCREMENT",
+        "description": "FRS增量检测流程",
+        "nodes": ["挂载扫描节点", "各检测节点", "汇总节点"]
+      },
+      {
+        "type": "ENGINE_SYNC",
+        "description": "引擎数据同步流程",
+        "nodes": ["同步节点", "转换节点", "存储节点"]
+      }
+    ]
+  }
+}
