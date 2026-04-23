@@ -513,6 +513,124 @@ class GraphRepository:
         self.save_nodes(graph_id, built.nodes)
         self.save_edges(graph_id, built.edges)
 
+    # ------------------------------------------------------------------
+    # Atomic mutations (for MCP / agent use)
+    # ------------------------------------------------------------------
+
+    def add_single_node(
+        self,
+        graph_id: str,
+        node: GraphNode,
+    ) -> dict[str, Any]:
+        """向已有图谱添加单个节点（加载 → 合并 → 写回）。
+
+        同 ID 节点覆盖（与 GraphBuilder 行为一致）。
+
+        Returns:
+            {"node_id": str, "created": bool}  created=False 表示覆盖已有节点。
+        """
+        built = self.load(graph_id)
+        if built is None:
+            raise FileNotFoundError(f"图谱不存在: {graph_id}")
+
+        existing_ids = {n.id for n in built.nodes}
+        created = node.id not in existing_ids
+
+        if created:
+            built.nodes.append(node)
+        else:
+            built.nodes = [n if n.id != node.id else node for n in built.nodes]
+
+        built.meta["node_count"] = built.node_count
+        type_counts = built.meta.get("node_type_counts", {})
+        type_counts[node.type] = type_counts.get(node.type, 0) + (1 if created else 0)
+        built.meta["node_type_counts"] = type_counts
+
+        self._save_json(built, graph_id, built.meta.get("repo_name", ""))
+
+        if self._driver:
+            try:
+                self.save_nodes(graph_id, [node])
+            except Exception:
+                logger.warning("Neo4j 节点写入失败: %s", node.id, exc_info=True)
+
+        logger.info("节点 %s: %s (created=%s)", graph_id, node.id, created)
+        return {"node_id": node.id, "created": created}
+
+    def add_single_edge(
+        self,
+        graph_id: str,
+        edge: GraphEdge,
+    ) -> dict[str, Any]:
+        """向已有图谱添加单条边（加载 → 追加 → 写回）。
+
+        (from, to, type) 三元组去重（与 GraphBuilder 行为一致）。
+
+        Returns:
+            {"edge_id": str, "created": bool}  created=False 表示边已存在。
+        """
+        built = self.load(graph_id)
+        if built is None:
+            raise FileNotFoundError(f"图谱不存在: {graph_id}")
+
+        node_ids = {n.id for n in built.nodes}
+        if edge.from_ not in node_ids:
+            raise ValueError(f"源节点不存在: {edge.from_}")
+        if edge.to not in node_ids:
+            raise ValueError(f"目标节点不存在: {edge.to}")
+
+        edge_key = (edge.from_, edge.to, edge.type)
+        existing_keys = {(e.from_, e.to, e.type) for e in built.edges}
+        created = edge_key not in existing_keys
+
+        if created:
+            built.edges.append(edge)
+            built.meta["edge_count"] = built.edge_count
+            type_counts = built.meta.get("edge_type_counts", {})
+            type_counts[edge.type] = type_counts.get(edge.type, 0) + 1
+            built.meta["edge_type_counts"] = type_counts
+
+            self._save_json(built, graph_id, built.meta.get("repo_name", ""))
+
+            if self._driver:
+                try:
+                    self.save_edges(graph_id, [edge])
+                except Exception:
+                    logger.warning("Neo4j 边写入失败", exc_info=True)
+
+        logger.info("边 %s→%s(%s): %s (created=%s)",
+                    edge.from_, edge.to, edge.type, graph_id, created)
+        return {"edge_id": f"{edge.from_}->{edge.to}:{edge.type}", "created": created}
+
+    def mark_explored(
+        self,
+        graph_id: str,
+        node_ids: list[str],
+        summary: str = "",
+    ) -> dict[str, Any]:
+        """标记节点为已探索（写入 explored 属性），避免 agent 重复分析。
+
+        Returns:
+            {"marked": int} 实际标记的节点数量。
+        """
+        built = self.load(graph_id)
+        if built is None:
+            raise FileNotFoundError(f"图谱不存在: {graph_id}")
+
+        marked = 0
+        for node in built.nodes:
+            if node.id in node_ids:
+                node.properties["explored"] = True
+                if summary:
+                    node.properties["explored_summary"] = summary
+                marked += 1
+
+        if marked > 0:
+            self._save_json(built, graph_id, built.meta.get("repo_name", ""))
+
+        logger.info("标记已探索: %d/%d 节点 in %s", marked, len(node_ids), graph_id)
+        return {"marked": marked}
+
     def close(self) -> None:
         """关闭 Neo4j 连接。"""
         if self._driver:

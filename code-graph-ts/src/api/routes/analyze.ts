@@ -1,0 +1,137 @@
+// Analysis routes — submit, status, stream, cancel
+
+import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { create, startAnalysis, get, cancel } from '../sessions.ts';
+
+interface AnalyzeBody {
+  path: string;
+  enableLineage?: boolean;
+  budget?: number;
+}
+
+export async function analyzeRoutes(app: FastifyInstance): Promise<void> {
+  // Submit analysis
+  app.post<{ Body: AnalyzeBody }>('/analyze/repository', async (request, reply) => {
+    const { path: repoPath, enableLineage, budget } = request.body;
+
+    if (!repoPath) {
+      reply.code(400);
+      return { error: 'path is required' };
+    }
+
+    const session = create(repoPath, { enableLineage, budget });
+
+    // Start analysis in background (non-blocking)
+    startAnalysis(session.id, repoPath, { enableLineage, budget }).catch(() => {
+      // Error handled inside startAnalysis
+    });
+
+    reply.code(202);
+    return { sessionId: session.id, status: 'pending' };
+  });
+
+  // Poll status
+  app.get<{ Params: { sessionId: string } }>('/analyze/status/:sessionId', async (request, reply) => {
+    const session = get(request.params.sessionId);
+    if (!session) {
+      reply.code(404);
+      return { error: `Session not found: ${request.params.sessionId}` };
+    }
+
+    const progress = session.coordinator.getProgress();
+
+    return {
+      sessionId: session.id,
+      status: session.status,
+      progress,
+      startedAt: session.startedAt,
+      completedAt: session.completedAt,
+      error: session.error,
+      nodeCount: session.result?.nodes.length,
+      edgeCount: session.result?.edges.length,
+    };
+  });
+
+  // SSE progress stream
+  app.get<{ Params: { sessionId: string } }>('/analyze/stream/:sessionId', async (request, reply) => {
+    const session = get(request.params.sessionId);
+    if (!session) {
+      reply.code(404);
+      return { error: `Session not found: ${request.params.sessionId}` };
+    }
+
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+
+    let lastStatus = '';
+
+    const interval = setInterval(() => {
+      const current = get(request.params.sessionId);
+      if (!current) {
+        reply.raw.write(`event: error\ndata: {"error":"session lost"}\n\n`);
+        clearInterval(interval);
+        reply.raw.end();
+        return;
+      }
+
+      const statusStr = JSON.stringify({
+        sessionId: current.id,
+        status: current.status,
+        progress: current.coordinator.getProgress(),
+        nodeCount: current.result?.nodes.length,
+        edgeCount: current.result?.edges.length,
+        error: current.error,
+      });
+
+      // Only send if status changed, or heartbeat every 15s
+      if (statusStr !== lastStatus) {
+        lastStatus = statusStr;
+        reply.raw.write(`event: progress\ndata: ${statusStr}\n\n`);
+      }
+
+      // Terminal state — close stream
+      if (current.status === 'completed' || current.status === 'failed' || current.status === 'cancelled') {
+        clearInterval(interval);
+        reply.raw.write(`event: done\ndata: ${statusStr}\n\n`);
+        reply.raw.end();
+      }
+    }, 1000);
+
+    // Heartbeat every 15s
+    const heartbeat = setInterval(() => {
+      try {
+        reply.raw.write(': heartbeat\n\n');
+      } catch {
+        clearInterval(heartbeat);
+        clearInterval(interval);
+      }
+    }, 15000);
+
+    // Cleanup on disconnect
+    request.raw.on('close', () => {
+      clearInterval(interval);
+      clearInterval(heartbeat);
+    });
+  });
+
+  // Cancel analysis
+  app.post<{ Params: { sessionId: string } }>('/analyze/cancel/:sessionId', async (request, reply) => {
+    const session = get(request.params.sessionId);
+    if (!session) {
+      reply.code(404);
+      return { error: `Session not found: ${request.params.sessionId}` };
+    }
+
+    if (session.status !== 'running' && session.status !== 'pending') {
+      reply.code(400);
+      return { error: `Cannot cancel session in ${session.status} state` };
+    }
+
+    cancel(request.params.sessionId);
+    return { sessionId: session.id, status: 'cancelled' };
+  });
+}

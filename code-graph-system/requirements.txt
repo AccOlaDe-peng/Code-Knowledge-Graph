@@ -48,6 +48,9 @@ loguru>=0.7.0
 rich>=13.0.0
 typer>=0.9.0
 
+# MCP Server (agent integration)
+mcp>=1.0.0
+
 # Testing
 pytest>=7.4.0
 pytest-asyncio>=0.21.0
