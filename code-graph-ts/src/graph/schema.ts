@@ -114,6 +114,60 @@ const CONFIDENCE_PRIORITY: Record<Confidence, number> = {
   AMBIGUOUS: 1,
 } as const;
 
+// ── Data Flow Types (LineageAgent) ─────────────────────────
+
+// Data flow edge types for lineage tracking
+const DataFlowType = {
+  assignment: 'assignment',       // x = foo()
+  call_arg: 'call_arg',           // service.process(data)
+  return: 'return',               // return result
+  db_read: 'db_read',             // repo.findById(id)
+  db_write: 'db_write',           // repo.save(entity)
+} as const;
+
+type DataFlowType = (typeof DataFlowType)[keyof typeof DataFlowType];
+
+// Location reference for data flow endpoints
+interface DataFlowLocation {
+  file: string;
+  line: number;
+  entity: string;      // Variable, function, or class name
+  field?: string;      // Optional field-level granularity
+}
+
+// Data flow edge for lineage analysis (distinct from GraphEdge)
+// Used by LineageAgent static extraction before conversion to GraphEdge
+interface DataFlowEdge {
+  source: DataFlowLocation;
+  target: DataFlowLocation;
+  type: DataFlowType;
+  confidence: Confidence;
+  // Additional context for ambiguous edge resolution
+  context?: {
+    codeSnippet?: string;   // Original code for LLM context
+    pattern?: string;       // Matched AST pattern type
+  };
+}
+
+// Patterns considered ambiguous during static extraction
+// These trigger AMBIGUOUS confidence, deferred to LLM pass
+const AMBIGUOUS_PATTERNS = {
+  computed_property: 'computed_property',     // obj[key], arr[i]
+  reflection_call: 'reflection_call',         // Reflect.get, Reflect.set
+  generic_instantiation: 'generic_instantiation', // new T<K>()
+  cross_file_symbol: 'cross_file_symbol',     // Symbol defined in another file
+  dynamic_import: 'dynamic_import',           // import(...), require(...)
+} as const;
+
+type AmbiguousPattern = (typeof AMBIGUOUS_PATTERNS)[keyof typeof AMBIGUOUS_PATTERNS];
+
+// Circuit breaker threshold for ambiguous edges
+// If >50% edges are ambiguous, skip LLM pass and mark all as AMBIGUOUS
+const CIRCUIT_BREAKER_THRESHOLD = 0.5;
+
+// Maximum file size for parsing (1MB)
+const MAX_FILE_SIZE = 1_000_000;
+
 // Source priority for deterministic merge ordering
 const SOURCE_PRIORITY: Record<string, number> = {
   ast: 10,
@@ -257,6 +311,10 @@ export {
   STRUCTURAL_EDGE_TYPES,
   LINEAGE_EDGE_TYPES,
   validateGraph,
+  DataFlowType,
+  AMBIGUOUS_PATTERNS,
+  CIRCUIT_BREAKER_THRESHOLD,
+  MAX_FILE_SIZE,
 };
 
 export type {
@@ -269,4 +327,8 @@ export type {
   GraphData,
   ValidationError,
   ValidationResult,
+  DataFlowType as DataFlowTypeType,
+  DataFlowLocation,
+  DataFlowEdge,
+  AmbiguousPattern,
 };

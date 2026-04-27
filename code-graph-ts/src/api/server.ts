@@ -5,6 +5,7 @@ import cors from '@fastify/cors';
 import { healthRoutes } from './routes/health.ts';
 import { analyzeRoutes } from './routes/analyze.ts';
 import { graphRoutes } from './routes/graph.ts';
+import { lineageRoutes } from './routes/lineage.ts';
 import { cleanup } from './sessions.ts';
 
 const DEFAULT_PORT = 3000;
@@ -27,6 +28,7 @@ async function createServer() {
   app.register(healthRoutes);
   app.register(analyzeRoutes, { prefix: '/api' });
   app.register(graphRoutes, { prefix: '/api' });
+  app.register(lineageRoutes, { prefix: '/api' });
 
   // Session cleanup every 30 minutes
   const cleanupInterval = setInterval(() => cleanup(), 30 * 60 * 1000);

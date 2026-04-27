@@ -3,6 +3,9 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
+  "bin": {
+    "code-graph-mcp": "./src/mcp/server.ts"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },
@@ -12,10 +15,13 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
     "@fastify/cors": "^11.2.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "fastify": "^5.8.5",
     "graphology": "^0.26.0",
     "graphology-library": "^0.8.0",
     "graphology-types": "^0.24.8",
+    "tree-sitter-java": "^0.23.5",
+    "tree-sitter-typescript": "^0.23.2",
     "web-tree-sitter": "^0.26.8"
   }
 }
