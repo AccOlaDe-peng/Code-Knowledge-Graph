@@ -262,8 +262,9 @@ Bun + Fastify + Graphology + Web-tree-sitter + Claude SDK
 ```bash
 cd code-graph-ts
 bun install
-bun test
-bun run index.ts
+bun test                    # 运行所有测试（tests/ 目录）
+bun test tests/e2e.test.ts  # 运行单个测试文件
+bun run src/index.ts        # 启动 API 服务器（默认端口 3000）
 ```
 
 ### 架构设计
@@ -282,6 +283,12 @@ Coordinator（指挥官）
 - 增量更新（`--update`）→ 仅处理未缓存文件
 - 纯代码仓库（代码文件 >95%）→ 跳过语义分析
 - 无 LLM API Key → 降级为纯静态分析
+
+**API 路由（Fastify）：**
+- `GET /health` — 健康检查
+- `POST /api/analyze` — 提交分析任务
+- `GET /api/graph/:id` — 获取图谱
+- `GET /api/lineage/:id` — 获取数据血缘
 
 详细设计见 `docs/superpowers/specs/2026-04-22-agent-pipeline-redesign.md`。
 

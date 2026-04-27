@@ -6,6 +6,8 @@ import { healthRoutes } from './routes/health.ts';
 import { analyzeRoutes } from './routes/analyze.ts';
 import { graphRoutes } from './routes/graph.ts';
 import { lineageRoutes } from './routes/lineage.ts';
+import { reposRoutes } from './routes/repos.ts';
+import { frontendRoutes } from './routes/frontend.ts';
 import { cleanup } from './sessions.ts';
 
 const DEFAULT_PORT = 3000;
@@ -26,6 +28,12 @@ async function createServer() {
 
   // Routes
   app.register(healthRoutes);
+
+  // Frontend-compatible routes (no /api prefix, matches Python backend)
+  app.register(reposRoutes);
+  app.register(frontendRoutes);
+
+  // Original API routes (with /api prefix)
   app.register(analyzeRoutes, { prefix: '/api' });
   app.register(graphRoutes, { prefix: '/api' });
   app.register(lineageRoutes, { prefix: '/api' });
