@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 AI 代码知识图谱系统，基于 Python 构建，能够解析多语言代码仓库并生成结构化的知识图谱，支持 GraphRAG 自然语言查询和语义检索。
 
 **项目结构：**
+
 ```
 code-knowledge-graph/
 ├── code-graph-system/    # Python 后端（API + 图谱分析流水线）
@@ -73,6 +74,7 @@ celery -A backend.scheduler.celery_app worker --loglevel=info --pool=solo
 ### 流水线架构
 
 **静态优先流水线（默认）：**
+
 ```
 代码仓库
   → FileIndexStage           扫描文件 + Git 增量检测
@@ -87,10 +89,12 @@ celery -A backend.scheduler.celery_app worker --loglevel=info --pool=solo
 ```
 
 **AI 优先流水线（`--pipeline-mode ai_first`）：**
+
 - 完全由 AI 驱动，支持字段级血缘追踪和实体重要性评分
 - 产出实体级节点（Entity, Table, Field）和关系级边（one_to_one, one_to_many, flow_to）
 
 **流水线选择（`ai_analyze.py`）：**
+
 - `enable_static_first=True`（默认）：StaticFirstPipeline
 - `enable_static_first=False, enable_optimization=True`：OptimizedPipeline（旧版）
 - `pipeline_mode=ai_first`：AI 优先流水线
@@ -122,6 +126,7 @@ await orch.thaw()    # 恢复继续
 ```
 
 **API 端点（`/agent/*`）：**
+
 - `POST /agent/start` — 启动 Agent 探索
 - `GET /agent/{agent_id}/status` — 获取状态
 - `POST /agent/{agent_id}/guide` — 发送引导消息
@@ -133,6 +138,7 @@ await orch.thaw()    # 恢复继续
 为 Claude Code 提供 MCP 工具集成：
 
 **配置（`~/.claude/settings.json`）：**
+
 ```json
 {
   "mcpServers": {
@@ -146,6 +152,7 @@ await orch.thaw()    # 恢复继续
 ```
 
 **工具：**
+
 - `query_graph` — 语义搜索节点
 - `add_node` / `add_edge` — 添加节点/边
 - `get_context` — BFS 展开节点邻域
@@ -153,15 +160,16 @@ await orch.thaw()    # 恢复继续
 
 ### API 路由
 
-| Router | 路径前缀 | 功能 |
-|--------|---------|------|
-| `repos.py` | `/repos` | 仓库管理（CRUD + 分析历史） |
-| `analysis.py` | `/analyze` | 分析任务（异步提交 + SSE 进度） |
-| `graphs.py` | `/graph` | 图谱数据（架构图/调用图/血缘图） |
-| `query.py` | `/query` | GraphRAG 自然语言查询 |
-| `agent.py` | `/agent` | Agent Explorer 控制 |
+| Router        | 路径前缀   | 功能                             |
+| ------------- | ---------- | -------------------------------- |
+| `repos.py`    | `/repos`   | 仓库管理（CRUD + 分析历史）      |
+| `analysis.py` | `/analyze` | 分析任务（异步提交 + SSE 进度）  |
+| `graphs.py`   | `/graph`   | 图谱数据（架构图/调用图/血缘图） |
+| `query.py`    | `/query`   | GraphRAG 自然语言查询            |
+| `agent.py`    | `/agent`   | Agent Explorer 控制              |
 
 **异步分析流程：**
+
 1. `POST /analyze/repository` → 返回 `{task_id}`
 2. `GET /analyze/stream/{task_id}` → SSE 实时进度
 3. `GET /analyze/status/{task_id}` → 轮询状态（断线重连）
@@ -169,6 +177,7 @@ await orch.thaw()    # 恢复继续
 ### 数据模型
 
 **Schema（`backend/graph/graph_schema.py`）：**
+
 ```python
 GraphNode(id, type, name, properties)
 GraphEdge(from_, to, type, properties)  # from_ 序列化为 "from"
@@ -176,28 +185,29 @@ NodeType / EdgeType  # 枚举
 ```
 
 **前后端字段映射：**
+
 - 后端：`from_` / `to`
 - 前端：`source` / `target`
 - 转换：`src/api/graphApi.ts` 的 `rawEdgeToGraphEdge()`
 
 ### 存储与缓存
 
-| 路径 | 内容 |
-|------|------|
-| `data/graphs/` | 图谱 JSON 文件 |
-| `data/chroma/` | ChromaDB 向量索引 |
-| `data/ai_analysis/` | AI 分析缓存（按 repo_name + commit_sha） |
-| `data/pipeline_cache/` | 阶段缓存（支持断点续跑） |
+| 路径                   | 内容                                     |
+| ---------------------- | ---------------------------------------- |
+| `data/graphs/`         | 图谱 JSON 文件                           |
+| `data/chroma/`         | ChromaDB 向量索引                        |
+| `data/ai_analysis/`    | AI 分析缓存（按 repo_name + commit_sha） |
+| `data/pipeline_cache/` | 阶段缓存（支持断点续跑）                 |
 
 ### 环境变量
 
-| 变量 | 说明 |
-|------|------|
-| `LLM_PROVIDER` | `anthropic`（默认）/ `openai` / `minimax` / `ollama` / `zhipu` |
-| `ANTHROPIC_API_KEY` | LLM_PROVIDER=anthropic 时必须 |
-| `NEO4J_URI` | 可选，如 `bolt://localhost:7687` |
-| `CELERY_BROKER_URL` | 默认 `redis://localhost:6379/0` |
-| `AI_DESCRIPTION_CONCURRENCY` | AI 描述生成并发数，默认 3 |
+| 变量                         | 说明                                                           |
+| ---------------------------- | -------------------------------------------------------------- |
+| `LLM_PROVIDER`               | `anthropic`（默认）/ `openai` / `minimax` / `ollama` / `zhipu` |
+| `ANTHROPIC_API_KEY`          | LLM_PROVIDER=anthropic 时必须                                  |
+| `NEO4J_URI`                  | 可选，如 `bolt://localhost:7687`                               |
+| `CELERY_BROKER_URL`          | 默认 `redis://localhost:6379/0`                                |
+| `AI_DESCRIPTION_CONCURRENCY` | AI 描述生成并发数，默认 3                                      |
 
 ---
 
@@ -229,10 +239,12 @@ src/
 ```
 
 **两套 API 层：**
+
 - `src/core/api/` — 新架构，推荐用于新功能
 - `src/api/graphApi.ts` — 旧架构，仍被现有页面使用
 
 **Zustand Stores：**
+
 - `useGraphStore` — 图谱数据和视图状态
 - `usePipelineStore` — 分析任务状态
 - `useRepoStore` — 仓库列表
@@ -262,9 +274,8 @@ Bun + Fastify + Graphology + Web-tree-sitter + Claude SDK
 ```bash
 cd code-graph-ts
 bun install
-bun test                    # 运行所有测试（tests/ 目录）
-bun test tests/e2e.test.ts  # 运行单个测试文件
-bun run src/index.ts        # 启动 API 服务器（默认端口 3000）
+bun test
+bun run index.ts
 ```
 
 ### 架构设计
@@ -279,16 +290,11 @@ Coordinator（指挥官）
 ```
 
 **Coordinator 自动决策分析模式：**
+
 - 首次全量分析 → Scanner → Static + Semantic(并行) → Lineage → GraphBuild
 - 增量更新（`--update`）→ 仅处理未缓存文件
 - 纯代码仓库（代码文件 >95%）→ 跳过语义分析
 - 无 LLM API Key → 降级为纯静态分析
-
-**API 路由（Fastify）：**
-- `GET /health` — 健康检查
-- `POST /api/analyze` — 提交分析任务
-- `GET /api/graph/:id` — 获取图谱
-- `GET /api/lineage/:id` — 获取数据血缘
 
 详细设计见 `docs/superpowers/specs/2026-04-22-agent-pipeline-redesign.md`。
 
@@ -297,12 +303,12 @@ Coordinator（指挥官）
 ## 添加新功能
 
 **后端 Agent：**
+
 1. 在 `backend/agent/` 创建类，继承 `BaseAgent`
 2. 实现 `run()` 方法，返回 `AgentResult`
-3. 在 `AgentOrchestrator` 中注册
-
-**前端 Feature 模块：**
-1. 在 `src/features/` 创建目录
-2. 使用 `src/components/` 共享组件
-3. 使用 `src/core/api/` API 端点
-4. 在 `src/App.tsx` 添加路由
+3. 在 `AgentOrchestrator` 中
+   **前端 Feature 模块：**
+4. 在 `src/features/` 创建目录
+5. 使用 `src/components/` 共享组件
+6. 使用 `src/core/api/` API 端点
+7. 在 `src/App.tsx` 添加路由
