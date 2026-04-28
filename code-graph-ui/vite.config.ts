@@ -6,9 +6,10 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: '0.0.0.0',
-    port: 8118,
+    port: 5173,
     proxy: {
-      '/repos': 'http://localhost:8848',
+      // 使用正则精确匹配 /repos 或 /repos/ 开头的路径（不匹配 /repository）
+      '^/repos(/.*)?$': 'http://localhost:8848',
       '/api': 'http://localhost:8848',
       '/analyze': 'http://localhost:8848',
       '/graph': 'http://localhost:8848',

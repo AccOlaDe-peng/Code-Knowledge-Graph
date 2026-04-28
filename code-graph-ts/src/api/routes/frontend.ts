@@ -368,21 +368,30 @@ export const frontendRoutes: FastifyPluginAsync = async (app) => {
   );
 
   // POST /analyze/repository — async analysis (frontend compatible)
-  app.post<{ Body: { repoPath?: string; repoName?: string; branch?: string; languages?: string[] } }>(
+  app.post<{ Body: { repo_path?: string; repoPath?: string; repo_name?: string; repoName?: string; repo_id?: string; branch?: string; languages?: string[] } }>(
     '/analyze/repository',
     async (request, reply) => {
-      const { repoPath } = request.body;
+      const repoPath = request.body.repo_path ?? request.body.repoPath;
 
       if (!repoPath) {
         reply.code(400);
-        return { detail: 'repoPath is required' };
+        return { detail: 'repo_path is required' };
       }
+
+      const repoName = request.body.repo_name ?? request.body.repoName;
+      const repoId = request.body.repo_id;
 
       // Use existing analyze route logic
       const { create, startAnalysis } = await import('../sessions.ts');
-      const session = create(repoPath, { enableLineage: true });
+      const session = create(repoPath, {
+        repoName,
+        repoId,
+        branch: request.body.branch,
+        languages: request.body.languages,
+        budget: 100000,
+      });
 
-      startAnalysis(session.id, repoPath, { enableLineage: true }).catch(() => {});
+      startAnalysis(session.id, repoPath, { budget: 100000 }).catch(() => {});
 
       reply.code(202);
       return {

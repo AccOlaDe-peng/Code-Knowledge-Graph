@@ -4,7 +4,8 @@ import type { FastifyInstance } from 'fastify';
 import { create, startAnalysis, get, cancel } from '../sessions.ts';
 
 interface AnalyzeBody {
-  path: string;
+  path?: string;
+  repo_path?: string; // 兼容前端字段名
   repo_name?: string;
   repo_id?: string;
   branch?: string;
@@ -17,11 +18,12 @@ const DEFAULT_BUDGET = 100000; // 100K tokens for LLM
 export async function analyzeRoutes(app: FastifyInstance): Promise<void> {
   // Submit analysis
   app.post<{ Body: AnalyzeBody }>('/analyze/repository', async (request, reply) => {
-    const { path: repoPath, repo_name, repo_id, branch, languages } = request.body;
+    const { path, repo_path, repo_name, repo_id, branch, languages } = request.body;
+    const repoPath = repo_path ?? path;
 
     if (!repoPath) {
       reply.code(400);
-      return { error: 'path is required' };
+      return { detail: 'repo_path is required' };
     }
 
     const session = create(repoPath, {
