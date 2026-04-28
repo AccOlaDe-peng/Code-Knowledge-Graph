@@ -13,8 +13,18 @@ import {
   GlobalOutlined,
   LinkOutlined,
 } from "@ant-design/icons";
-import { LANGS } from "../constants";
 import type { RepoInfo } from "../../../types/api";
+
+const LANGS = [
+  "python",
+  "typescript",
+  "javascript",
+  "java",
+  "go",
+  "rust",
+  "cpp",
+  "csharp",
+];
 
 type SourceMode = "local" | "git";
 

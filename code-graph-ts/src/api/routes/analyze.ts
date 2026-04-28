@@ -1,33 +1,49 @@
 // Analysis routes — submit, status, stream, cancel
 
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { create, startAnalysis, get, cancel } from '../sessions.ts';
 
 interface AnalyzeBody {
   path: string;
-  enableLineage?: boolean;
-  budget?: number;
+  repo_name?: string;
+  repo_id?: string;
+  branch?: string;
+  languages?: string[];
 }
+
+// Default analysis configuration
+const DEFAULT_BUDGET = 100000; // 100K tokens for LLM
 
 export async function analyzeRoutes(app: FastifyInstance): Promise<void> {
   // Submit analysis
   app.post<{ Body: AnalyzeBody }>('/analyze/repository', async (request, reply) => {
-    const { path: repoPath, enableLineage, budget } = request.body;
+    const { path: repoPath, repo_name, repo_id, branch, languages } = request.body;
 
     if (!repoPath) {
       reply.code(400);
       return { error: 'path is required' };
     }
 
-    const session = create(repoPath, { enableLineage, budget });
+    const session = create(repoPath, {
+      budget: DEFAULT_BUDGET,
+      repoName: repo_name,
+      repoId: repo_id,
+      branch,
+      languages,
+    });
 
     // Start analysis in background (non-blocking)
-    startAnalysis(session.id, repoPath, { enableLineage, budget }).catch(() => {
+    startAnalysis(session.id, repoPath, {
+      budget: DEFAULT_BUDGET,
+    }).catch(() => {
       // Error handled inside startAnalysis
     });
 
     reply.code(202);
-    return { sessionId: session.id, status: 'pending' };
+    return {
+      task_id: session.id,
+      status: 'pending',
+    };
   });
 
   // Poll status

@@ -10,7 +10,7 @@ import { reposRoutes } from './routes/repos.ts';
 import { frontendRoutes } from './routes/frontend.ts';
 import { cleanup } from './sessions.ts';
 
-const DEFAULT_PORT = 3000;
+const DEFAULT_PORT = 8848;
 const DEFAULT_HOST = '0.0.0.0';
 
 async function createServer() {
@@ -24,6 +24,7 @@ async function createServer() {
   await app.register(cors, {
     origin: true,
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   });
 
   // Routes

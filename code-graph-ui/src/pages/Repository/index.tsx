@@ -15,10 +15,9 @@ import { graphEndpoints, repoEndpoints } from "../../core/api/endpoints/graph";
 import { useRepoStore } from "../../store/repoStore";
 import { useGraphStore } from "../../store/graphStore";
 import { usePipelineStore } from "../../store/pipelineStore";
-import type { AnalysisDepth, RepoInfo, PipelineMode } from "../../types/api";
+import type { RepoInfo } from "../../types/api";
 import { useRepoList } from "./hooks/useRepoList";
 import { useAnalysisProgress } from "./hooks/useAnalysisProgress";
-import { DEPTH_OPTIONS } from "./constants";
 import {
   AddRepoModal,
   AnalysisConfirmDialog,
@@ -59,8 +58,6 @@ const Repository: React.FC = () => {
   const [editRepo, setEditRepo] = useState<RepoInfo | null>(null);
   const [detailRepoId, setDetailRepoId] = useState<string | null>(null);
   const [analysisConfirmRepo, setAnalysisConfirmRepo] = useState<RepoInfo | null>(null);
-  const [analysisDepth, setAnalysisDepth] = useState<AnalysisDepth>("standard");
-  const [pipelineMode, setPipelineMode] = useState<PipelineMode>("static_first");
 
   // UI state
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
@@ -123,7 +120,7 @@ const Repository: React.FC = () => {
   );
 
   const startAnalysis = useCallback(
-    async (repo: RepoInfo, depth: AnalysisDepth = "standard", mode: PipelineMode = "static_first") => {
+    async (repo: RepoInfo) => {
       if (!repo.repoPath) {
         message.error("缺少仓库路径，无法分析");
         return;
@@ -140,8 +137,6 @@ const Repository: React.FC = () => {
           repo_id: repo.repoId,
           branch: repo.branch,
           languages: repo.language.length > 0 ? repo.language : undefined,
-          depth,
-          pipeline_mode: mode,
         });
 
         updateRepo(repo.repoId, {
@@ -153,9 +148,7 @@ const Repository: React.FC = () => {
           analysisStage: "pending",
           analysisMessage: "等待调度执行",
         });
-        message.success(
-          `已开始分析: ${repo.repoName} (${DEPTH_OPTIONS.find((o) => o.value === depth)?.label})`,
-        );
+        message.success(`已开始分析: ${repo.repoName}`);
       } catch (error) {
         const text = error instanceof Error ? error.message : "分析任务提交失败";
         updateRepo(repo.repoId, { status: "failed", error: text });
@@ -620,7 +613,6 @@ const Repository: React.FC = () => {
               onSelect={() => setDetailRepoId(repo.repoId)}
               onAnalyze={() => {
                 setAnalysisConfirmRepo(repo);
-                setAnalysisDepth("standard");
               }}
               onCancel={handleCancel}
               onViewGraph={handleViewGraph}
@@ -652,10 +644,6 @@ const Repository: React.FC = () => {
       {/* Analysis Confirm Dialog */}
       <AnalysisConfirmDialog
         repo={analysisConfirmRepo}
-        depth={analysisDepth}
-        pipelineMode={pipelineMode}
-        onDepthChange={setAnalysisDepth}
-        onPipelineModeChange={setPipelineMode}
         onStart={startAnalysis}
         onClose={() => setAnalysisConfirmRepo(null)}
       />

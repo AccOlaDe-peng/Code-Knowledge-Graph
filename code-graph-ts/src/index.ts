@@ -35,7 +35,7 @@ async function main() {
 
   // Default: start API server
   if (!command || command === 'serve') {
-    const port = parseInt(process.env.PORT ?? '3000', 10);
+    const port = parseInt(process.env.PORT ?? '8848', 10);
     const host = process.env.HOST ?? '0.0.0.0';
     await startServer(port, host);
     return;

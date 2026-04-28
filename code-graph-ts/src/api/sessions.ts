@@ -12,6 +12,20 @@ import { ReportAgent, REPORT_CONFIG } from '../agents/specialized/ReportAgent.ts
 import { createAgentContext } from '../agents/AgentContext.ts';
 import type { GraphData } from '../graph/schema.ts';
 
+type AnalysisDepth = 'quick' | 'standard' | 'deep';
+type PipelineMode = 'static_first' | 'ai_first';
+
+interface SessionOptions {
+  enableLineage?: boolean;
+  budget?: number;
+  repoName?: string;
+  repoId?: string;
+  branch?: string;
+  languages?: string[];
+  depth?: AnalysisDepth;
+  pipelineMode?: PipelineMode;
+}
+
 interface Session {
   id: string;
   coordinator: Coordinator;
@@ -21,6 +35,7 @@ interface Session {
   startedAt: number;
   completedAt?: number;
   cancelled: boolean;
+  options?: SessionOptions;
 }
 
 const sessions = new Map<string, Session>();
@@ -29,9 +44,9 @@ function createSessionId(): string {
   return `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function create(path: string, options?: { enableLineage?: boolean; budget?: number }): Session {
-  const id = createSessionId();
-  const costTracker = new CostTracker(id, options?.budget ?? 10.0);
+function create(path: string, options?: SessionOptions): Session {
+  const id = options?.repoId ?? createSessionId();
+  const costTracker = new CostTracker(id, options?.budget ?? 100000);
   const coordinator = new Coordinator(id, costTracker);
   const cache = new CacheManager();
 
@@ -72,13 +87,14 @@ function create(path: string, options?: { enableLineage?: boolean; budget?: numb
     status: 'pending',
     startedAt: Date.now(),
     cancelled: false,
+    options,
   };
 
   sessions.set(id, session);
   return session;
 }
 
-async function startAnalysis(sessionId: string, path: string, options?: { enableLineage?: boolean; budget?: number }): Promise<void> {
+async function startAnalysis(sessionId: string, path: string, options?: SessionOptions): Promise<void> {
   const session = sessions.get(sessionId);
   if (!session) throw new Error(`Session not found: ${sessionId}`);
 
@@ -89,6 +105,7 @@ async function startAnalysis(sessionId: string, path: string, options?: { enable
       path,
       enableLineage: options?.enableLineage,
       budget: options?.budget,
+      pipelineMode: options?.pipelineMode,
     });
 
     if (session.cancelled) {
@@ -138,5 +155,5 @@ function cleanup(maxAge: number = 24 * 60 * 60 * 1000): void {
   }
 }
 
-export type { Session };
+export type { Session, SessionOptions };
 export { create, startAnalysis, get, cancel, list, cleanup };

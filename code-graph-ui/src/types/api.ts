@@ -2,12 +2,6 @@ import type { Graph, GraphMetrics, GraphNode, GraphEdge } from "./graph";
 
 // ─── Repo / Graph Metadata ────────────────────────────────────────────────────
 
-/** 分析深度预设 */
-export type AnalysisDepth = "quick" | "standard" | "deep";
-
-/** 流水线模式 */
-export type PipelineMode = "static_first" | "ai_first";
-
 /** 分析状态 */
 export type AnalysisStatus =
   | "saved"
@@ -37,7 +31,6 @@ export type LatestAnalysis = {
   graphId?: string;
   nodeCount: number;
   edgeCount: number;
-  depth?: AnalysisDepth;
   analysisStage?: string;
   analysisStep?: number;
   analysisTotal?: number;
@@ -60,7 +53,6 @@ export type RepoInfo = Repo & {
   analysisElapsedSeconds?: number;
   error?: string;
   lastAnalyzedAt?: string;
-  depth?: AnalysisDepth;
   gitCommit?: string;
   latestAnalysis?: LatestAnalysis;
 };
@@ -124,7 +116,6 @@ export type AnalyzeRepoRequest = {
   repoName?: string;
   branch?: string;
   languages?: string[];
-  depth?: AnalysisDepth; // 分析深度：quick | standard | deep
 };
 
 export type AnalyzeRepoResponse = {

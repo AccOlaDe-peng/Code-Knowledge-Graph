@@ -1,49 +1,107 @@
-// Repos API routes — compatible with frontend
-// Maps sessions to repos for backward compatibility
+// Repos API routes — Repository management with persistence
 
 import type { FastifyPluginAsync } from 'fastify';
 import { list, get } from '../sessions.ts';
 import { LocalFileStore } from '../../graph/store/LocalFileStore.ts';
+import { RepoRegistry, type RepoRecord } from '../../graph/store/RepoRegistry.ts';
 
 const store = new LocalFileStore();
+const registry = new RepoRegistry();
+
+interface CreateRepoBody {
+  repo_id?: string;
+  repo_name: string;
+  repo_path: string;
+  branch?: string;
+  source_mode?: 'local' | 'git' | 'zip';
+  language?: string[];
+}
+
+interface UpdateRepoBody {
+  repo_name?: string;
+  branch?: string;
+  language?: string[];
+}
 
 export const reposRoutes: FastifyPluginAsync = async (app) => {
-  // GET /repos — list all repos/sessions
+  // GET /repos — list all repos
   app.get('/repos', async (request, reply) => {
     const sessions = list();
-
-    // Also get persisted sessions from storage
     const persisted = await store.listSessions();
+    const registeredRepos = registry.list();
 
-    // Merge in-memory and persisted
-    const allSessions = new Map<string, {
+    // Build unified map
+    const allRepos = new Map<string, {
       id: string;
       name: string;
       path?: string;
       status: string;
       createdAt: string;
-      updatedAt?: string;
+      updatedAt: string;
       nodeCount: number;
       edgeCount: number;
+      branch?: string;
+      sourceMode: string;
+      language: string[];
+      taskId?: string;
+      graphId?: string;
     }>();
 
-    // Add in-memory sessions
-    for (const session of sessions) {
-      allSessions.set(session.id, {
-        id: session.id,
-        name: session.id,
-        status: session.status,
-        createdAt: new Date(session.startedAt).toISOString(),
-        updatedAt: session.completedAt ? new Date(session.completedAt).toISOString() : undefined,
+    // Add registered repos (highest priority for metadata)
+    for (const repo of registeredRepos) {
+      allRepos.set(repo.repoId, {
+        id: repo.repoId,
+        name: repo.repoName,
+        path: repo.repoPath,
+        status: 'saved',
+        createdAt: repo.createdAt,
+        updatedAt: repo.updatedAt,
         nodeCount: 0,
         edgeCount: 0,
+        branch: repo.branch,
+        sourceMode: repo.sourceMode,
+        language: repo.language,
       });
     }
 
-    // Add persisted sessions
+    // Add in-memory sessions (override status for active analyses)
+    for (const session of sessions) {
+      const existing = allRepos.get(session.id);
+      if (existing) {
+        existing.status = session.status;
+        existing.updatedAt = session.completedAt
+          ? new Date(session.completedAt).toISOString()
+          : existing.updatedAt;
+      } else {
+        allRepos.set(session.id, {
+          id: session.id,
+          name: session.id,
+          status: session.status,
+          createdAt: new Date(session.startedAt).toISOString(),
+          updatedAt: session.completedAt
+            ? new Date(session.completedAt).toISOString()
+            : new Date(session.startedAt).toISOString(),
+          nodeCount: 0,
+          edgeCount: 0,
+          sourceMode: 'local',
+          language: [],
+        });
+      }
+    }
+
+    // Add persisted sessions and merge graph data
     for (const { sessionId, meta } of persisted) {
-      if (!allSessions.has(sessionId)) {
-        allSessions.set(sessionId, {
+      const existing = allRepos.get(sessionId);
+      if (existing) {
+        existing.nodeCount = meta.nodeCount;
+        existing.edgeCount = meta.edgeCount;
+        existing.updatedAt = meta.updatedAt;
+        if (existing.status === 'saved') {
+          existing.status = 'completed';
+          existing.graphId = sessionId;
+        }
+      } else {
+        allRepos.set(sessionId, {
           id: sessionId,
           name: sessionId,
           status: 'completed',
@@ -51,44 +109,124 @@ export const reposRoutes: FastifyPluginAsync = async (app) => {
           updatedAt: meta.updatedAt,
           nodeCount: meta.nodeCount,
           edgeCount: meta.edgeCount,
+          sourceMode: 'local',
+          language: [],
+          graphId: sessionId,
         });
-      } else {
-        const existing = allSessions.get(sessionId)!;
-        existing.nodeCount = meta.nodeCount;
-        existing.edgeCount = meta.edgeCount;
-        existing.updatedAt = meta.updatedAt;
       }
     }
 
     // Format for frontend
-    const repos = [...allSessions.values()].map(s => ({
-      id: s.id,
-      graph_id: s.id,
-      name: s.name,
-      path: s.path,
-      status: s.status,
-      language: [],
-      created_at: s.createdAt,
-      updated_at: s.updatedAt ?? s.createdAt,
-      node_count: s.nodeCount,
-      edge_count: s.edgeCount,
-      source_mode: 'local',
+    const repos = [...allRepos.values()].map(r => ({
+      id: r.id,
+      graph_id: r.graphId ?? r.id,
+      name: r.name,
+      path: r.path,
+      status: r.status,
+      branch: r.branch,
+      source_mode: r.sourceMode,
+      language: r.language,
+      created_at: r.createdAt,
+      updated_at: r.updatedAt,
+      node_count: r.nodeCount,
+      edge_count: r.edgeCount,
+      task_id: r.taskId,
     }));
 
     return { repos };
   });
 
-  // POST /repos — create repo (placeholder for frontend)
-  app.post('/repos', async (request, reply) => {
+  // POST /repos — create repo
+  app.post<{ Body: CreateRepoBody }>('/repos', async (request, reply) => {
+    const body = request.body;
+
+    if (!body.repo_path) {
+      reply.code(400);
+      return { detail: 'repo_path is required' };
+    }
+
+    const repoId = body.repo_id ?? registry.generateId(body.repo_path);
+    const repoName = body.repo_name || repoId;
+
+    const repo: RepoRecord = {
+      repoId,
+      repoName,
+      repoPath: body.repo_path,
+      branch: body.branch,
+      sourceMode: body.source_mode ?? 'local',
+      language: body.language ?? [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    registry.save(repo);
+
     reply.code(201);
-    return { message: 'Use POST /api/analyze/repository to analyze codebase' };
+    return {
+      id: repoId,
+      graph_id: repoId,
+      name: repoName,
+      path: body.repo_path,
+      status: 'saved',
+      branch: body.branch,
+      source_mode: repo.sourceMode,
+      language: repo.language,
+      created_at: repo.createdAt,
+      updated_at: repo.updatedAt,
+      node_count: 0,
+      edge_count: 0,
+    };
   });
 
   // GET /repos/:repoId — single repo
   app.get<{ Params: { repoId: string } }>('/repos/:repoId', async (request, reply) => {
     const { repoId } = request.params;
 
-    // Try in-memory first
+    // Try registry first
+    const registered = registry.load(repoId);
+    if (registered) {
+      let status: string = 'saved';
+      let nodeCount = 0;
+      let edgeCount = 0;
+      let updatedAt = registered.updatedAt;
+
+      // Check session status
+      const session = get(repoId);
+      if (session) {
+        status = session.status;
+        updatedAt = session.completedAt
+          ? new Date(session.completedAt).toISOString()
+          : updatedAt;
+      }
+
+      // Check persisted graph
+      const meta = await store.getMetadata(repoId);
+      if (meta) {
+        nodeCount = meta.nodeCount;
+        edgeCount = meta.edgeCount;
+        updatedAt = meta.updatedAt;
+        if (status === 'saved') {
+          status = 'completed';
+        }
+      }
+
+      return {
+        id: repoId,
+        graph_id: repoId,
+        name: registered.repoName,
+        path: registered.repoPath,
+        status,
+        branch: registered.branch,
+        source_mode: registered.sourceMode,
+        language: registered.language,
+        created_at: registered.createdAt,
+        updated_at: updatedAt,
+        node_count: nodeCount,
+        edge_count: edgeCount,
+      };
+    }
+
+    // Try in-memory session
     const session = get(repoId);
     if (session) {
       return {
@@ -97,13 +235,17 @@ export const reposRoutes: FastifyPluginAsync = async (app) => {
         name: repoId,
         status: session.status,
         created_at: new Date(session.startedAt).toISOString(),
-        updated_at: session.completedAt ? new Date(session.completedAt).toISOString() : undefined,
+        updated_at: session.completedAt
+          ? new Date(session.completedAt).toISOString()
+          : new Date(session.startedAt).toISOString(),
         node_count: session.result?.nodes.length ?? 0,
         edge_count: session.result?.edges.length ?? 0,
+        source_mode: 'local',
+        language: [],
       };
     }
 
-    // Try persisted
+    // Try persisted session
     const meta = await store.getMetadata(repoId);
     if (meta) {
       return {
@@ -115,11 +257,56 @@ export const reposRoutes: FastifyPluginAsync = async (app) => {
         updated_at: meta.updatedAt,
         node_count: meta.nodeCount,
         edge_count: meta.edgeCount,
+        source_mode: 'local',
+        language: [],
       };
     }
 
     reply.code(404);
     return { detail: `Repo not found: ${repoId}` };
+  });
+
+  // PUT /repos/:repoId — update repo metadata
+  app.put<{ Params: { repoId: string }; Body: UpdateRepoBody }>(
+    '/repos/:repoId',
+    async (request, reply) => {
+      const { repoId } = request.params;
+      const body = request.body;
+
+      const updated = registry.update(repoId, {
+        repoName: body.repo_name,
+        branch: body.branch,
+        language: body.language,
+      });
+
+      if (!updated) {
+        reply.code(404);
+        return { detail: `Repo not found: ${repoId}` };
+      }
+
+      return {
+        id: repoId,
+        name: updated.repoName,
+        branch: updated.branch,
+        language: updated.language,
+        updated_at: updated.updatedAt,
+      };
+    }
+  );
+
+  // DELETE /repos/:repoId — delete repo and associated data
+  app.delete<{ Params: { repoId: string } }>('/repos/:repoId', async (request, reply) => {
+    const { repoId } = request.params;
+
+    const existed = registry.delete(repoId);
+    await store.delete(repoId);
+
+    if (!existed) {
+      reply.code(404);
+      return { detail: `Repo not found: ${repoId}` };
+    }
+
+    return { message: `Repo ${repoId} deleted` };
   });
 };
 

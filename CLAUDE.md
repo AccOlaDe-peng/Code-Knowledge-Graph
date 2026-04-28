@@ -37,9 +37,9 @@ bun install
 ```bash
 cd code-graph-ts
 
-# 启动 API 服务器（默认 http://localhost:3000）
+# 启动 API 服务器（默认 http://localhost:8848）
 bun run src/index.ts serve
-PORT=8080 bun run src/index.ts serve  # 自定义端口
+PORT=9000 bun run src/index.ts serve  # 自定义端口
 
 # 分析代码仓库（CLI）
 bun run src/index.ts analyze /path/to/repo
@@ -101,7 +101,7 @@ NodeType / EdgeType: const 对象（禁用 enum）
 | ------------------ | ------------------------------- |
 | `ANTHROPIC_API_KEY` | LLM 调用（SemanticAgent 需要） |
 | `LLM_BASE_URL`     | 自定义 LLM endpoint             |
-| `PORT`             | API 服务器端口，默认 3000       |
+| `PORT`             | API 服务器端口，默认 8848       |
 | `HOST`             | API 服务器 host，默认 0.0.0.0   |
 
 ---
@@ -123,7 +123,7 @@ npm install
 
 ```bash
 cd code-graph-ui
-npm run dev      # 开发服务器 http://localhost:5173
+npm run dev      # 开发服务器 http://localhost:8118
 npm run build    # 生产构建
 npm run lint     # ESLint
 npm run preview  # 预览生产构建
