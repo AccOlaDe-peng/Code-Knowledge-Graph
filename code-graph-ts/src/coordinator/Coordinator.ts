@@ -153,7 +153,7 @@ class Coordinator {
     }
 
     // No LLM API key — static only
-    if (!process.env.ANTHROPIC_API_KEY && !process.env.LLM_BASE_URL) {
+    if (!process.env.ANTHROPIC_API_KEY && !process.env.LLM_API_KEY && !process.env.LLM_BASE_URL) {
       return {
         mode: 'static-only',
         agents: ['ScannerAgent', 'StaticAgent', 'GraphBuildAgent', 'ReportAgent'],

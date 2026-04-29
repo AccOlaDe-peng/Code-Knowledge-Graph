@@ -9,14 +9,33 @@ import { lineageRoutes } from './routes/lineage.ts';
 import { reposRoutes } from './routes/repos.ts';
 import { frontendRoutes } from './routes/frontend.ts';
 import { cleanup } from './sessions.ts';
+import { mkdir } from 'node:fs/promises';
+import { resolve } from 'node:path';
 
 const DEFAULT_PORT = 8848;
 const DEFAULT_HOST = '0.0.0.0';
+const LOG_DIR = resolve(import.meta.dir, '../../logs');
+
+async function ensureLogDir() {
+  try {
+    await mkdir(LOG_DIR, { recursive: true });
+  } catch {
+    // 目录已存在
+  }
+}
 
 async function createServer() {
+  await ensureLogDir();
+
+  const isDev = process.env.NODE_ENV !== 'production';
+
   const app = Fastify({
     logger: {
-      level: 'info',
+      level: process.env.LOG_LEVEL ?? (isDev ? 'debug' : 'info'),
+      transport: isDev
+        ? { target: 'pino-pretty', options: { colorize: true, translateTime: 'SYS:standard' } }
+        : undefined,
+      file: resolve(LOG_DIR, 'server.log'),
     },
   });
 

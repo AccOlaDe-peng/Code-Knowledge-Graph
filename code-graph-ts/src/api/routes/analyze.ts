@@ -16,6 +16,19 @@ interface AnalyzeBody {
 const DEFAULT_BUDGET = 100000; // 100K tokens for LLM
 
 export async function analyzeRoutes(app: FastifyInstance): Promise<void> {
+  // GET /api/pipeline/stages — pipeline stage definitions for frontend
+  app.get('/pipeline/stages', async () => {
+    const stages = [
+      { key: 'file_index', label: '文件扫描', description: '扫描并索引仓库中的源文件' },
+      { key: 'deep_static_analysis', label: '静态分析', description: '基于 AST 的深度静态结构提取' },
+      { key: 'ai_semantic_enhance', label: 'AI 语义增强', description: 'LLM 驱动的模块边界与语义关系识别' },
+      { key: 'data_lineage', label: '数据血缘', description: '追踪数据在函数与模块间的流动路径' },
+      { key: 'graph_build', label: '图谱构建', description: '合并多源分析结果为统一知识图谱' },
+      { key: 'report', label: '报告生成', description: '生成架构概览与优化建议' },
+    ];
+    return { stages, total: stages.length };
+  });
+
   // Submit analysis
   app.post<{ Body: AnalyzeBody }>('/analyze/repository', async (request, reply) => {
     const { path, repo_path, repo_name, repo_id, branch, languages } = request.body;

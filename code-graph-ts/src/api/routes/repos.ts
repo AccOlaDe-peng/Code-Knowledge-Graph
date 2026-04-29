@@ -4,6 +4,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { list, get } from '../sessions.ts';
 import { LocalFileStore } from '../../graph/store/LocalFileStore.ts';
 import { RepoRegistry, type RepoRecord } from '../../graph/store/RepoRegistry.ts';
+import { existsSync } from 'node:fs';
 
 const store = new LocalFileStore();
 const registry = new RepoRegistry();
@@ -294,18 +295,88 @@ export const reposRoutes: FastifyPluginAsync = async (app) => {
     }
   );
 
+  // POST /repos/save — persist repo config without triggering analysis
+  app.post<{ Body: CreateRepoBody }>('/repos/save', async (request, reply) => {
+    const body = request.body;
+
+    if (!body.repo_path) {
+      reply.code(400);
+      return { detail: 'repo_path is required' };
+    }
+
+    // Validate repo path exists
+    if (!existsSync(body.repo_path)) {
+      reply.code(400);
+      return { detail: `Path not found: ${body.repo_path}` };
+    }
+
+    const repoId = body.repo_id ?? registry.generateId(body.repo_path);
+    const repoName = body.repo_name || repoId;
+
+    const repo: RepoRecord = {
+      repoId,
+      repoName,
+      repoPath: body.repo_path,
+      branch: body.branch,
+      sourceMode: body.source_mode ?? 'local',
+      language: body.language ?? [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    registry.save(repo);
+    return { repo_id: repoId, status: 'saved' };
+  });
+
+  // GET /repos/:repoId/analyses — analysis history for a repo
+  app.get<{ Params: { repoId: string } }>('/repos/:repoId/analyses', async (request, _reply) => {
+    const { repoId } = request.params;
+    const analyses: Record<string, unknown>[] = [];
+
+    // Check in-memory session
+    const session = get(repoId);
+    if (session) {
+      analyses.push({
+        id: session.id,
+        graph_id: session.id,
+        status: session.status,
+        stage: session.status,
+        node_count: session.result?.nodes.length ?? 0,
+        edge_count: session.result?.edges.length ?? 0,
+        started_at: new Date(session.startedAt).toISOString(),
+        finished_at: session.completedAt ? new Date(session.completedAt).toISOString() : null,
+        error: session.error,
+      });
+    }
+
+    // Check persisted
+    const meta = await store.getMetadata(repoId);
+    if (meta) {
+      analyses.push({
+        id: repoId,
+        graph_id: repoId,
+        status: 'completed',
+        node_count: meta.nodeCount,
+        edge_count: meta.edgeCount,
+        started_at: meta.createdAt,
+        finished_at: meta.updatedAt,
+      });
+    }
+
+    return { analyses };
+  });
+
   // DELETE /repos/:repoId — delete repo and associated data
   app.delete<{ Params: { repoId: string } }>('/repos/:repoId', async (request, reply) => {
     const { repoId } = request.params;
 
-    const existed = registry.delete(repoId);
+    // 从 RepoRegistry 删除
+    registry.delete(repoId);
+
+    // 从持久化存储删除
     await store.delete(repoId);
 
-    if (!existed) {
-      reply.code(404);
-      return { detail: `Repo not found: ${repoId}` };
-    }
-
+    // 返回成功（幂等操作，无论如何都返回成功）
     return { message: `Repo ${repoId} deleted` };
   });
 };

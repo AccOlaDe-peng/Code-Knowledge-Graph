@@ -438,6 +438,111 @@ export const frontendRoutes: FastifyPluginAsync = async (app) => {
       };
     }
   );
+
+  // GET /events — event flow graph (frontend compatible)
+  app.get<{ Querystring: { graph_id?: string } }>(
+    '/events',
+    async (request, reply) => {
+      const { graph_id } = request.query;
+      const sessionId = graph_id ?? 'unknown';
+
+      const graph = await store.load(sessionId);
+      if (!graph) {
+        const session = get(sessionId);
+        if (!session?.result) {
+          reply.code(404);
+          return { detail: `Graph not found: ${sessionId}` };
+        }
+      }
+
+      const nodes = graph?.nodes ?? get(sessionId)?.result?.nodes ?? [];
+      const edges = graph?.edges ?? get(sessionId)?.result?.edges ?? [];
+
+      const eventTypes = new Set(['Event', 'Topic', 'EventType', 'event', 'topic']);
+      const eventNodes = nodes.filter(n => eventTypes.has(n.type));
+      const eventNodeIds = new Set(eventNodes.map(n => n.id));
+      const eventEdges = edges.filter(e =>
+        eventNodeIds.has(e.source) && eventNodeIds.has(e.target)
+      );
+
+      return {
+        graph_id: sessionId,
+        nodes: eventNodes.map(n => ({
+          id: n.id,
+          type: n.type.toLowerCase(),
+          name: n.label,
+          properties: n.properties,
+        })),
+        edges: eventEdges.map(e => ({
+          from: e.source,
+          to: e.target,
+          type: e.type,
+          properties: e.properties,
+        })),
+      };
+    }
+  );
+
+  // GET /graph/architecture/:repoId — layered architecture view
+  app.get<{ Params: { repoId: string } }>(
+    '/graph/architecture/:repoId',
+    async (request, reply) => {
+      const { repoId } = request.params;
+
+      const graph = await store.load(repoId);
+      if (!graph) {
+        const session = get(repoId);
+        if (!session?.result) {
+          reply.code(404);
+          return { detail: `Graph not found: ${repoId}` };
+        }
+      }
+
+      const nodes = graph?.nodes ?? get(repoId)?.result?.nodes ?? [];
+      const edges = graph?.edges ?? get(repoId)?.result?.edges ?? [];
+
+      // Group nodes by layer
+      const layers: Record<string, { id: string; name: string; nodes: Record<string, unknown>[] }> = {};
+      for (const node of nodes) {
+        const layer = node.properties?.layer ?? 'unknown';
+        if (!layers[layer]) {
+          layers[layer] = { id: layer, name: layer, nodes: [] };
+        }
+        layers[layer]!.nodes.push({
+          id: node.id,
+          type: node.type.toLowerCase(),
+          name: node.label,
+        });
+      }
+
+      return {
+        repo_id: repoId,
+        layers: Object.values(layers),
+        edges: edges.map(e => ({
+          from: e.source,
+          to: e.target,
+          type: e.type,
+        })),
+      };
+    }
+  );
+
+  // POST /analyze/cancel/:taskId — cancel analysis (frontend compatible)
+  app.post<{ Params: { taskId: string } }>(
+    '/analyze/cancel/:taskId',
+    async (request, reply) => {
+      const { taskId } = request.params;
+      const { cancel } = await import('../sessions.ts');
+      const ok = cancel(taskId);
+
+      if (!ok) {
+        reply.code(404);
+        return { detail: `Task not found: ${taskId}` };
+      }
+
+      return { task_id: taskId, status: 'cancelled' };
+    }
+  );
 };
 
 export default frontendRoutes;

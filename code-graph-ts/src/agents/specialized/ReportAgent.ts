@@ -68,17 +68,24 @@ class ReportAgent extends BaseAgent {
       // Generate sections
       const sections = this.generateSections(graphNodes, graphEdges, metrics);
 
-      // Use LLM to synthesize findings
-      const prompt = this.buildPrompt(sections, metrics);
-      const response = await this.useTool('LLMTool', {
-        prompt,
-        config: { model: 'sonnet', maxTokens: 2048 },
-      }) as LLMResponse;
+      // Check if LLM is available
+      const hasLLM = !!(process.env.ANTHROPIC_API_KEY || process.env.LLM_API_KEY || process.env.LLM_BASE_URL);
+      let recommendations: string[] = [];
 
-      tokensUsed = response.tokensUsed;
+      if (hasLLM) {
+        // Use LLM to synthesize findings
+        const prompt = this.buildPrompt(sections, metrics);
+        const response = await this.useTool('LLMTool', {
+          prompt,
+          config: { model: 'sonnet', maxTokens: 2048 },
+        }) as LLMResponse;
 
-      // Parse LLM response into recommendations
-      const recommendations = this.parseRecommendations(response.content);
+        tokensUsed = response.tokensUsed;
+        recommendations = this.parseRecommendations(response.content);
+      } else {
+        // Static recommendations based on metrics
+        recommendations = this.generateStaticRecommendations(metrics, graphNodes, graphEdges);
+      }
 
       // Create report node
       const reportNode: GraphNode = {
@@ -225,6 +232,59 @@ Respond in JSON:
     } catch {
       return [];
     }
+  }
+
+  private generateStaticRecommendations(
+    metrics: AnalysisReport['metrics'],
+    nodes: GraphNode[],
+    edges: GraphEdge[],
+  ): string[] {
+    const recommendations: string[] = [];
+
+    // God nodes warning
+    if (metrics.godNodes > 0) {
+      const godNodeList = nodes
+        .filter(n => n.id.startsWith('godnode:'))
+        .map(n => n.label)
+        .slice(0, 3)
+        .join(', ');
+      recommendations.push(
+        `Refactor highly-coupled nodes (${godNodeList}) to reduce dependencies and improve maintainability.`,
+      );
+    }
+
+    // Cross-module coupling
+    if (metrics.crossModuleLinks > 5) {
+      recommendations.push(
+        `Review ${metrics.crossModuleLinks} cross-module connections for intentional vs accidental coupling.`,
+      );
+    }
+
+    // Import complexity
+    const importCount = metrics.edgeTypes['imports'] ?? 0;
+    if (importCount > 50) {
+      recommendations.push(
+        `High import count (${importCount}) suggests potential circular dependencies. Consider module restructuring.`,
+      );
+    }
+
+    // Class/function ratio
+    const classCount = metrics.nodeTypes['Class'] ?? 0;
+    const funcCount = metrics.nodeTypes['Function'] ?? 0;
+    if (classCount > 0 && funcCount / classCount > 20) {
+      recommendations.push(
+        `High function-to-class ratio (${funcCount}/${classCount}). Consider grouping related functions into classes.`,
+      );
+    }
+
+    // Default recommendation
+    if (recommendations.length === 0) {
+      recommendations.push(
+        'Analysis completed successfully. No significant architectural issues detected.',
+      );
+    }
+
+    return recommendations;
   }
 
   onTaskStart(_task: Task): Promise<void> { return Promise.resolve(); }

@@ -3,11 +3,18 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
+  "scripts": {
+    "start": "bun run src/index.ts serve",
+    "dev": "bun --hot run src/index.ts serve",
+    "analyze": "bun run src/index.ts analyze",
+    "mcp": "bun run src/mcp/server.ts"
+  },
   "bin": {
     "code-graph-mcp": "./src/mcp/server.ts"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "pino-pretty": "^13.0.0"
   },
   "peerDependencies": {
     "typescript": "^5"
