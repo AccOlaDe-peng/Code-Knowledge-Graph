@@ -6,6 +6,7 @@ import type { Task } from '../coordinator/types.ts';
 interface CacheManager {
   check(filePaths: string[]): { hit: string[]; miss: string[] };
   get(key: string): { result: unknown } | null;
+  set(key: string, result: unknown, type?: string): void;
 }
 
 // Task tracker interface (implemented separately)

@@ -14,6 +14,7 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/ws": "^8.18.1",
     "pino-pretty": "^13.0.0"
   },
   "peerDependencies": {
@@ -22,6 +23,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
     "@fastify/cors": "^11.2.0",
+    "@fastify/websocket": "^11.0.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "fastify": "^5.8.5",
     "graphology": "^0.26.0",

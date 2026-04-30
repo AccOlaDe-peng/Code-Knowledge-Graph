@@ -2,12 +2,15 @@
 
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import websocket from '@fastify/websocket';
 import { healthRoutes } from './routes/health.ts';
 import { analyzeRoutes } from './routes/analyze.ts';
 import { graphRoutes } from './routes/graph.ts';
 import { lineageRoutes } from './routes/lineage.ts';
 import { reposRoutes } from './routes/repos.ts';
 import { frontendRoutes } from './routes/frontend.ts';
+import { wsRoutes } from './routes/ws.ts';
+import { fsRoutes } from './routes/fs.ts';
 import { cleanup } from './sessions.ts';
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -46,6 +49,9 @@ async function createServer() {
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   });
 
+  // WebSocket
+  await app.register(websocket);
+
   // Routes
   app.register(healthRoutes);
 
@@ -53,10 +59,14 @@ async function createServer() {
   app.register(reposRoutes);
   app.register(frontendRoutes);
 
+  // WebSocket routes
+  app.register(wsRoutes);
+
   // Original API routes (with /api prefix)
   app.register(analyzeRoutes, { prefix: '/api' });
   app.register(graphRoutes, { prefix: '/api' });
   app.register(lineageRoutes, { prefix: '/api' });
+  app.register(fsRoutes, { prefix: '/api' });
 
   // Session cleanup every 30 minutes
   const cleanupInterval = setInterval(() => cleanup(), 30 * 60 * 1000);

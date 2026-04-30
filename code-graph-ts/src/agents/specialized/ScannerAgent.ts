@@ -34,6 +34,10 @@ class ScannerAgent extends BaseAgent {
       const result = await this.useTool('FileScanTool', this.context.workingDirectory) as ScanResult;
       this.scanResult = result;
 
+      // Store file paths in shared cache for downstream agents
+      const filePaths = result.files.map(f => f.absolutePath);
+      this.context.cache.set('__session_files__', filePaths, 'ast');
+
       // Check git diff for incremental detection
       let changedFiles: string[] = [];
       try {

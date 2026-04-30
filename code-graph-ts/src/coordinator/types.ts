@@ -56,6 +56,7 @@ interface AnalyzeRequest {
   enableLineage?: boolean;
   languages?: string[];
   budget?: number;
+  pipelineMode?: 'static_first' | 'ai_first';
 }
 
 // ── Analysis Conditions ─────────────────────────────────

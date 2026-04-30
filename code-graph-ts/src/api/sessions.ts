@@ -38,7 +38,16 @@ interface Session {
   options?: SessionOptions;
 }
 
+type StatusChangeEvent = {
+  taskId: string;
+  status: string;
+  data: unknown;
+};
+
+type StatusListener = (event: StatusChangeEvent) => void;
+
 const sessions = new Map<string, Session>();
+const listeners = new Map<string, Set<StatusListener>>();
 
 function createSessionId(): string {
   return `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -99,6 +108,10 @@ async function startAnalysis(sessionId: string, path: string, options?: SessionO
   if (!session) throw new Error(`Session not found: ${sessionId}`);
 
   session.status = 'running';
+  broadcast(sessionId, 'started', {
+    task_id: sessionId,
+    status: 'running',
+  });
 
   try {
     const result = await session.coordinator.analyze({
@@ -110,15 +123,30 @@ async function startAnalysis(sessionId: string, path: string, options?: SessionO
 
     if (session.cancelled) {
       session.status = 'cancelled';
+      broadcast(sessionId, 'cancelled', {
+        task_id: sessionId,
+        status: 'cancelled',
+      });
     } else {
       session.result = result;
       session.status = 'completed';
+      broadcast(sessionId, 'completed', {
+        task_id: sessionId,
+        status: 'completed',
+        node_count: result.nodes.length,
+        edge_count: result.edges.length,
+      });
     }
     session.completedAt = Date.now();
   } catch (error) {
     session.status = 'failed';
     session.error = error instanceof Error ? error.message : String(error);
     session.completedAt = Date.now();
+    broadcast(sessionId, 'failed', {
+      task_id: sessionId,
+      status: 'failed',
+      error: session.error,
+    });
   }
 }
 
@@ -155,5 +183,27 @@ function cleanup(maxAge: number = 24 * 60 * 60 * 1000): void {
   }
 }
 
-export type { Session, SessionOptions };
-export { create, startAnalysis, get, cancel, list, cleanup };
+// WebSocket subscription management
+function subscribe(taskId: string, listener: StatusListener): void {
+  if (!listeners.has(taskId)) {
+    listeners.set(taskId, new Set());
+  }
+  listeners.get(taskId)!.add(listener);
+}
+
+function unsubscribe(taskId: string, listener: StatusListener): void {
+  listeners.get(taskId)?.delete(listener);
+}
+
+function broadcast(taskId: string, status: string, data: unknown): void {
+  const event: StatusChangeEvent = { taskId, status, data };
+
+  // Notify specific task listeners
+  listeners.get(taskId)?.forEach(listener => listener(event));
+
+  // Notify global listeners
+  listeners.get('*')?.forEach(listener => listener(event));
+}
+
+export type { Session, SessionOptions, StatusChangeEvent, StatusListener };
+export { create, startAnalysis, get, cancel, list, cleanup, subscribe, unsubscribe, broadcast };

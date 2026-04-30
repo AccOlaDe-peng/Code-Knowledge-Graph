@@ -48,11 +48,31 @@ interface ScanResult {
 function createFileScanTool(): Tool {
   return createTool<string, ScanResult>('FileScanTool', async (repoPath: string) => {
     const rootPath = path.resolve(repoPath);
+
+    // Validate root path exists and is readable
+    try {
+      const rootStat = await fs.stat(rootPath);
+      if (!rootStat.isDirectory()) {
+        return { success: false, error: `Path is not a directory: ${rootPath}` };
+      }
+    } catch (err: any) {
+      const msg = err.code === 'ENOENT'
+        ? `Path not found: ${rootPath}`
+        : `Cannot access path: ${rootPath} (${err.code ?? err.message})`;
+      return { success: false, error: msg };
+    }
+
     const files: FileInfo[] = [];
     const languageCounts: Record<string, number> = {};
 
     const scanDir = async (dir: string): Promise<void> => {
-      const entries = await fs.readdir(dir, { withFileTypes: true });
+      let entries: any[];
+      try {
+        entries = await fs.readdir(dir, { withFileTypes: true });
+      } catch {
+        return; // Skip directories we can't read (permission denied, mount points, etc.)
+      }
+
       for (const entry of entries) {
         // Skip hidden and common ignore directories
         if (entry.name.startsWith('.') || ['node_modules', '__pycache__', '.git', 'venv', '.venv', 'dist', 'build'].includes(entry.name)) {
@@ -61,7 +81,11 @@ function createFileScanTool(): Tool {
 
         const fullPath = path.join(dir, entry.name);
         if (entry.isDirectory()) {
-          await scanDir(fullPath);
+          try {
+            await scanDir(fullPath);
+          } catch {
+            // Skip unreadable subdirectories
+          }
         } else if (entry.isFile()) {
           const ext = path.extname(entry.name).toLowerCase();
           const language = EXTENSION_MAP[ext] ?? 'unknown';

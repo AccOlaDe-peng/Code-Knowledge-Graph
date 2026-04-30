@@ -37,6 +37,11 @@ class SemanticAgent extends BaseAgent {
   async execute(task: Task): Promise<AgentResult> {
     await this.onTaskStart(task);
 
+    // Load file list from shared cache if not provided in constructor
+    const filesToProcess = this.filesToProcess.length > 0
+      ? this.filesToProcess
+      : (this.context.cache.get('__session_files__')?.result as string[]) ?? [];
+
     const allNodes: GraphNode[] = [];
     const allEdges: GraphEdge[] = [];
     let totalTokens = 0;
@@ -44,7 +49,7 @@ class SemanticAgent extends BaseAgent {
 
     try {
       // Split files into chunks for parallel processing
-      const chunks = this.chunkFiles(this.filesToProcess, CHUNK_SIZE);
+      const chunks = this.chunkFiles(filesToProcess, CHUNK_SIZE);
 
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i]!;

@@ -34,13 +34,18 @@ class StaticAgent extends BaseAgent {
   async execute(task: Task): Promise<AgentResult> {
     await this.onTaskStart(task);
 
+    // Load file list from shared cache if not provided in constructor
+    const filesToProcess = this.filesToProcess.length > 0
+      ? this.filesToProcess
+      : (this.context.cache.get('__session_files__')?.result as string[]) ?? [];
+
     const nodes: GraphNode[] = [];
     const edges: GraphEdge[] = [];
     let tokensUsed = 0;
     const processedFiles: string[] = [];
 
     try {
-      for (const filePath of this.filesToProcess) {
+      for (const filePath of filesToProcess) {
         // Check cache first
         const cacheKey = this.cacheManager.makeKey(filePath);
         const cached = this.cacheManager.get(cacheKey);
