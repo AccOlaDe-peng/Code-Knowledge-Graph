@@ -1,106 +1,29 @@
+# CLAUDE.md
 
-Default to using Bun instead of Node.js.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-- Use `bun <file>` instead of `node <file>` or `ts-node <file>`
-- Use `bun test` instead of `jest` or `vitest`
-- Use `bun build <file.html|file.ts|file.css>` instead of `webpack` or `esbuild`
-- Use `bun install` instead of `npm install` or `yarn install` or `pnpm install`
-- Use `bun run <script>` instead of `npm run <script>` or `yarn run <script>` or `pnpm run <script>`
-- Use `bunx <package> <command>` instead of `npx <package> <command>`
-- Bun automatically loads .env, so don't use dotenv.
+## 运行时
 
-## APIs
+- 使用 `bun <file>` 而非 `node <file>` 或 `ts-node <file>`
+- 使用 `bun test` 运行测试
+- 使用 `bun install` 安装依赖
+- Bun 自动加载 `.env`，无需 dotenv
 
-- `Bun.serve()` supports WebSockets, HTTPS, and routes. Don't use `express`.
-- `bun:sqlite` for SQLite. Don't use `better-sqlite3`.
-- `Bun.redis` for Redis. Don't use `ioredis`.
-- `Bun.sql` for Postgres. Don't use `pg` or `postgres.js`.
-- `WebSocket` is built-in. Don't use `ws`.
-- Prefer `Bun.file` over `node:fs`'s readFile/writeFile
-- Bun.$`ls` instead of execa.
+## 服务器框架
 
-## Testing
+本项目使用 **Fastify**（非 `Bun.serve()`）：
 
-Use `bun test` to run tests.
+- `src/api/server.ts` — Fastify 服务器，注册 CORS、WebSocket 插件及所有路由
+- 路由有两条注册路径：`/api/*` 前缀（新 API）和 `/` 前缀（前端兼容路由）
+- 生产环境日志写入 `logs/server.log`，开发环境使用 pino-pretty 美化输出
 
-```ts#index.test.ts
-import { test, expect } from "bun:test";
+## tsconfig 限制
 
-test("hello world", () => {
-  expect(1).toBe(1);
-});
-```
+`erasableSyntaxOnly: true`，**禁止使用 `enum`**，所有类型常量使用 `const` 对象 + `as const` 模式（见 `src/graph/schema.ts`）。
 
-## Frontend
+## 关键依赖
 
-Use HTML imports with `Bun.serve()`. Don't use `vite`. HTML imports fully support React, CSS, Tailwind.
-
-Server:
-
-```ts#index.ts
-import index from "./index.html"
-
-Bun.serve({
-  routes: {
-    "/": index,
-    "/api/users/:id": {
-      GET: (req) => {
-        return new Response(JSON.stringify({ id: req.params.id }));
-      },
-    },
-  },
-  // optional websocket support
-  websocket: {
-    open: (ws) => {
-      ws.send("Hello, world!");
-    },
-    message: (ws, message) => {
-      ws.send(message);
-    },
-    close: (ws) => {
-      // handle close
-    }
-  },
-  development: {
-    hmr: true,
-    console: true,
-  }
-})
-```
-
-HTML files can import .tsx, .jsx or .js files directly and Bun's bundler will transpile & bundle automatically. `<link>` tags can point to stylesheets and Bun's CSS bundler will bundle.
-
-```html#index.html
-<html>
-  <body>
-    <h1>Hello, world!</h1>
-    <script type="module" src="./frontend.tsx"></script>
-  </body>
-</html>
-```
-
-With the following `frontend.tsx`:
-
-```tsx#frontend.tsx
-import React from "react";
-import { createRoot } from "react-dom/client";
-
-// import .css files directly and it works
-import './index.css';
-
-const root = createRoot(document.body);
-
-export default function Frontend() {
-  return <h1>Hello, world!</h1>;
-}
-
-root.render(<Frontend />);
-```
-
-Then, run index.ts
-
-```sh
-bun --hot ./index.ts
-```
-
-For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
+- `fastify` + `@fastify/cors` + `@fastify/websocket` — HTTP + WebSocket
+- `graphology` — 内存图谱存储
+- `web-tree-sitter` — AST 解析
+- `@anthropic-ai/sdk` — LLM 调用

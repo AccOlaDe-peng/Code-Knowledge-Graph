@@ -80,20 +80,27 @@ Coordinator（指挥官）
 | ------------- | -------- | ----------------------- |
 | `health.ts`   | `/health` | 健康检查                |
 | `repos.ts`    | `/repos` | 仓库管理（兼容前端）    |
-| `analyze.ts`  | `/api/analyze` | 分析任务               |
+| `analyze.ts`  | `/api/analyze` | 分析任务（含 SSE 端点 `/api/analyze/:taskId/stream`） |
 | `graph.ts`    | `/api/graph` | 图谱数据               |
 | `lineage.ts`  | `/api/lineage` | 数据血缘               |
 | `frontend.ts` | `/analyze`, `/graph` | 前端兼容路由 |
+| `ws.ts`       | `/ws` | WebSocket 实时通知（`/ws/analyze/:taskId`, `/ws/status`） |
+| `fs.ts`       | `/api/fs` | 服务端文件系统浏览 |
+| `sse.ts`      | — | SSE 广播器（被 analyze.ts 使用） |
 
 ### 数据模型
 
 **Schema（`src/graph/schema.ts`）：**
 
 ```typescript
-GraphNode: { id, type, label, properties, confidence }
-GraphEdge: { from, to, type, properties }
-NodeType / EdgeType: const 对象（禁用 enum）
+GraphNode: { id, label, type, file, location?, confidence?, metadata }
+GraphEdge: { id, source, target, type, confidence, weight, file?, location?, metadata? }
+NodeType / EdgeType / Confidence: const 对象（禁用 enum）
 ```
+
+### 会话管理（`src/api/sessions.ts`）
+
+分析任务以 Session 为单位管理，每个 Session 创建一个 `Coordinator` 实例并注册全部 6 个 Agent。Session 状态通过 WebSocket 和 SSE 实时推送。完成后 24 小时自动清理。
 
 ### 环境变量
 
@@ -160,8 +167,8 @@ src/
 
 ### TypeScript 限制
 
-- `tsconfig.app.json` 开启 `erasableSyntaxOnly: true`，**禁止使用 `enum`**，改用 `const` 对象 + `as const`
-- `GraphNode` 类型只有 `id`, `type`, `label`, `properties`，**没有 `name` 属性**
+- `tsconfig.app.json` 和 `tsconfig.json` 均开启 `erasableSyntaxOnly: true`，**前后端均禁止使用 `enum`**，改用 `const` 对象 + `as const`
+- `GraphNode` 类型字段：`id`, `label`, `type`, `file`, `metadata`，**没有 `name` 和 `properties` 属性**
 - Ant Design `Card` 组件无 `icon` prop
 
 ---
@@ -172,8 +179,7 @@ src/
 - 使用 `bun test` 替代 `jest` 或 `vitest`
 - 使用 `bun install` 替代 `npm install`
 - Bun 自动加载 `.env`，无需 dotenv
-- 使用 `Bun.serve()` 替代 express
-- 使用 `bun:sqlite` 替代 `better-sqlite3`
+- 服务器框架使用 **Fastify**（非 `Bun.serve()`）
 
 ---
 
