@@ -244,6 +244,54 @@ class Coordinator {
   }
 
   /**
+   * Get frontend-compatible stage progress
+   */
+  getStageProgress(): { step: number; total: number; stage: string; message: string } {
+    const STAGES = [
+      { key: 'file_index', label: '文件扫描', agent: 'ScannerAgent' },
+      { key: 'deep_static_analysis', label: '静态分析', agent: 'StaticAgent' },
+      { key: 'ai_semantic_enhance', label: 'AI 语义增强', agent: 'SemanticAgent' },
+      { key: 'data_lineage', label: '数据血缘', agent: 'LineageAgent' },
+      { key: 'graph_build', label: '图谱构建', agent: 'GraphBuildAgent' },
+      { key: 'report', label: '报告生成', agent: 'ReportAgent' },
+    ];
+
+    const tasks = this.taskTracker.getAllTasks();
+    const taskStatus = new Map(tasks.map(t => [t.agentId, t.status]));
+
+    // Find current stage (first non-completed)
+    let currentIdx = 0;
+    for (let i = 0; i < STAGES.length; i++) {
+      const status = taskStatus.get(STAGES[i].agent);
+      if (!status || status === 'pending') {
+        currentIdx = i;
+        break;
+      }
+      if (status === 'running') {
+        currentIdx = i;
+        break;
+      }
+      if (status === 'failed') {
+        return { step: i + 1, total: STAGES.length, stage: STAGES[i].key, message: `阶段失败: ${STAGES[i].label}` };
+      }
+      // completed — check next
+      currentIdx = i + 1;
+    }
+
+    const activeStages = STAGES.filter(s => taskStatus.has(s.agent));
+    const total = activeStages.length > 0 ? activeStages.length : STAGES.length;
+    const stageIdx = Math.min(currentIdx, total - 1);
+    const stage = activeStages[stageIdx] ?? STAGES[stageIdx];
+
+    return {
+      step: currentIdx + 1,
+      total,
+      stage: stage.key,
+      message: `正在执行: ${stage.label}...`,
+    };
+  }
+
+  /**
    * Get collected results
    */
   getResults(): Map<string, AgentResult> {

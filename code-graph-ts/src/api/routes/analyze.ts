@@ -44,6 +44,7 @@ export async function analyzeRoutes(app: FastifyInstance): Promise<void> {
       budget: DEFAULT_BUDGET,
       repoName: repo_name,
       repoId: repo_id,
+      repoPath,
       branch,
       languages,
     });
@@ -62,6 +63,26 @@ export async function analyzeRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  // Build frontend-compatible progress event payload
+  function buildProgressEvent(session: ReturnType<typeof get>): Record<string, unknown> {
+    if (!session) return { status: 'unknown' };
+    const stageProgress = session.coordinator.getStageProgress();
+    const nodeCount = session.result?.nodes.length ?? 0;
+    const edgeCount = session.result?.edges.length ?? 0;
+    const elapsed = session.startedAt ? Math.round((Date.now() - session.startedAt) / 1000) : 0;
+    return {
+      status: session.status,
+      step: stageProgress.step,
+      total: stageProgress.total,
+      stage: stageProgress.stage,
+      message: stageProgress.message,
+      elapsed_seconds: elapsed,
+      node_count: nodeCount,
+      edge_count: edgeCount,
+      error: session.error,
+    };
+  }
+
   // Poll status
   app.get<{ Params: { sessionId: string } }>('/analyze/status/:sessionId', async (request, reply) => {
     const session = get(request.params.sessionId);
@@ -70,17 +91,13 @@ export async function analyzeRoutes(app: FastifyInstance): Promise<void> {
       return { error: `Session not found: ${request.params.sessionId}` };
     }
 
-    const progress = session.coordinator.getProgress();
+    const progress = buildProgressEvent(session);
 
     return {
       sessionId: session.id,
-      status: session.status,
-      progress,
+      ...progress,
       startedAt: session.startedAt,
       completedAt: session.completedAt,
-      error: session.error,
-      nodeCount: session.result?.nodes.length,
-      edgeCount: session.result?.edges.length,
     };
   });
 
@@ -110,14 +127,7 @@ export async function analyzeRoutes(app: FastifyInstance): Promise<void> {
         return;
       }
 
-      const statusStr = JSON.stringify({
-        sessionId: current.id,
-        status: current.status,
-        progress: current.coordinator.getProgress(),
-        nodeCount: current.result?.nodes.length,
-        edgeCount: current.result?.edges.length,
-        error: current.error,
-      });
+      const statusStr = JSON.stringify(buildProgressEvent(current));
 
       // Only send if status changed, or heartbeat every 15s
       if (statusStr !== lastStatus) {

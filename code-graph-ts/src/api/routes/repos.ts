@@ -67,16 +67,31 @@ export const reposRoutes: FastifyPluginAsync = async (app) => {
 
     // Add in-memory sessions (override status for active analyses)
     for (const session of sessions) {
-      const existing = allRepos.get(session.id);
+      // Match by session id, or by options.repoId (session belongs to registered repo)
+      const repoId = session.options?.repoId ?? session.id;
+      let existing = allRepos.get(session.id) ?? allRepos.get(repoId);
+
+      // Also check all registered ids (repoId-based lookup for session-repo matching)
+      if (!existing && session.options?.repoId) {
+        for (const repo of registeredRepos) {
+          if (repo.repoId === session.options.repoId) {
+            existing = allRepos.get(repo.repoId);
+            break;
+          }
+        }
+      }
+
       if (existing) {
         existing.status = session.status;
+        existing.taskId = session.id;
         existing.updatedAt = session.completedAt
           ? new Date(session.completedAt).toISOString()
           : existing.updatedAt;
       } else {
         allRepos.set(session.id, {
           id: session.id,
-          name: session.id,
+          name: session.options?.repoName ?? session.id,
+          path: session.options?.repoPath as string | undefined,
           status: session.status,
           createdAt: new Date(session.startedAt).toISOString(),
           updatedAt: session.completedAt

@@ -3,6 +3,7 @@
 
 import type { FastifyPluginAsync } from 'fastify';
 import { get } from '../sessions.ts';
+import { logger } from '../logger.ts';
 import { LocalFileStore } from '../../graph/store/LocalFileStore.ts';
 import {
   ARCHITECTURE_NODE_TYPES,
@@ -386,12 +387,17 @@ export const frontendRoutes: FastifyPluginAsync = async (app) => {
       const session = create(repoPath, {
         repoName,
         repoId,
+        repoPath,
         branch: request.body.branch,
         languages: request.body.languages,
         budget: 100000,
       });
 
-      startAnalysis(session.id, repoPath, { budget: 100000 }).catch(() => {});
+      startAnalysis(session.id, repoPath, { budget: 100000 }).catch(
+        (err: unknown) => {
+          logger.error(`Frontend analysis failed: ${err instanceof Error ? err.message : String(err)}`);
+        },
+      );
 
       reply.code(202);
       return {
@@ -425,18 +431,94 @@ export const frontendRoutes: FastifyPluginAsync = async (app) => {
         return { detail: `Task not found: ${taskId}` };
       }
 
-      const progress = session.coordinator.getProgress();
+      const stageProgress = session.coordinator.getStageProgress();
+      const elapsed = session.startedAt ? Math.round((Date.now() - session.startedAt) / 1000) : 0;
 
       return {
         task_id: taskId,
         status: session.status,
         graph_id: session.id,
+        step: stageProgress.step,
+        total: stageProgress.total,
+        stage: stageProgress.stage,
+        message: stageProgress.message,
+        elapsed_seconds: elapsed,
         node_count: session.result?.nodes.length ?? 0,
         edge_count: session.result?.edges.length ?? 0,
-        message: progress.currentTask,
         error: session.error,
       };
     }
+  );
+
+  // GET /analyze/stream/:taskId — SSE progress stream (frontend compatible)
+  app.get<{ Params: { taskId: string } }>(
+    '/analyze/stream/:taskId',
+    async (request, reply) => {
+      const { taskId } = request.params;
+      const session = get(taskId);
+
+      reply.raw.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      });
+
+      if (!session) {
+        reply.raw.write(`event: error\ndata: {"error":"session not found"}\n\n`);
+        reply.raw.end();
+        return;
+      }
+
+      let lastStatus = '';
+
+      const interval = setInterval(() => {
+        const current = get(taskId);
+        if (!current) {
+          reply.raw.write(`event: error\ndata: {"error":"session lost"}\n\n`);
+          clearInterval(interval);
+          reply.raw.end();
+          return;
+        }
+
+        const stageProgress = current.coordinator.getStageProgress();
+        const elapsed = current.startedAt ? Math.round((Date.now() - current.startedAt) / 1000) : 0;
+        const statusStr = JSON.stringify({
+          status: current.status,
+          step: stageProgress.step,
+          total: stageProgress.total,
+          stage: stageProgress.stage,
+          message: stageProgress.message,
+          elapsed_seconds: elapsed,
+          node_count: current.result?.nodes.length ?? 0,
+          edge_count: current.result?.edges.length ?? 0,
+          error: current.error,
+        });
+
+        if (statusStr !== lastStatus) {
+          lastStatus = statusStr;
+          reply.raw.write(`event: progress\ndata: ${statusStr}\n\n`);
+        }
+
+        if (current.status === 'completed' || current.status === 'failed' || current.status === 'cancelled') {
+          clearInterval(interval);
+          reply.raw.write(`event: done\ndata: ${statusStr}\n\n`);
+          reply.raw.end();
+        }
+      }, 1000);
+
+      const heartbeat = setInterval(() => {
+        try { reply.raw.write(': heartbeat\n\n'); } catch {
+          clearInterval(heartbeat);
+          clearInterval(interval);
+        }
+      }, 15000);
+
+      request.raw.on('close', () => {
+        clearInterval(interval);
+        clearInterval(heartbeat);
+      });
+    },
   );
 
   // GET /events — event flow graph (frontend compatible)

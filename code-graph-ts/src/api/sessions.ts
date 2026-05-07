@@ -21,6 +21,7 @@ interface SessionOptions {
   budget?: number;
   repoName?: string;
   repoId?: string;
+  repoPath?: string;
   branch?: string;
   languages?: string[];
   depth?: AnalysisDepth;
@@ -183,12 +184,13 @@ function cancel(sessionId: string): boolean {
   return true;
 }
 
-function list(): Pick<Session, 'id' | 'status' | 'startedAt' | 'completedAt'>[] {
-  return [...sessions.values()].map(({ id, status, startedAt, completedAt }) => ({
+function list(): Pick<Session, 'id' | 'status' | 'startedAt' | 'completedAt' | 'options'>[] {
+  return [...sessions.values()].map(({ id, status, startedAt, completedAt, options }) => ({
     id,
     status,
     startedAt,
     completedAt,
+    options,
   }));
 }
 
