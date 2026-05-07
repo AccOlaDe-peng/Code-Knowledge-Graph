@@ -11,6 +11,7 @@ import { GraphBuildAgent, GRAPH_BUILD_CONFIG } from '../agents/specialized/Graph
 import { ReportAgent, REPORT_CONFIG } from '../agents/specialized/ReportAgent.ts';
 import { createAgentContext } from '../agents/AgentContext.ts';
 import type { GraphData } from '../graph/schema.ts';
+import { logger } from './logger.ts';
 
 type AnalysisDepth = 'quick' | 'standard' | 'deep';
 type PipelineMode = 'static_first' | 'ai_first';
@@ -54,7 +55,17 @@ function createSessionId(): string {
 }
 
 function create(path: string, options?: SessionOptions): Session {
-  const id = options?.repoId ?? createSessionId();
+  const id = createSessionId();
+
+  // If there's already a running session for this repo, return it
+  for (const [existingId, existing] of sessions) {
+    if (existing.status === 'running' || existing.status === 'pending') {
+      // Check if same repo (by repoId or by coordinator context)
+      if (existing.options?.repoId === options?.repoId && existing.options?.repoId) {
+        return existing;
+      }
+    }
+  }
   const costTracker = new CostTracker(id, options?.budget ?? 100000);
   const coordinator = new Coordinator(id, costTracker);
   const cache = new CacheManager();
@@ -108,6 +119,7 @@ async function startAnalysis(sessionId: string, path: string, options?: SessionO
   if (!session) throw new Error(`Session not found: ${sessionId}`);
 
   session.status = 'running';
+  logger.info(`Analysis started: sessionId=${sessionId}, path=${path}`);
   broadcast(sessionId, 'started', {
     task_id: sessionId,
     status: 'running',
@@ -123,6 +135,7 @@ async function startAnalysis(sessionId: string, path: string, options?: SessionO
 
     if (session.cancelled) {
       session.status = 'cancelled';
+      logger.info(`Analysis cancelled: sessionId=${sessionId}`);
       broadcast(sessionId, 'cancelled', {
         task_id: sessionId,
         status: 'cancelled',
@@ -130,6 +143,7 @@ async function startAnalysis(sessionId: string, path: string, options?: SessionO
     } else {
       session.result = result;
       session.status = 'completed';
+      logger.info(`Analysis completed: sessionId=${sessionId}, nodes=${result.nodes.length}, edges=${result.edges.length}`);
       broadcast(sessionId, 'completed', {
         task_id: sessionId,
         status: 'completed',
@@ -142,6 +156,10 @@ async function startAnalysis(sessionId: string, path: string, options?: SessionO
     session.status = 'failed';
     session.error = error instanceof Error ? error.message : String(error);
     session.completedAt = Date.now();
+    logger.error(`Analysis failed: sessionId=${sessionId}, path=${path}, error=${session.error}`);
+    if (error instanceof Error && error.stack) {
+      logger.error(`Stack trace: ${error.stack}`);
+    }
     broadcast(sessionId, 'failed', {
       task_id: sessionId,
       status: 'failed',

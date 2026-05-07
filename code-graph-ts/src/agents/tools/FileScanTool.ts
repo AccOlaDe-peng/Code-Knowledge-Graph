@@ -45,8 +45,19 @@ interface ScanResult {
   isPureCodeRepo: boolean;
 }
 
+// Detect Windows absolute path (e.g. C:\foo, D:/bar) on non-Windows systems
+const WIN_PATH_RE = /^[A-Za-z]:[/\\]/;
+
 function createFileScanTool(): Tool {
   return createTool<string, ScanResult>('FileScanTool', async (repoPath: string) => {
+    // Reject Windows absolute paths on non-Windows platforms
+    if (WIN_PATH_RE.test(repoPath) && process.platform !== 'win32') {
+      return {
+        success: false,
+        error: `Windows paths (e.g. "C:\\...") are not supported when the server runs on ${process.platform}. Use a Unix path: ${repoPath}`,
+      };
+    }
+
     const rootPath = path.resolve(repoPath);
 
     // Validate root path exists and is readable

@@ -2,6 +2,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { create, startAnalysis, get, cancel } from '../sessions.ts';
+import { logger } from '../logger.ts';
 
 interface AnalyzeBody {
   path?: string;
@@ -50,8 +51,8 @@ export async function analyzeRoutes(app: FastifyInstance): Promise<void> {
     // Start analysis in background (non-blocking)
     startAnalysis(session.id, repoPath, {
       budget: DEFAULT_BUDGET,
-    }).catch(() => {
-      // Error handled inside startAnalysis
+    }).catch((err) => {
+      logger.error(`Unhandled error in background analysis for session ${session.id}: ${err instanceof Error ? err.message : String(err)}`);
     });
 
     reply.code(202);
