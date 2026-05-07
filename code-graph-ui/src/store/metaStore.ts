@@ -28,7 +28,7 @@ export const useMetaStore = create<MetaState>((set, get) => ({
   fetchNodeTypes: async () => {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const baseUrl = (import.meta as any).env?.VITE_API_BASE_URL ?? 'http://localhost:8000'
+      const baseUrl = (import.meta as any).env?.VITE_API_BASE_URL ?? ''
       const res = await fetch(`${baseUrl}/meta/node-types`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()

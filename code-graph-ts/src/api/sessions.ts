@@ -183,6 +183,14 @@ function cleanup(maxAge: number = 24 * 60 * 60 * 1000): void {
   }
 }
 
+function remove(sessionId: string): boolean {
+  const session = sessions.get(sessionId);
+  if (!session) return false;
+  session.cancelled = true;
+  sessions.delete(sessionId);
+  return true;
+}
+
 // WebSocket subscription management
 function subscribe(taskId: string, listener: StatusListener): void {
   if (!listeners.has(taskId)) {
@@ -206,4 +214,4 @@ function broadcast(taskId: string, status: string, data: unknown): void {
 }
 
 export type { Session, SessionOptions, StatusChangeEvent, StatusListener };
-export { create, startAnalysis, get, cancel, list, cleanup, subscribe, unsubscribe, broadcast };
+export { create, startAnalysis, get, cancel, list, cleanup, remove, subscribe, unsubscribe, broadcast };

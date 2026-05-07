@@ -2,6 +2,7 @@
 
 import { createTool, type ToolResult } from './common.ts';
 import type { Tool } from '../BaseAgent.ts';
+import { AgentError, ErrorCode } from '../../errors/index.ts';
 
 type Provider = 'anthropic' | 'deepseek' | 'openai-compatible';
 
@@ -147,8 +148,17 @@ function createLLMTool(): Tool {
         });
 
         if (!response.ok) {
-          const error = await response.text();
-          return { success: false, error: `LLM API error (${provider}): ${response.status} ${error}` };
+          const errorText = await response.text();
+          const errorMsg = `LLM API error (${provider}): ${response.status} ${errorText}`;
+          // Auth errors are recoverable — pipeline can fall back to static-only
+          if (response.status === 401 || response.status === 403) {
+            throw new AgentError(ErrorCode.LLM_API_ERROR, 'LLMTool', true, { status: response.status, provider });
+          }
+          // Rate limit is recoverable
+          if (response.status === 429) {
+            throw new AgentError(ErrorCode.LLM_RATE_LIMIT, 'LLMTool', true);
+          }
+          return { success: false, error: errorMsg };
         }
 
         const data = await response.json();
@@ -161,6 +171,8 @@ function createLLMTool(): Tool {
           data: { content, tokensUsed, model: modelId },
         };
       } catch (error) {
+        // Re-throw recoverable errors so they propagate to the pipeline
+        if (error instanceof AgentError) throw error;
         return { success: false, error: `LLM request failed: ${error}` };
       }
     },

@@ -1,7 +1,7 @@
 // Repos API routes — Repository management with persistence
 
 import type { FastifyPluginAsync } from 'fastify';
-import { list, get } from '../sessions.ts';
+import { list, get, remove } from '../sessions.ts';
 import { LocalFileStore } from '../../graph/store/LocalFileStore.ts';
 import { RepoRegistry, type RepoRecord } from '../../graph/store/RepoRegistry.ts';
 import { existsSync } from 'node:fs';
@@ -370,13 +370,16 @@ export const reposRoutes: FastifyPluginAsync = async (app) => {
   app.delete<{ Params: { repoId: string } }>('/repos/:repoId', async (request, reply) => {
     const { repoId } = request.params;
 
-    // 从 RepoRegistry 删除
+    // 取消并清理内存中的分析 session
+    remove(repoId);
+
+    // 从 RepoRegistry 删除元数据
     registry.delete(repoId);
 
-    // 从持久化存储删除
+    // 从持久化存储删除图谱数据
     await store.delete(repoId);
 
-    // 返回成功（幂等操作，无论如何都返回成功）
+    // 返回成功（幂等操作）
     return { message: `Repo ${repoId} deleted` };
   });
 };

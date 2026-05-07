@@ -2,7 +2,7 @@ import axios, { type AxiosInstance, type AxiosRequestConfig } from 'axios'
 
 // ─── Configuration ────────────────────────────────────────────────────────────
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 const TIMEOUT = 30_000
 
 // ─── HTTP Client ──────────────────────────────────────────────────────────────

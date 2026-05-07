@@ -73,17 +73,19 @@ class ReportAgent extends BaseAgent {
       let recommendations: string[] = [];
 
       if (hasLLM) {
-        // Use LLM to synthesize findings
-        const prompt = this.buildPrompt(sections, metrics);
-        const response = await this.useTool('LLMTool', {
-          prompt,
-          config: { model: 'sonnet', maxTokens: 2048 },
-        }) as LLMResponse;
-
-        tokensUsed = response.tokensUsed;
-        recommendations = this.parseRecommendations(response.content);
+        try {
+          const prompt = this.buildPrompt(sections, metrics);
+          const response = await this.useTool('LLMTool', {
+            prompt,
+            config: { model: 'sonnet', maxTokens: 2048 },
+          }) as LLMResponse;
+          tokensUsed = response.tokensUsed;
+          recommendations = this.parseRecommendations(response.content);
+        } catch {
+          // LLM unavailable — fall back to static recommendations
+          recommendations = this.generateStaticRecommendations(metrics, graphNodes, graphEdges);
+        }
       } else {
-        // Static recommendations based on metrics
         recommendations = this.generateStaticRecommendations(metrics, graphNodes, graphEdges);
       }
 

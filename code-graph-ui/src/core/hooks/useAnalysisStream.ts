@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import type { AnalysisProgressEvent } from '../../types/api'
 import { graphEndpoints } from '../api/endpoints/graph'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
 
 export interface AnalysisStreamResult {
   /** 当前正在执行或最近完成的步骤事件 */

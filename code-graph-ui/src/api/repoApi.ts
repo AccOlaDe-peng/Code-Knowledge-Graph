@@ -58,6 +58,6 @@ export const repoApi = {
    * 删除仓库（通过 repo_id，后端统一处理 graph 数据和状态记录）。
    */
   async deleteRepository(repoId: string): Promise<void> {
-    await httpClient.delete(`/repo/${repoId}`)
+    await httpClient.delete(`/repos/${repoId}`)
   },
 }

@@ -58,7 +58,44 @@ Usage:
     console.log(`Analyzing: ${repoPath}`);
 
     const { Coordinator } = await import('./coordinator/Coordinator.ts');
-    const coordinator = new Coordinator('cli-session');
+    const { CacheManager } = await import('./cache/CacheManager.ts');
+    const { createAgentContext } = await import('./agents/AgentContext.ts');
+    const { ScannerAgent } = await import('./agents/specialized/ScannerAgent.ts');
+    const { StaticAgent } = await import('./agents/specialized/StaticAgent.ts');
+    const { SemanticAgent } = await import('./agents/specialized/SemanticAgent.ts');
+    const { LineageAgent } = await import('./agents/specialized/LineageAgent.ts');
+    const { GraphBuildAgent } = await import('./agents/specialized/GraphBuildAgent.ts');
+    const { ReportAgent } = await import('./agents/specialized/ReportAgent.ts');
+
+    const sessionId = `cli-${Date.now()}`;
+    const coordinator = new Coordinator(sessionId);
+    const cache = new CacheManager();
+
+    // Register all agents (same as sessions.ts)
+    coordinator.registerAgent('ScannerAgent', (name) => {
+      const context = createAgentContext(sessionId, repoPath, cache, { getPendingTasks: async () => [], getBlockedTasks: async () => [] });
+      return new ScannerAgent(name, context, cache);
+    });
+    coordinator.registerAgent('StaticAgent', (name) => {
+      const context = createAgentContext(sessionId, repoPath, cache, { getPendingTasks: async () => [], getBlockedTasks: async () => [] });
+      return new StaticAgent(name, context, [], cache);
+    });
+    coordinator.registerAgent('SemanticAgent', (name) => {
+      const context = createAgentContext(sessionId, repoPath, cache, { getPendingTasks: async () => [], getBlockedTasks: async () => [] });
+      return new SemanticAgent(name, context, [], cache);
+    });
+    coordinator.registerAgent('LineageAgent', (name) => {
+      const context = createAgentContext(sessionId, repoPath, cache, { getPendingTasks: async () => [], getBlockedTasks: async () => [] });
+      return new LineageAgent(name, context, []);
+    });
+    coordinator.registerAgent('GraphBuildAgent', (name) => {
+      const context = createAgentContext(sessionId, repoPath, cache, { getPendingTasks: async () => [], getBlockedTasks: async () => [] });
+      return new GraphBuildAgent(name, context, [], []);
+    });
+    coordinator.registerAgent('ReportAgent', (name) => {
+      const context = createAgentContext(sessionId, repoPath, cache, { getPendingTasks: async () => [], getBlockedTasks: async () => [] });
+      return new ReportAgent(name, context, [], []);
+    });
 
     try {
       const result = await coordinator.analyze({

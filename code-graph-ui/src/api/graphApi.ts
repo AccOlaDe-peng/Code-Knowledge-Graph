@@ -9,7 +9,7 @@ import type {
 // ─── HTTP Client ──────────────────────────────────────────────────────────────
 
 const httpClient: AxiosInstance = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || "http://localhost:8000",
+  baseURL: import.meta.env.VITE_API_BASE_URL || "",
   timeout: 30_000,
   headers: { "Content-Type": "application/json" },
 });

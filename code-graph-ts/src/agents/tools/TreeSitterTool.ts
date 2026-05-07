@@ -289,6 +289,16 @@ function createTreeSitterTool(): Tool {
               target: importMatch[1]!,
               location: { file: filePath, startLine: i + 1 },
             });
+          } else {
+            // Java-style import: import java.util.List;
+            const javaImportMatch = line.match(/^\s*import\s+(static\s+)?([\w.]+(?:\.\*)?)\s*;/);
+            if (javaImportMatch) {
+              importsList.push({
+                source: filePath,
+                target: javaImportMatch[2]!,
+                location: { file: filePath, startLine: i + 1 },
+              });
+            }
           }
         }
       } catch (error) {
@@ -374,6 +384,23 @@ function extractImportsFromAST(root: any, filePath: string, imports: ParseResult
           target: sourceNode.text.replace(/['"]/g, ''),
           location: { file: filePath, startLine: node.startPosition.row + 1 },
         });
+      } else {
+        // Java import_declaration: children are unnamed, find scoped_identifier or identifier
+        let importPath = '';
+        for (let i = 0; i < node.namedChildCount; i++) {
+          const child = node.namedChild(i);
+          if (child.type === 'scoped_identifier' || child.type === 'identifier') {
+            importPath = child.text;
+            break;
+          }
+        }
+        if (importPath) {
+          imports.push({
+            source: filePath,
+            target: importPath,
+            location: { file: filePath, startLine: node.startPosition.row + 1 },
+          });
+        }
       }
     }
 

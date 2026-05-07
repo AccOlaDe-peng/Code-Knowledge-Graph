@@ -36,7 +36,7 @@ export async function analyzeRoutes(app: FastifyInstance): Promise<void> {
 
     if (!repoPath) {
       reply.code(400);
-      return { detail: 'repo_path is required' };
+      return { error: 'repo_path is required' };
     }
 
     const session = create(repoPath, {
@@ -56,7 +56,7 @@ export async function analyzeRoutes(app: FastifyInstance): Promise<void> {
 
     reply.code(202);
     return {
-      task_id: session.id,
+      sessionId: session.id,
       status: 'pending',
     };
   });

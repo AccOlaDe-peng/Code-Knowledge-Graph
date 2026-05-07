@@ -18,6 +18,7 @@ const RECOVERABLE_CODES: ReadonlySet<ErrorCode> = new Set([
   ErrorCode.FILE_TOO_LARGE,
   ErrorCode.PARSE_FAILED,
   ErrorCode.LLM_RATE_LIMIT,
+  ErrorCode.LLM_API_ERROR,
   ErrorCode.TIMEOUT,
 ] as const);
 

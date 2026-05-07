@@ -59,7 +59,7 @@ const STATE_LABELS: Record<string, string> = {
 
 const AgentPanel: React.FC<AgentPanelProps> = ({
   graphId,
-  apiBase = 'http://localhost:8000',
+  apiBase = '',
   onFocusNode,
 }) => {
   const [status, setStatus] = useState<AgentStatus | null>(null)
