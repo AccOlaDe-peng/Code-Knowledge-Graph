@@ -571,17 +571,48 @@ export const frontendRoutes: FastifyPluginAsync = async (app) => {
     async (request, reply) => {
       const { repoId } = request.params;
 
-      const graph = await store.load(repoId);
+      // Try direct load first (sessionId as graphId)
+      let graph = await store.load(repoId);
+
+      // If not found, search through all persisted graphs
       if (!graph) {
-        const session = get(repoId);
-        if (!session?.result) {
-          reply.code(404);
-          return { detail: `Graph not found: ${repoId}` };
+        const sessions = await store.listSessions();
+        for (const sessionId of sessions) {
+          const g = await store.load(sessionId);
+          if (g && g.nodes.length > 0) {
+            // Check if this graph belongs to the repo
+            const session = get(sessionId);
+            if (session?.options?.repoId === repoId) {
+              graph = g;
+              break;
+            }
+          }
         }
       }
 
-      const nodes = graph?.nodes ?? get(repoId)?.result?.nodes ?? [];
-      const edges = graph?.edges ?? get(repoId)?.result?.edges ?? [];
+      // Also check in-memory session
+      const session = get(repoId);
+      if (!graph && session?.result) {
+        graph = session.result;
+      }
+
+      // Search by repoId in session options
+      if (!graph) {
+        for (const s of list()) {
+          if (s.options?.repoId === repoId && s.result) {
+            graph = s.result;
+            break;
+          }
+        }
+      }
+
+      if (!graph) {
+        reply.code(404);
+        return { detail: `Graph not found: ${repoId}` };
+      }
+
+      const nodes = graph.nodes;
+      const edges = graph.edges;
 
       // Group nodes by layer
       const layers: Record<string, { id: string; name: string; nodes: Record<string, unknown>[] }> = {};
