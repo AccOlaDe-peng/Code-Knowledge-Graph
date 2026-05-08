@@ -18,6 +18,7 @@ import { usePipelineStore } from "../../store/pipelineStore";
 import type { RepoInfo } from "../../types/api";
 import { useRepoList } from "./hooks/useRepoList";
 import { useAnalysisProgress } from "./hooks/useAnalysisProgress";
+import { useMultiAnalysisStream } from "../../core/hooks/useMultiAnalysisStream";
 import {
   AddRepoModal,
   AnalysisConfirmDialog,
@@ -53,6 +54,7 @@ const Repository: React.FC = () => {
   const stages = usePipelineStore((s) => s.stages);
 
   const { syncRepos, fetchRepos } = useRepoList();
+  const { subscribe } = useMultiAnalysisStream();
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editRepo, setEditRepo] = useState<RepoInfo | null>(null);
@@ -73,10 +75,18 @@ const Repository: React.FC = () => {
   // 使用 hook 监听分析进度
   useAnalysisProgress(detailRepo);
 
-  // 页面加载时同步后端状态
+  // 页面加载时同步后端状态并恢复分析进度
   useEffect(() => {
-    void syncRepos({ force: true });
-  }, [syncRepos]);
+    void syncRepos({ force: true }).then(() => {
+      // 自动订阅所有正在分析的任务
+      const analyzingRepos = useRepoStore.getState().repos.filter(
+        (r) => r.status === "analyzing" && r.taskId
+      );
+      for (const repo of analyzingRepos) {
+        subscribe(repo.taskId!, repo.repoId);
+      }
+    });
+  }, [syncRepos, subscribe]);
 
   const refreshLocalRepos = useCallback(() => {
     void syncRepos({ force: true, onSuccess: (count) => {
