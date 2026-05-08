@@ -110,14 +110,40 @@ export function useAnalysisStream(taskId: string | null): AnalysisStreamResult {
 
     es.onopen = () => setIsConnected(true)
 
-    es.onmessage = (e) => {
+    // 监听 progress 事件（后端发送 event: progress）
+    es.addEventListener('progress', (e: MessageEvent) => {
       try {
         const event: AnalysisProgressEvent = JSON.parse(e.data)
         handleEvent(event)
       } catch {
-        // 忽略非 JSON 消息（如 heartbeat 注释行不会触发 onmessage）
+        // 忽略解析错误
       }
-    }
+    })
+
+    // 监听 done 事件（终端状态）
+    es.addEventListener('done', (e: MessageEvent) => {
+      try {
+        const event: AnalysisProgressEvent = JSON.parse(e.data)
+        setFinalResult(event)
+        es.close()
+        esRef.current = null
+        setIsConnected(false)
+      } catch {
+        // 忽略解析错误
+      }
+    })
+
+    // 监听 error 事件
+    es.addEventListener('error', (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data)
+        if (data.error) {
+          setFinalResult({ status: 'failed', message: data.error } as AnalysisProgressEvent)
+        }
+      } catch {
+        // 忽略解析错误
+      }
+    })
 
     es.onerror = () => {
       setIsConnected(false)

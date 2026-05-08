@@ -55,7 +55,8 @@ export function useMultiAnalysisStream() {
       const es = new EventSource(url)
       managerRef.current.set(taskId, { es, repoId })
 
-      es.onmessage = (e) => {
+      // 监听 progress 事件
+      es.addEventListener('progress', (e: MessageEvent) => {
         try {
           const event = JSON.parse(e.data) as AnalysisProgressEvent
           updateRepo(repoId, {
@@ -75,9 +76,28 @@ export function useMultiAnalysisStream() {
             managerRef.current?.delete(taskId)
           }
         } catch {
-          // 忽略非 JSON 消息
+          // 忽略解析错误
         }
-      }
+      })
+
+      // 监听 done 事件
+      es.addEventListener('done', (e: MessageEvent) => {
+        try {
+          const event = JSON.parse(e.data) as AnalysisProgressEvent
+          // 只有 terminal states 才更新 repo status
+          if (event.status === 'completed' || event.status === 'failed' || event.status === 'canceled') {
+            updateRepo(repoId, {
+              status: event.status,
+              taskId: undefined,
+              graphId: event.graph_id ?? undefined,
+            })
+          }
+          es.close()
+          managerRef.current?.delete(taskId)
+        } catch {
+          // 忽略解析错误
+        }
+      })
 
       es.onerror = () => {
         if (managerRef.current?.has(taskId)) {
