@@ -8,7 +8,8 @@ interface StatusBadgeProps {
 const getStatusConfig = (status?: RepoInfo["status"]) => {
   const value = status ?? "saved";
   switch (value) {
-    case "analyzing":
+    case "running":
+	    case "analyzing":
       return {
         label: "分析中",
         color: "#00d4ff",

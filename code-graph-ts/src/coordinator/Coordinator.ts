@@ -29,6 +29,7 @@ class Coordinator {
   private costTracker: CostTracker | null;
   private agentFactories: Map<string, AgentFactory> = new Map();
   private results: Map<string, AgentResult> = new Map();
+  private pipelineAgents: string[] = [];
 
   constructor(
     sessionId: string,
@@ -60,6 +61,7 @@ class Coordinator {
     try {
       // Decide which agents to run
       const decision = this.decideMode(request);
+      this.pipelineAgents = decision.agents;
 
       // Phase 1: Scanner
       const scanResult = await this.runAgent('ScannerAgent', {
@@ -247,7 +249,7 @@ class Coordinator {
    * Get frontend-compatible stage progress
    */
   getStageProgress(): { step: number; total: number; stage: string; message: string } {
-    const STAGES = [
+    const ALL_STAGES = [
       { key: 'file_index', label: '文件扫描', agent: 'ScannerAgent' },
       { key: 'deep_static_analysis', label: '静态分析', agent: 'StaticAgent' },
       { key: 'ai_semantic_enhance', label: 'AI 语义增强', agent: 'SemanticAgent' },
@@ -256,13 +258,18 @@ class Coordinator {
       { key: 'report', label: '报告生成', agent: 'ReportAgent' },
     ];
 
+    // Filter to only include stages that are part of this pipeline
+    const stages = this.pipelineAgents.length > 0
+      ? ALL_STAGES.filter(s => this.pipelineAgents.includes(s.agent))
+      : ALL_STAGES;
+
     const tasks = this.taskTracker.getAllTasks();
     const taskStatus = new Map(tasks.map(t => [t.agentId, t.status]));
 
     // Find current stage (first non-completed)
     let currentIdx = 0;
-    for (let i = 0; i < STAGES.length; i++) {
-      const status = taskStatus.get(STAGES[i].agent);
+    for (let i = 0; i < stages.length; i++) {
+      const status = taskStatus.get(stages[i].agent);
       if (!status || status === 'pending') {
         currentIdx = i;
         break;
@@ -272,20 +279,18 @@ class Coordinator {
         break;
       }
       if (status === 'failed') {
-        return { step: i + 1, total: STAGES.length, stage: STAGES[i].key, message: `阶段失败: ${STAGES[i].label}` };
+        return { step: i + 1, total: stages.length, stage: stages[i].key, message: `阶段失败: ${stages[i].label}` };
       }
       // completed — check next
       currentIdx = i + 1;
     }
 
-    const activeStages = STAGES.filter(s => taskStatus.has(s.agent));
-    const total = activeStages.length > 0 ? activeStages.length : STAGES.length;
-    const stageIdx = Math.min(currentIdx, total - 1);
-    const stage = activeStages[stageIdx] ?? STAGES[stageIdx];
+    const idx = Math.min(currentIdx, stages.length - 1);
+    const stage = stages[idx];
 
     return {
       step: currentIdx + 1,
-      total,
+      total: stages.length,
       stage: stage.key,
       message: `正在执行: ${stage.label}...`,
     };

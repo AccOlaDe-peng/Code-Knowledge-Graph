@@ -43,9 +43,10 @@ function detectProvider(): Provider {
   }
   const baseUrl = process.env.LLM_BASE_URL ?? '';
   if (baseUrl.includes('deepseek')) return 'deepseek';
+  if (baseUrl.includes('anthropic')) return 'anthropic';
   if (baseUrl.includes('openai')) return 'openai-compatible';
-  // If LLM_BASE_URL is set but unrecognized, treat as OpenAI-compatible
-  if (baseUrl) return 'openai-compatible';
+  // If LLM_BASE_URL is set but unrecognized, default to anthropic (most custom endpoints use Anthropic format)
+  if (baseUrl) return 'anthropic';
   return 'anthropic';
 }
 
@@ -59,8 +60,16 @@ function getApiKey(provider: Provider): string | undefined {
 function getEndpoint(provider: Provider): string {
   const baseUrl = process.env.LLM_BASE_URL?.replace(/\/+$/, '');
   if (baseUrl) {
-    // If base URL already includes /v1, don't add it again; otherwise add /v1/chat/completions
-    if (baseUrl.endsWith('/v1')) return `${baseUrl}/chat/completions`;
+    // If it already looks like a complete endpoint path, use as-is
+    if (baseUrl.endsWith('/v1/messages') || baseUrl.endsWith('/v1/chat/completions')) {
+      return baseUrl;
+    }
+    if (baseUrl.endsWith('/v1')) {
+      if (provider === 'anthropic') return `${baseUrl}/messages`;
+      return `${baseUrl}/chat/completions`;
+    }
+    // Bare base URL — append provider-specific path
+    if (provider === 'anthropic') return `${baseUrl}/v1/messages`;
     return `${baseUrl}/v1/chat/completions`;
   }
   switch (provider) {
@@ -75,9 +84,9 @@ function mapModel(tier: string, provider: Provider): string {
   return MODEL_MAP[provider]?.[tier] ?? tier;
 }
 
-function buildAnthropicRequest(modelId: string, prompt: string, config?: LLMConfig) {
+function buildAnthropicRequest(endpoint: string, modelId: string, prompt: string, config?: LLMConfig) {
   return {
-    url: 'https://api.anthropic.com/v1/messages',
+    url: endpoint,
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': getApiKey('anthropic') ?? '',
@@ -134,11 +143,10 @@ function createLLMTool(): Tool {
       const modelId = mapModel(tier, provider);
 
       try {
-        const isAnthropic = provider === 'anthropic' && !process.env.LLM_BASE_URL;
         const endpoint = getEndpoint(provider);
 
-        const { url, headers, body } = isAnthropic
-          ? buildAnthropicRequest(modelId, prompt, config)
+        const { url, headers, body } = provider === 'anthropic'
+          ? buildAnthropicRequest(endpoint, modelId, prompt, config)
           : buildOpenAICompatibleRequest(endpoint, modelId, prompt, config);
 
         const response = await fetch(url, {
@@ -162,7 +170,7 @@ function createLLMTool(): Tool {
         }
 
         const data = await response.json();
-        const { content, tokensUsed } = isAnthropic
+        const { content, tokensUsed } = provider === 'anthropic'
           ? parseAnthropicResponse(data)
           : parseOpenAICompatibleResponse(data);
 

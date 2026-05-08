@@ -82,7 +82,7 @@ export const reposRoutes: FastifyPluginAsync = async (app) => {
       }
 
       if (existing) {
-        existing.status = session.status;
+        existing.status = session.status === 'running' ? 'analyzing' : session.status;
         existing.taskId = session.id;
         existing.updatedAt = session.completedAt
           ? new Date(session.completedAt).toISOString()
@@ -92,7 +92,7 @@ export const reposRoutes: FastifyPluginAsync = async (app) => {
           id: session.id,
           name: session.options?.repoName ?? session.id,
           path: session.options?.repoPath as string | undefined,
-          status: session.status,
+          status: session.status === 'running' ? 'analyzing' : session.status,
           createdAt: new Date(session.startedAt).toISOString(),
           updatedAt: session.completedAt
             ? new Date(session.completedAt).toISOString()
@@ -209,7 +209,7 @@ export const reposRoutes: FastifyPluginAsync = async (app) => {
       // Check session status
       const session = get(repoId);
       if (session) {
-        status = session.status;
+        status = session.status === 'running' ? 'analyzing' : session.status;
         updatedAt = session.completedAt
           ? new Date(session.completedAt).toISOString()
           : updatedAt;

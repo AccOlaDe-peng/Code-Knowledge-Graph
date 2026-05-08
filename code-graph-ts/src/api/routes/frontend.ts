@@ -436,7 +436,7 @@ export const frontendRoutes: FastifyPluginAsync = async (app) => {
 
       return {
         task_id: taskId,
-        status: session.status,
+        status: session.status === 'running' ? 'analyzing' : session.status,
         graph_id: session.id,
         step: stageProgress.step,
         total: stageProgress.total,
