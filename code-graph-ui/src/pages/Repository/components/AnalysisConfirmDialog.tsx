@@ -7,6 +7,7 @@ import {
   RobotOutlined,
   ApartmentOutlined,
   CheckCircleOutlined,
+  FileTextOutlined,
 } from "@ant-design/icons";
 import type { RepoInfo } from "../../../types/api";
 
@@ -17,10 +18,12 @@ interface AnalysisConfirmDialogProps {
 }
 
 const ANALYSIS_STEPS = [
-  { icon: FileSearchOutlined, label: "文件扫描", desc: "识别代码文件与语言" },
-  { icon: CodeOutlined, label: "静态分析", desc: "AST 解析提取结构" },
-  { icon: RobotOutlined, label: "AI 增强", desc: "语义理解与关系推导" },
-  { icon: ApartmentOutlined, label: "图谱构建", desc: "生成知识图谱" },
+  { icon: FileSearchOutlined, label: "文件扫描", desc: "扫描并索引仓库中的源文件" },
+  { icon: CodeOutlined, label: "静态分析", desc: "基于 AST 的深度静态结构提取" },
+  { icon: RobotOutlined, label: "AI 语义增强", desc: "LLM 驱动的模块边界与语义关系识别" },
+  { icon: ApartmentOutlined, label: "数据血缘", desc: "追踪数据在函数与模块间的流动路径" },
+  { icon: ApartmentOutlined, label: "图谱构建", desc: "合并多源分析结果为统一知识图谱" },
+  { icon: FileTextOutlined, label: "报告生成", desc: "生成架构概览与优化建议" },
 ];
 
 const styles = {

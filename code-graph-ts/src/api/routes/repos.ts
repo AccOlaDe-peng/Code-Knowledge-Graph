@@ -107,19 +107,38 @@ export const reposRoutes: FastifyPluginAsync = async (app) => {
 
     // Add persisted sessions and merge graph data
     for (const { sessionId, meta } of persisted) {
-      const existing = allRepos.get(sessionId);
+      // First try to find by sessionId (direct match)
+      let existing = allRepos.get(sessionId);
+
+      // Then try to find by repoId from metadata
+      if (!existing && meta.repoId) {
+        existing = allRepos.get(meta.repoId);
+      }
+
+      // Also check sessions list for matching repoId
+      if (!existing && meta.repoId) {
+        for (const session of sessions) {
+          if (session.options?.repoId === meta.repoId) {
+            existing = allRepos.get(meta.repoId);
+            break;
+          }
+        }
+      }
+
       if (existing) {
         existing.nodeCount = meta.nodeCount;
         existing.edgeCount = meta.edgeCount;
         existing.updatedAt = meta.updatedAt;
-        if (existing.status === 'saved') {
+        if (existing.status === 'saved' || existing.status === 'analyzing') {
           existing.status = 'completed';
           existing.graphId = sessionId;
         }
       } else {
+        // Only create new entry if no existing repo matches
         allRepos.set(sessionId, {
           id: sessionId,
-          name: sessionId,
+          name: meta.repoName ?? sessionId,
+          path: meta.repoPath,
           status: 'completed',
           createdAt: meta.createdAt,
           updatedAt: meta.updatedAt,

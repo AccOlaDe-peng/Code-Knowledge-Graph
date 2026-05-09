@@ -89,15 +89,15 @@ export function useRepoList() {
       .getPipelineStages()
       .then(({ stages, total }) => setStages(stages, total))
       .catch(() => {
-        // 降级：使用硬编码的默认 stages
+        // 降级：使用与后端一致的默认 stages
         setStages(
           [
-            { key: "file_index", label: "扫描文件", description: "" },
-            { key: "deep_static_analysis", label: "静态分析", description: "" },
-            { key: "parallel_stage", label: "模块聚类", description: "" },
-            { key: "ai_semantic_enhance", label: "AI 语义增强", description: "" },
-            { key: "spring_di_event_ai", label: "AI 歧义解析", description: "" },
-            { key: "repository", label: "持久化存储", description: "" },
+            { key: "file_index", label: "文件扫描", description: "扫描并索引仓库中的源文件" },
+            { key: "deep_static_analysis", label: "静态分析", description: "基于 AST 的深度静态结构提取" },
+            { key: "ai_semantic_enhance", label: "AI 语义增强", description: "LLM 驱动的模块边界与语义关系识别" },
+            { key: "data_lineage", label: "数据血缘", description: "追踪数据在函数与模块间的流动路径" },
+            { key: "graph_build", label: "图谱构建", description: "合并多源分析结果为统一知识图谱" },
+            { key: "report", label: "报告生成", description: "生成架构概览与优化建议" },
           ],
           6,
         );
