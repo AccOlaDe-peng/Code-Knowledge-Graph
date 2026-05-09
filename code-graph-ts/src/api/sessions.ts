@@ -10,8 +10,11 @@ import { LineageAgent, LINEAGE_CONFIG } from '../agents/specialized/LineageAgent
 import { GraphBuildAgent, GRAPH_BUILD_CONFIG } from '../agents/specialized/GraphBuildAgent.ts';
 import { ReportAgent, REPORT_CONFIG } from '../agents/specialized/ReportAgent.ts';
 import { createAgentContext } from '../agents/AgentContext.ts';
+import { LocalFileStore } from '../graph/store/LocalFileStore.ts';
 import type { GraphData } from '../graph/schema.ts';
 import { logger } from './logger.ts';
+
+const store = new LocalFileStore();
 
 type AnalysisDepth = 'quick' | 'standard' | 'deep';
 type PipelineMode = 'static_first' | 'ai_first';
@@ -145,6 +148,20 @@ async function startAnalysis(sessionId: string, path: string, options?: SessionO
       session.result = result;
       session.status = 'completed';
       logger.info(`Analysis completed: sessionId=${sessionId}, nodes=${result.nodes.length}, edges=${result.edges.length}`);
+
+      // Persist graph to LocalFileStore
+      try {
+        await store.save(sessionId, result, {
+          sessionId,
+          repoId: options?.repoId,
+          repoName: options?.repoName,
+          repoPath: path,
+        });
+        logger.info(`Graph saved: sessionId=${sessionId}`);
+      } catch (saveError) {
+        logger.error(`Failed to save graph: sessionId=${sessionId}, error=${saveError instanceof Error ? saveError.message : String(saveError)}`);
+      }
+
       broadcast(sessionId, 'completed', {
         task_id: sessionId,
         status: 'completed',

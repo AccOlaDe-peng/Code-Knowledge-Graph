@@ -15,6 +15,9 @@ interface StoreMetadata {
   updatedAt: string;
   nodeCount: number;
   edgeCount: number;
+  repoId?: string;
+  repoName?: string;
+  repoPath?: string;
 }
 
 interface StoredGraph extends GraphData {
@@ -42,7 +45,7 @@ class LocalFileStore {
     }
   }
 
-  async save(sessionId: string, data: GraphData): Promise<void> {
+  async save(sessionId: string, data: GraphData, extraMeta?: Partial<StoreMetadata>): Promise<void> {
     this.ensureDir();
 
     const now = new Date().toISOString();
@@ -54,6 +57,7 @@ class LocalFileStore {
         updatedAt: now,
         nodeCount: data.nodes.length,
         edgeCount: data.edges.length,
+        ...extraMeta,
       },
     };
 
