@@ -125,6 +125,20 @@ export const reposRoutes: FastifyPluginAsync = async (app) => {
         }
       }
 
+      // Fallback: match by repoPath (normalize paths for comparison)
+      if (!existing && meta.repoPath) {
+        const normalizedMetaPath = meta.repoPath.replace(/\\/g, '/').replace(/\/$/, '');
+        for (const [repoId, repo] of allRepos) {
+          if (repo.path) {
+            const normalizedRepoPath = repo.path.replace(/\\/g, '/').replace(/\/$/, '');
+            if (normalizedRepoPath === normalizedMetaPath) {
+              existing = repo;
+              break;
+            }
+          }
+        }
+      }
+
       if (existing) {
         existing.nodeCount = meta.nodeCount;
         existing.edgeCount = meta.edgeCount;
