@@ -2,7 +2,7 @@
 // These routes don't have /api prefix for backward compatibility
 
 import type { FastifyPluginAsync } from 'fastify';
-import { get } from '../sessions.ts';
+import { get, list } from '../sessions.ts';
 import { logger } from '../logger.ts';
 import { LocalFileStore } from '../../graph/store/LocalFileStore.ts';
 import {

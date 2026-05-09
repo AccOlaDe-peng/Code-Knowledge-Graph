@@ -6,6 +6,7 @@ import { AgentPool } from '../agents/AgentPool.ts';
 import { Merger } from './Merger.ts';
 import { TaskTracker } from './TaskTracker.ts';
 import { AgentError, ErrorCode } from '../errors/index.ts';
+import { logAnalysis, logError } from '../api/logger.ts';
 import type { AgentResult, AnalyzeRequest, AnalysisDecision, Task } from './types.ts';
 import type { GraphData } from '../graph/schema.ts';
 
@@ -62,8 +63,10 @@ class Coordinator {
       // Decide which agents to run
       const decision = this.decideMode(request);
       this.pipelineAgents = decision.agents;
+      logAnalysis(this.sessionId, 'pipeline_start', { mode: decision.mode, agents: decision.agents, reason: decision.reason });
 
       // Phase 1: Scanner
+      logAnalysis(this.sessionId, 'file_index', { phase: 1, total: 6 });
       const scanResult = await this.runAgent('ScannerAgent', {
         id: `${this.sessionId}-scanner`,
         status: 'pending',
@@ -72,8 +75,10 @@ class Coordinator {
       if (!scanResult) {
         throw new AgentError(ErrorCode.NO_FILES_FOUND, 'ScannerAgent', false);
       }
+      logAnalysis(this.sessionId, 'file_index_done', { files: scanResult.nodes?.length ?? 0 });
 
       // Phase 2: Static + Semantic (parallel) — if applicable
+      logAnalysis(this.sessionId, 'deep_analysis', { phase: 2, total: 6, parallel: true });
       const parallelPromises: Promise<AgentResult | null>[] = [];
 
       if (decision.agents.includes('StaticAgent')) {
@@ -97,13 +102,17 @@ class Coordinator {
       // Await all parallel agents
       const parallelResults = await Promise.all(parallelPromises);
       const validResults = parallelResults.filter((r): r is AgentResult => r !== null);
+      logAnalysis(this.sessionId, 'deep_analysis_done', { nodes: validResults.reduce((sum, r) => sum + (r.nodes?.length ?? 0), 0) });
 
       // Phase 3: Merger — sync point
+      logAnalysis(this.sessionId, 'merger', { phase: 3, total: 6 });
       const mergedData = this.merger.merge(validResults);
+      logAnalysis(this.sessionId, 'merger_done', { nodes: mergedData.nodes.length, edges: mergedData.edges.length });
 
       // Phase 4: Lineage (if enabled and data available)
       let finalData = mergedData;
       if (decision.agents.includes('LineageAgent') && mergedData.nodes.length > 0) {
+        logAnalysis(this.sessionId, 'data_lineage', { phase: 4, total: 6 });
         const lineageResult = await this.runAgent('LineageAgent', {
           id: `${this.sessionId}-lineage`,
           status: 'pending',
@@ -114,25 +123,31 @@ class Coordinator {
             nodes: lineageResult.nodes,
             edges: lineageResult.edges,
           });
+          logAnalysis(this.sessionId, 'data_lineage_done', { lineageEdges: lineageResult.edges?.length ?? 0 });
         }
       }
 
       // Phase 5: GraphBuild
       if (decision.agents.includes('GraphBuildAgent')) {
+        logAnalysis(this.sessionId, 'graph_build', { phase: 5, total: 6 });
         await this.runAgent('GraphBuildAgent', {
           id: `${this.sessionId}-graphbuild`,
           status: 'pending',
         });
+        logAnalysis(this.sessionId, 'graph_build_done');
       }
 
       // Phase 6: Report
       if (decision.agents.includes('ReportAgent')) {
+        logAnalysis(this.sessionId, 'report', { phase: 6, total: 6 });
         await this.runAgent('ReportAgent', {
           id: `${this.sessionId}-report`,
           status: 'pending',
         });
+        logAnalysis(this.sessionId, 'report_done');
       }
 
+      logAnalysis(this.sessionId, 'pipeline_complete', { totalNodes: finalData.nodes.length, totalEdges: finalData.edges.length });
       return finalData;
     } finally {
       // Cleanup
@@ -187,17 +202,20 @@ class Coordinator {
 
     const factory = this.agentFactories.get(name);
     if (!factory) {
+      logAnalysis(this.sessionId, 'agent_skip', { agent: name, reason: 'not_registered' });
       return null; // Agent not registered — skip
     }
 
     const agent = factory(name);
     if (!agent) {
+      logAnalysis(this.sessionId, 'agent_skip', { agent: name, reason: 'factory_null' });
       return null; // Factory returned null — skip
     }
 
     // Create task
     await this.taskTracker.createTask(task);
     await this.taskTracker.updateTask(task.id, { status: 'running', agentId: agent.id });
+    logAnalysis(this.sessionId, 'agent_start', { agent: name, taskId: task.id });
 
     try {
       const result = await this.agentRunner.run(agent, task);
@@ -215,6 +233,7 @@ class Coordinator {
         status: 'completed',
         result,
       });
+      logAnalysis(this.sessionId, 'agent_complete', { agent: name, nodes: result.nodes?.length ?? 0, edges: result.edges?.length ?? 0, tokens: result.metadata.tokensUsed });
 
       this.results.set(name, result);
       return result;
@@ -224,6 +243,7 @@ class Coordinator {
         status: 'failed',
         error: errorMsg,
       });
+      logError(this.sessionId, error instanceof Error ? error : new Error(errorMsg), { agent: name, taskId: task.id });
 
       // If recoverable, continue pipeline
       if (error instanceof AgentError && error.recoverable) {
