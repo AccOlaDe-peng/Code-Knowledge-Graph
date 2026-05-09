@@ -52,6 +52,9 @@ export async function analyzeRoutes(app: FastifyInstance): Promise<void> {
     // Start analysis in background (non-blocking)
     startAnalysis(session.id, repoPath, {
       budget: DEFAULT_BUDGET,
+      repoId: repo_id,
+      repoName: repo_name,
+      repoPath,
     }).catch((err) => {
       logger.error(`Unhandled error in background analysis for session ${session.id}: ${err instanceof Error ? err.message : String(err)}`);
     });
