@@ -58,7 +58,7 @@ const ENTRY_ANNOTATIONS: Record<LayerId, RegExp[]> = {
   [LayerId.api]: [/Controller/, /RestController/, /Endpoint/, /RequestMapping/],
   [LayerId.business]: [/Service/, /Component/, /Facade/, /Manager/],
   [LayerId.data]: [/Repository/, /Dao/, /Mapper/],
-  [LayerId.infrastructure]: [/Configuration/, /Config/],
+  [LayerId.infrastructure]: [],  // 仅靠跨层调用判断
 };
 
 /**
