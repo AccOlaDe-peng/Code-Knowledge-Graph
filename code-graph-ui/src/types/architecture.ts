@@ -25,7 +25,10 @@ export type ArchitectureNode = {
   name: string
   displayName: string
   source?: string
-  description?: string
+  description?: string      // 功能说明（注释提取）
+  isEntryPoint?: boolean    // 入口节点标记
+  keyMethods?: string[]     // 关键方法展示（备选）
+  methods?: string[]        // 方法列表
   functions?: string[]
   dependencies?: string[]
   endpoints?: string[]
