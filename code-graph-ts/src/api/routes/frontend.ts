@@ -8,10 +8,37 @@ import { LocalFileStore } from '../../graph/store/LocalFileStore.ts';
 import {
   ARCHITECTURE_NODE_TYPES,
   LINEAGE_EDGE_TYPES,
+  LayerId,
+  LayerConfig,
 } from '../../graph/schema.ts';
 import type { GraphNode, GraphEdge } from '../../graph/schema.ts';
 
 const store = new LocalFileStore();
+
+// ── Architecture Layer Detection ─────────────────────────────────
+
+function detectLayer(node: GraphNode): LayerId {
+  // 1. 注解检测（最高优先级）
+  const annotations = (node.metadata?.annotations as string[] | undefined) ?? [];
+  if (annotations.some(a => /Controller|RestController|Endpoint/.test(a))) return LayerId.api;
+  if (annotations.some(a => /Service|Component/.test(a))) return LayerId.business;
+  if (annotations.some(a => /Repository|Dao|Mapper/.test(a))) return LayerId.data;
+
+  // 2. 包名检测
+  const pkg = node.file.replace(/\\/g, '/');
+  if (/\/(controller|endpoint|api|rest)\//.test(pkg)) return LayerId.api;
+  if (/\/(service|biz|business|facade)\//.test(pkg)) return LayerId.business;
+  if (/\/(repository|dao|mapper)\//.test(pkg)) return LayerId.data;
+  if (/\/(config|util|helper|common|constant)\//.test(pkg)) return LayerId.infrastructure;
+
+  // 3. 类名后缀检测
+  if (/Controller$|Endpoint$|Api$/.test(node.label)) return LayerId.api;
+  if (/Service$|Facade$|Manager$/.test(node.label)) return LayerId.business;
+  if (/Repository$|Dao$|Mapper$/.test(node.label)) return LayerId.data;
+
+  // 4. 兜底规则
+  return LayerId.infrastructure;
+}
 
 export const frontendRoutes: FastifyPluginAsync = async (app) => {
   // GET /graph/framework — architecture view
@@ -577,15 +604,27 @@ export const frontendRoutes: FastifyPluginAsync = async (app) => {
       // If not found, search through all persisted graphs
       if (!graph) {
         const sessions = await store.listSessions();
-        for (const sessionId of sessions) {
-          const g = await store.load(sessionId);
-          if (g && g.nodes.length > 0) {
-            // Check if this graph belongs to the repo
-            const session = get(sessionId);
-            if (session?.options?.repoId === repoId) {
-              graph = g;
-              break;
+        for (const { sessionId, meta } of sessions) {
+          // Match by repoId in metadata
+          if (meta.repoId === repoId) {
+            graph = await store.load(sessionId);
+            if (graph && graph.nodes.length > 0) break;
+          }
+          // Fallback: match by repoPath (for legacy graphs without repoId)
+          // Extract repo name from repoId (format: {name}_{timestamp36})
+          if (!graph && meta.repoPath) {
+            const repoIdName = repoId.split('_')[0]; // e.g., "adms" from "adms_moy22l2c"
+            const metaPathName = meta.repoPath.replace(/\\/g, '/').replace(/\/$/, '').split('/').pop()!;
+            if (repoIdName && (metaPathName === repoIdName || repoIdName.includes(metaPathName))) {
+              graph = await store.load(sessionId);
+              if (graph && graph.nodes.length > 0) break;
             }
+          }
+          // Also check in-memory session for this sessionId
+          const session = get(sessionId);
+          if (session?.options?.repoId === repoId && session.result) {
+            graph = session.result;
+            break;
           }
         }
       }
