@@ -301,6 +301,24 @@ function validateGraph(data: GraphData): ValidationResult {
   return { valid: !hasErrors, errors };
 }
 
+// ── Architecture Layer Config ─────────────────────────────────
+
+const LayerId = {
+  api: 'api',
+  business: 'business',
+  data: 'data',
+  infrastructure: 'infrastructure',
+} as const;
+
+type LayerId = (typeof LayerId)[keyof typeof LayerId];
+
+const LayerConfig = {
+  api: { name: 'API 层', color: '#00d4ff' },
+  business: { name: '业务层', color: '#00f084' },
+  data: { name: '数据层', color: '#ffc145' },
+  infrastructure: { name: '基础设施层', color: '#ff6b9d' },
+} as const;
+
 export {
   NodeType,
   EdgeType,
@@ -315,6 +333,8 @@ export {
   AMBIGUOUS_PATTERNS,
   CIRCUIT_BREAKER_THRESHOLD,
   MAX_FILE_SIZE,
+  LayerId,
+  LayerConfig,
 };
 
 export type {
@@ -331,4 +351,5 @@ export type {
   DataFlowLocation,
   DataFlowEdge,
   AmbiguousPattern,
+  LayerId as LayerIdType,
 };
