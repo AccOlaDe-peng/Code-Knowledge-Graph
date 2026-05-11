@@ -316,6 +316,80 @@ function createTreeSitterTool(): Tool {
   );
 }
 
+// ── Annotation & DocComment Extraction ─────────────────────
+
+/**
+ * 提取 Java 注解（如 @Service, @Controller）
+ */
+function extractJavaAnnotations(node: any): string[] {
+  const annotations: string[] = [];
+
+  // Java: 遍历 class_declaration 的 modifiers 或直接子节点
+  for (let i = 0; i < node.childCount; i++) {
+    const child = node.child(i);
+    if (!child) continue;
+
+    if (child.type === 'marker_annotation') {
+      // @Service（无参数）
+      const nameNode = child.childForFieldName('name') ?? child.namedChild(0);
+      if (nameNode) {
+        annotations.push('@' + nameNode.text);
+      }
+    } else if (child.type === 'annotation') {
+      // @RequestMapping("/api")（有参数）
+      const nameNode = child.childForFieldName('name') ?? child.namedChild(0);
+      if (nameNode) {
+        annotations.push('@' + nameNode.text);
+      }
+    }
+  }
+
+  return annotations;
+}
+
+/**
+ * 提取 TypeScript 装饰器（如 @Controller）
+ */
+function extractTSDecorators(node: any): string[] {
+  const decorators: string[] = [];
+
+  // TypeScript: decorator 节点在 class 前面
+  for (let i = 0; i < node.childCount; i++) {
+    const child = node.child(i);
+    if (!child) continue;
+
+    if (child.type === 'decorator') {
+      const nameNode = child.namedChild(0);
+      if (nameNode) {
+        decorators.push('@' + nameNode.text);
+      }
+    }
+  }
+
+  return decorators;
+}
+
+/**
+ * 提取类注释（Javadoc/JSDoc）
+ */
+function extractDocComment(node: any): string | null {
+  // Tree-sitter: 前一个兄弟节点可能是 comment
+  const prevSibling = node.previousSibling;
+  if (prevSibling?.type === 'comment' || prevSibling?.type === 'block_comment') {
+    const text = prevSibling.text;
+    // 清理注释格式
+    if (text.startsWith('/**') || text.startsWith('/*')) {
+      return text
+        .replace(/^\/\*+/, '')
+        .replace(/\*+\/$/, '')
+        .replace(/^\s*\*\s?/gm, '')  // 移除每行开头的 *
+        .trim();
+    }
+    return text;
+  }
+  return null;
+}
+
 // ── Symbol Extraction ──────────────────────────────────────
 
 function extractSymbolsFromAST(root: any, filePath: string, symbols: ExtractedSymbol[]): void {
@@ -328,11 +402,18 @@ function extractSymbolsFromAST(root: any, filePath: string, symbols: ExtractedSy
     if (nodeType === 'class_declaration' || nodeType === 'interface_declaration') {
       const nameNode = node.childForFieldName('name');
       if (nameNode) {
+        // 提取注解和注释
+        const annotations = extractJavaAnnotations(node);
+        const docComment = extractDocComment(node);
+
         symbols.push({
           name: nameNode.text,
           type: nodeType === 'class_declaration' ? 'class' : 'interface',
           location: { file: filePath, startLine: node.startPosition.row + 1 },
-          metadata: {},
+          metadata: {
+            annotations,
+            docComment,
+          },
         });
       }
     } else if (nodeType === 'method_declaration' || nodeType === 'function_declaration') {
@@ -353,6 +434,23 @@ function extractSymbolsFromAST(root: any, filePath: string, symbols: ExtractedSy
           type: 'function',
           location: { file: filePath, startLine: node.startPosition.row + 1 },
           metadata: {},
+        });
+      }
+    } else if (nodeType === 'class_definition') {
+      // TypeScript/Python class
+      const nameNode = node.childForFieldName('name');
+      if (nameNode) {
+        const decorators = extractTSDecorators(node);
+        const docComment = extractDocComment(node);
+
+        symbols.push({
+          name: nameNode.text,
+          type: 'class',
+          location: { file: filePath, startLine: node.startPosition.row + 1 },
+          metadata: {
+            annotations: decorators,
+            docComment,
+          },
         });
       }
     }
