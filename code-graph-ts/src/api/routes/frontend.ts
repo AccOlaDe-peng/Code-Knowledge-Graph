@@ -17,6 +17,14 @@ const store = new LocalFileStore();
 
 // ── Architecture Layer Detection ─────────────────────────────────
 
+interface ArchitectureNode {
+  id: string;
+  name: string;
+  type: 'class' | 'interface';
+  file: string;
+  methods?: string[];
+}
+
 function detectLayer(node: GraphNode): LayerId {
   // 1. 注解检测（最高优先级）
   const annotations = (node.metadata?.annotations as string[] | undefined) ?? [];
@@ -653,28 +661,80 @@ export const frontendRoutes: FastifyPluginAsync = async (app) => {
       const nodes = graph.nodes;
       const edges = graph.edges;
 
-      // Group nodes by layer
-      const layers: Record<string, { id: string; name: string; nodes: Record<string, unknown>[] }> = {};
+      // 初始化四层结构
+      const layerNodes: Record<LayerId, ArchitectureNode[]> = {
+        [LayerId.api]: [],
+        [LayerId.business]: [],
+        [LayerId.data]: [],
+        [LayerId.infrastructure]: [],
+      };
+
+      // 构建节点 ID 到节点对象的映射（用于提取方法）
+      const nodeMap = new Map<string, GraphNode>();
       for (const node of nodes) {
-        const layer = node.properties?.layer ?? 'unknown';
-        if (!layers[layer]) {
-          layers[layer] = { id: layer, name: layer, nodes: [] };
-        }
-        layers[layer]!.nodes.push({
-          id: node.id,
-          type: node.type.toLowerCase(),
-          name: node.label,
-        });
+        nodeMap.set(node.id, node);
       }
 
-      return {
-        repo_id: repoId,
-        layers: Object.values(layers),
-        edges: edges.map(e => ({
+      // 遍历节点，分配层级
+      for (const node of nodes) {
+        if (node.type !== 'Class' && node.type !== 'Interface') continue;
+
+        const layerId = detectLayer(node);
+        const archNode: ArchitectureNode = {
+          id: node.id,
+          name: node.label,
+          type: node.type.toLowerCase() as 'class' | 'interface',
+          file: node.file,
+        };
+
+        // 提取该类的方法（通过 defines 边）
+        const methods = edges
+          .filter(e => e.source === node.id && e.type === 'defines')
+          .map(e => nodeMap.get(e.target)?.label)
+          .filter((m): m is string => Boolean(m))
+          .slice(0, 10); // 最多展示 10 个方法
+
+        if (methods.length > 0) {
+          archNode.methods = methods;
+        }
+
+        layerNodes[layerId].push(archNode);
+      }
+
+      // 构建层级数据
+      const layers = Object.entries(LayerConfig).map(([id, config]) => ({
+        id,
+        name: config.name,
+        color: config.color,
+        nodes: layerNodes[id as LayerId],
+      }));
+
+      // 过滤架构相关边
+      const archEdges = edges
+        .filter(e => e.type === 'calls' || e.type === 'depends_on')
+        .map(e => ({
           from: e.source,
           to: e.target,
           type: e.type,
-        })),
+        }));
+
+      // 统计信息
+      const stats = {
+        total_nodes: nodes.length,
+        total_edges: edges.length,
+        by_layer: {
+          api: layerNodes[LayerId.api].length,
+          business: layerNodes[LayerId.business].length,
+          data: layerNodes[LayerId.data].length,
+          infrastructure: layerNodes[LayerId.infrastructure].length,
+        },
+      };
+
+      return {
+        repo_id: repoId,
+        layers,
+        edges: archEdges,
+        stats,
       };
     }
   );
