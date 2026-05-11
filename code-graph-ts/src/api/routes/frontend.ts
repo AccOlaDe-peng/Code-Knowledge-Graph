@@ -20,9 +20,13 @@ const store = new LocalFileStore();
 interface ArchitectureNode {
   id: string;
   name: string;
+  displayName: string;
   type: 'class' | 'interface';
   file: string;
   methods?: string[];
+  isEntryPoint?: boolean;
+  description?: string | null;
+  keyMethods?: string[];
 }
 
 function detectLayer(node: GraphNode): LayerId {
@@ -46,6 +50,109 @@ function detectLayer(node: GraphNode): LayerId {
 
   // 4. 兜底规则
   return LayerId.infrastructure;
+}
+
+// ── Entry Point Detection ─────────────────────────────────
+
+const ENTRY_ANNOTATIONS: Record<LayerId, RegExp[]> = {
+  [LayerId.api]: [/Controller/, /RestController/, /Endpoint/, /RequestMapping/],
+  [LayerId.business]: [/Service/, /Component/, /Facade/, /Manager/],
+  [LayerId.data]: [/Repository/, /Dao/, /Mapper/],
+  [LayerId.infrastructure]: [/Configuration/, /Config/],
+};
+
+/**
+ * 判断是否为入口节点
+ * 条件: 有特定注解 或 被跨层调用
+ */
+function isEntryPoint(
+  node: GraphNode,
+  nodeLayer: LayerId,
+  crossLayerCallers: Map<string, Set<LayerId>>
+): boolean {
+  // 条件 1: 特定注解
+  const annotations = (node.metadata?.annotations as string[] | undefined) ?? [];
+  const patterns = ENTRY_ANNOTATIONS[nodeLayer] ?? [];
+
+  if (annotations.some(a => patterns.some(p => p.test(a)))) {
+    return true;
+  }
+
+  // 条件 2: 跨层调用
+  const callers = crossLayerCallers.get(node.id);
+  if (callers) {
+    for (const callerLayer of callers) {
+      if (callerLayer !== nodeLayer) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * 构建跨层调用关系图
+ * 返回: Map<被调用节点ID, Set<调用者所在层级>>
+ */
+function buildCrossLayerCallers(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  nodeLayerMap: Map<string, LayerId>
+): Map<string, Set<LayerId>> {
+  const callers = new Map<string, Set<LayerId>>();
+
+  for (const edge of edges) {
+    if (edge.type !== 'calls' && edge.type !== 'depends_on') continue;
+
+    const targetLayer = nodeLayerMap.get(edge.target);
+    const sourceLayer = nodeLayerMap.get(edge.source);
+
+    if (targetLayer !== undefined && sourceLayer !== undefined && targetLayer !== sourceLayer) {
+      if (!callers.has(edge.target)) {
+        callers.set(edge.target, new Set());
+      }
+      callers.get(edge.target)!.add(sourceLayer);
+    }
+  }
+
+  return callers;
+}
+
+/**
+ * 提取注释摘要
+ */
+function extractDocSummary(docComment: string | undefined): string | null {
+  if (!docComment) return null;
+
+  // 提取 @summary 标签
+  const summaryMatch = docComment.match(/@summary\s+(.+)/);
+  if (summaryMatch) {
+    return summaryMatch[1]!.trim().slice(0, 80);
+  }
+
+  // 提取首句描述（截至句号）
+  const lines = docComment.split('\n').filter(l => l.trim() && !l.startsWith('@'));
+  if (lines.length > 0) {
+    const firstLine = lines[0]!.trim();
+    const sentenceEnd = firstLine.search(/[.。]/);
+    if (sentenceEnd > 0) {
+      return firstLine.slice(0, sentenceEnd + 1);
+    }
+    return firstLine.slice(0, 50);
+  }
+
+  return null;
+}
+
+/**
+ * 筛选关键方法名
+ */
+function filterKeyMethods(methods: string[] | undefined): string[] {
+  if (!methods) return [];
+
+  const businessPatterns = /^(get|save|update|delete|process|handle|create|find|query|list|add|remove)/i;
+  return methods.filter(m => businessPatterns.test(m)).slice(0, 3);
 }
 
 export const frontendRoutes: FastifyPluginAsync = async (app) => {
@@ -600,7 +707,7 @@ export const frontendRoutes: FastifyPluginAsync = async (app) => {
     }
   );
 
-  // GET /graph/architecture/:repoId — layered architecture view
+  // GET /graph/architecture/:repoId — layered architecture view (entry points only)
   app.get<{ Params: { repoId: string } }>(
     '/graph/architecture/:repoId',
     async (request, reply) => {
@@ -613,22 +720,18 @@ export const frontendRoutes: FastifyPluginAsync = async (app) => {
       if (!graph) {
         const sessions = await store.listSessions();
         for (const { sessionId, meta } of sessions) {
-          // Match by repoId in metadata
           if (meta.repoId === repoId) {
             graph = await store.load(sessionId);
             if (graph && graph.nodes.length > 0) break;
           }
-          // Fallback: match by repoPath (for legacy graphs without repoId)
-          // Extract repo name from repoId (format: {name}_{timestamp36})
           if (!graph && meta.repoPath) {
-            const repoIdName = repoId.split('_')[0]; // e.g., "adms" from "adms_moy22l2c"
+            const repoIdName = repoId.split('_')[0];
             const metaPathName = meta.repoPath.replace(/\\/g, '/').replace(/\/$/, '').split('/').pop()!;
             if (repoIdName && (metaPathName === repoIdName || repoIdName.includes(metaPathName))) {
               graph = await store.load(sessionId);
               if (graph && graph.nodes.length > 0) break;
             }
           }
-          // Also check in-memory session for this sessionId
           const session = get(sessionId);
           if (session?.options?.repoId === repoId && session.result) {
             graph = session.result;
@@ -637,13 +740,11 @@ export const frontendRoutes: FastifyPluginAsync = async (app) => {
         }
       }
 
-      // Also check in-memory session
       const session = get(repoId);
       if (!graph && session?.result) {
         graph = session.result;
       }
 
-      // Search by repoId in session options
       if (!graph) {
         for (const s of list()) {
           if (s.options?.repoId === repoId && s.result) {
@@ -661,7 +762,22 @@ export const frontendRoutes: FastifyPluginAsync = async (app) => {
       const nodes = graph.nodes;
       const edges = graph.edges;
 
-      // 初始化四层结构
+      // Step 1: 构建节点层级映射
+      const nodeLayerMap = new Map<string, LayerId>();
+      const classNodes: GraphNode[] = [];
+
+      for (const node of nodes) {
+        if (node.type === 'Class' || node.type === 'Interface') {
+          const layerId = detectLayer(node);
+          nodeLayerMap.set(node.id, layerId);
+          classNodes.push(node);
+        }
+      }
+
+      // Step 2: 构建跨层调用关系
+      const crossLayerCallers = buildCrossLayerCallers(nodes, edges, nodeLayerMap);
+
+      // Step 3: 初始化四层结构
       const layerNodes: Record<LayerId, ArchitectureNode[]> = {
         [LayerId.api]: [],
         [LayerId.business]: [],
@@ -669,39 +785,51 @@ export const frontendRoutes: FastifyPluginAsync = async (app) => {
         [LayerId.infrastructure]: [],
       };
 
-      // 构建节点 ID 到节点对象的映射（用于提取方法）
+      // Step 4: 构建节点 ID 到节点对象的映射
       const nodeMap = new Map<string, GraphNode>();
       for (const node of nodes) {
         nodeMap.set(node.id, node);
       }
 
-      // 遍历节点，分配层级
-      for (const node of nodes) {
-        if (node.type !== 'Class' && node.type !== 'Interface') continue;
+      // Step 5: 遍历节点，筛选入口节点
+      for (const node of classNodes) {
+        const layerId = nodeLayerMap.get(node.id)!;
 
-        const layerId = detectLayer(node);
-        const archNode: ArchitectureNode = {
-          id: node.id,
-          name: node.label,
-          type: node.type.toLowerCase() as 'class' | 'interface',
-          file: node.file,
-        };
+        // 判断是否为入口节点
+        if (!isEntryPoint(node, layerId, crossLayerCallers)) {
+          continue;
+        }
 
-        // 提取该类的方法（通过 defines 边）
+        // 提取方法
         const methods = edges
           .filter(e => e.source === node.id && e.type === 'defines')
           .map(e => nodeMap.get(e.target)?.label)
-          .filter((m): m is string => Boolean(m))
-          .slice(0, 10); // 最多展示 10 个方法
+          .filter((m): m is string => Boolean(m));
+
+        // 提取功能说明
+        const docComment = node.metadata?.docComment as string | undefined;
+        const description = extractDocSummary(docComment);
+        const keyMethods = description ? undefined : filterKeyMethods(methods);
+
+        const archNode: ArchitectureNode = {
+          id: node.id,
+          name: node.label,
+          displayName: node.label,
+          type: node.type.toLowerCase() as 'class' | 'interface',
+          file: node.file,
+          isEntryPoint: true,
+          description,
+          keyMethods,
+        };
 
         if (methods.length > 0) {
-          archNode.methods = methods;
+          archNode.methods = methods.slice(0, 10);
         }
 
         layerNodes[layerId].push(archNode);
       }
 
-      // 构建层级数据
+      // Step 6: 构建层级数据
       const layers = Object.entries(LayerConfig).map(([id, config]) => ({
         id,
         name: config.name,
@@ -709,20 +837,25 @@ export const frontendRoutes: FastifyPluginAsync = async (app) => {
         nodes: layerNodes[id as LayerId],
       }));
 
-      // 过滤架构相关边
+      // Step 7: 过滤入口节点间的边
+      const entryNodeIds = new Set(classNodes.filter(n => isEntryPoint(n, nodeLayerMap.get(n.id)!, crossLayerCallers)).map(n => n.id));
       const archEdges = edges
-        .filter(e => e.type === 'calls' || e.type === 'depends_on')
+        .filter(e =>
+          (e.type === 'calls' || e.type === 'depends_on') &&
+          entryNodeIds.has(e.source) &&
+          entryNodeIds.has(e.target)
+        )
         .map(e => ({
           from: e.source,
           to: e.target,
           type: e.type,
         }));
 
-      // 统计信息
+      // Step 8: 统计信息
       const stats = {
         total_nodes: nodes.length,
         total_edges: edges.length,
-        by_layer: {
+        entry_points: {
           api: layerNodes[LayerId.api].length,
           business: layerNodes[LayerId.business].length,
           data: layerNodes[LayerId.data].length,
