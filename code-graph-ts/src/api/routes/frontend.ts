@@ -758,3 +758,5 @@ export const frontendRoutes: FastifyPluginAsync = async (app) => {
 };
 
 export default frontendRoutes;
+
+export { detectLayer, LayerId };
