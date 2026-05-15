@@ -52,6 +52,9 @@ export function createReposRoutes(repoService: RepoService) {
 
   router.post('/', async (c) => {
     const body = await c.req.json()
+    if (!body.repo_name && !body.name) {
+      return c.json({ error: 'bad_request', message: 'repo_name is required', status: 400 }, 400)
+    }
     const repo = repoService.createRepo({
       name: body.repo_name ?? body.name,
       path: body.repo_path ?? body.path,
@@ -64,6 +67,9 @@ export function createReposRoutes(repoService: RepoService) {
 
   router.post('/save', async (c) => {
     const body = await c.req.json()
+    if (!body.repo_id || !body.repo_name || !body.repo_path) {
+      return c.json({ error: 'bad_request', message: 'repo_id, repo_name, and repo_path are required', status: 400 }, 400)
+    }
     const repo = repoService.saveRepo({
       id: body.repo_id,
       name: body.repo_name,

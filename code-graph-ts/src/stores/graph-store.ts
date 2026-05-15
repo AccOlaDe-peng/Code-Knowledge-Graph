@@ -88,12 +88,16 @@ export class GraphStore {
   load(repoId: string): void {
     const filePath = join(this.graphsDir, `${repoId}.json`)
     if (!existsSync(filePath)) return
-    const raw = readFileSync(filePath, 'utf-8')
-    const data: GraphData = JSON.parse(raw)
-    const g = this.getOrCreateGraph(repoId)
-    g.clear()
-    for (const node of data.nodes) this.addNode(repoId, node)
-    for (const edge of data.edges) this.addEdge(repoId, edge)
+    try {
+      const raw = readFileSync(filePath, 'utf-8')
+      const data: GraphData = JSON.parse(raw)
+      const g = this.getOrCreateGraph(repoId)
+      g.clear()
+      for (const node of data.nodes) this.addNode(repoId, node)
+      for (const edge of data.edges) this.addEdge(repoId, edge)
+    } catch (e) {
+      console.error(`Failed to load graph for ${repoId}:`, e)
+    }
   }
 
   deleteGraph(repoId: string): void {

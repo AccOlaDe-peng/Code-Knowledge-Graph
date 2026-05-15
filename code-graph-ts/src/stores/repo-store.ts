@@ -69,10 +69,14 @@ export class RepoStore {
 
   private load(): void {
     if (!existsSync(this.dataPath)) return
-    const raw = readFileSync(this.dataPath, 'utf-8')
-    const arr: RepoInfo[] = JSON.parse(raw)
-    for (const repo of arr) {
-      this.repos.set(repo.id, repo)
+    try {
+      const raw = readFileSync(this.dataPath, 'utf-8')
+      const arr: RepoInfo[] = JSON.parse(raw)
+      for (const repo of arr) {
+        this.repos.set(repo.id, repo)
+      }
+    } catch (e) {
+      console.error(`Failed to load repos from ${this.dataPath}:`, e)
     }
   }
 

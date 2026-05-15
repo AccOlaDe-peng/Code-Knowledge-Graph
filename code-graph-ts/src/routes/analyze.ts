@@ -8,6 +8,9 @@ export function createAnalyzeRoutes(analysisService: AnalysisService, broadcaste
 
   router.post('/repository', async (c) => {
     const body = await c.req.json()
+    if (!body.repo_path) {
+      return c.json({ error: 'bad_request', message: 'repo_path is required', status: 400 }, 400)
+    }
     const task = analysisService.submitAnalysis(
       body.repo_id ?? 'unknown',
       body.repo_name ?? 'unknown',

@@ -50,6 +50,10 @@ export class AnalysisService {
     }
 
     const tick = () => {
+      // Check if task was canceled
+      const taskStatus = this.analysisStore.get(taskId)
+      if (!taskStatus || (taskStatus.status !== 'pending' && taskStatus.status !== 'running')) return
+
       step++
       if (step > total) return
 

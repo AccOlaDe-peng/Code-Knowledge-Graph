@@ -3,7 +3,7 @@ import health from './health.js'
 import meta from './meta.js'
 import { createReposRoutes } from './repos.js'
 import { createAnalyzeRoutes } from './analyze.js'
-import { createGraphRoutes, createServicesRoutes } from './graph.js'
+import { createGraphRoutes } from './graph.js'
 import { createLineageRoutes } from './lineage.js'
 import type { RepoService } from '../services/repo.service.js'
 import type { AnalysisService } from '../services/analysis.service.js'
@@ -24,7 +24,15 @@ export function registerRoutes(
   app.route('/repos', createReposRoutes(services.repoService))
   app.route('/analyze', createAnalyzeRoutes(services.analysisService, services.broadcaster))
   app.route('/graph', createGraphRoutes(services.graphService))
-  app.route('', createServicesRoutes(services.graphService))
+  app.get('/services', (c) => {
+    const graphId = c.req.query('graph_id') ?? ''
+    return c.json(services.graphService.getServicesGraph(graphId))
+  })
+
+  app.get('/events', (c) => {
+    const graphId = c.req.query('graph_id') ?? ''
+    return c.json(services.graphService.getEventsGraph(graphId))
+  })
   app.route('/lineage', createLineageRoutes())
 
   app.get('/api/pipeline/stages', (c) => {
