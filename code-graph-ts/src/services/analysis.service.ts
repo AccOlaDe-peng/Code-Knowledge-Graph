@@ -64,6 +64,18 @@ export class AnalysisService {
     const abortController = new AbortController()
     this.activeAbortControllers.set(task.id, abortController)
 
+    // Mark repo as analyzing immediately (synchronous, before async pipeline)
+    if (this.deps.repoService) {
+      this.deps.repoService.updateRepo(repoId, {
+        status: 'analyzing',
+        taskId: task.id,
+        stage: 'scanning',
+        step: 1,
+        total: 5,
+        message: '准备代码路径...',
+      })
+    }
+
     this.executePipeline(task.id, repoPath ?? '', branch).catch((err) => {
       this.updateTask(task.id, {
         status: 'failed',

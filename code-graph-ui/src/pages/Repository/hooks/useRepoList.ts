@@ -7,6 +7,12 @@ import type { RepoInfo } from "../../../types/api";
 
 const CACHE_WINDOW_MS = 1200;
 
+function mapBackendStatus(raw: string | undefined): string {
+  if (!raw || raw === "idle") return "saved";
+  if (raw === "running") return "analyzing";
+  return raw;
+}
+
 export function useRepoList() {
   const setRepos = useRepoStore((s) => s.setRepos);
   const setStages = usePipelineStore((s) => s.setStages);
@@ -33,19 +39,25 @@ export function useRepoList() {
       updatedAt: (r.updated_at ?? r.updatedAt ?? new Date().toISOString()) as string,
       nodeCount: (latest?.node_count ?? r.node_count ?? r.nodeCount ?? 0) as number,
       edgeCount: (latest?.edge_count ?? r.edge_count ?? r.edgeCount ?? 0) as number,
-      status: (
-	        latest?.status === "running" ? "analyzing" :
-	        (r.status as string) === "running" ? "analyzing" :
-	        (latest?.status ?? r.status ?? "saved")
+      status: mapBackendStatus(
+	        (latest?.status ?? r.status) as string | undefined,
 	      ) as RepoInfo["status"],
       taskId: (latest?.task_id ?? r.task_id) as string | undefined,
+      analysisStage: (latest?.stage ?? r.stage) as string | undefined,
+      analysisStep: (latest?.step ?? r.step) as number | undefined,
+      analysisTotal: (latest?.total ?? r.total) as number | undefined,
+      analysisMessage: (latest?.message ?? r.message) as string | undefined,
+      error: (latest?.error ?? r.error) as string | undefined,
+      gitCommit: (latest?.git_commit ?? r.git_commit) as string | undefined,
       lastAnalyzedAt: (latest?.finished_at ?? r.updated_at) as string | undefined,
     };
   };
 
   const fetchRepos = useCallback(async (force = false): Promise<RepoInfo[]> => {
     const now = Date.now();
-    if (!force && cacheRef.current && now - cacheRef.current.at < CACHE_WINDOW_MS) {
+    // Skip cache if any repo is currently analyzing
+    const hasAnalyzing = cacheRef.current?.repos.some((r) => r.status === "analyzing");
+    if (!force && !hasAnalyzing && cacheRef.current && now - cacheRef.current.at < CACHE_WINDOW_MS) {
       return cacheRef.current.repos;
     }
     if (!force && inFlightRef.current) {
