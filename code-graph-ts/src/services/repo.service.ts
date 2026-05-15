@@ -2,7 +2,11 @@ import { RepoStore, type CreateRepoInput } from '../stores/repo-store.js'
 import type { RepoInfo } from '../types/repo.js'
 
 export class RepoService {
-  constructor(private repoStore: RepoStore) {}
+  private repoStore: RepoStore
+
+  constructor(repoStore: RepoStore) {
+    this.repoStore = repoStore
+  }
 
   listRepos(): RepoInfo[] {
     return this.repoStore.list()

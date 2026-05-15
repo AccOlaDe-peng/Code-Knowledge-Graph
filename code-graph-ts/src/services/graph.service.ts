@@ -2,7 +2,11 @@ import { GraphStore } from '../stores/graph-store.js'
 import type { GraphNode, GraphEdge, GraphData } from '../types/graph.js'
 
 export class GraphService {
-  constructor(private graphStore: GraphStore) {}
+  private graphStore: GraphStore
+
+  constructor(graphStore: GraphStore) {
+    this.graphStore = graphStore
+  }
 
   getFramework(repoId: string, nodeTypes?: string[]): { nodes: GraphNode[]; edges: GraphEdge[] } {
     const graph = this.graphStore.getGraph(repoId)

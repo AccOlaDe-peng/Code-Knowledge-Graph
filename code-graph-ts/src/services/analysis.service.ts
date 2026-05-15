@@ -5,8 +5,11 @@ import type { AnalysisProgressEvent } from '../types/api.js'
 
 export class AnalysisService {
   private broadcaster: SSEBroadcaster | null = null
+  private analysisStore: AnalysisStore
 
-  constructor(private analysisStore: AnalysisStore) {}
+  constructor(analysisStore: AnalysisStore) {
+    this.analysisStore = analysisStore
+  }
 
   setBroadcaster(broadcaster: SSEBroadcaster): void {
     this.broadcaster = broadcaster
