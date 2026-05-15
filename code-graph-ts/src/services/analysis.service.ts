@@ -69,6 +69,14 @@ export class AnalysisService {
         status: 'failed',
         error: err.message ?? 'Unknown error',
       })
+      // Mark repo as failed too
+      if (this.deps.repoService) {
+        this.deps.repoService.updateRepo(repoId, {
+          status: 'failed',
+          error: err.message ?? 'Unknown error',
+          taskId: task.id,
+        })
+      }
     })
 
     return task
@@ -95,11 +103,24 @@ export class AnalysisService {
     const { gitService, graphifyService, graphStore, analysisStore, repoService } = this.deps
 
     // Stage 1: Git preparation
+    const repoId = analysisStore.get(taskId)!.repoId
     this.updateTask(taskId, { status: 'running', stage: 'scanning', step: 1, total: 5, message: '准备代码路径...' })
+
+    // Mark repo as analyzing immediately
+    if (repoService) {
+      repoService.updateRepo(repoId, {
+        status: 'analyzing',
+        taskId,
+        stage: 'scanning',
+        step: 1,
+        total: 5,
+        message: '准备代码路径...',
+      })
+    }
+
     const gitResult = await gitService.prepareLocalPath(repoPath, branch)
 
     // Stage 2: Determine incremental vs full
-    const repoId = analysisStore.get(taskId)!.repoId
     const hasExistingGraph = graphStore.getNodeCount(repoId) > 0
     const hasGraphifyOutput = existsSync(join(gitResult.localPath, 'graphify-out'))
     const isUpdate = hasExistingGraph && hasGraphifyOutput
@@ -120,6 +141,9 @@ export class AnalysisService {
       options,
       (stage, step, total, message) => {
         this.updateTask(taskId, { stage, step, total, message })
+        if (repoService) {
+          repoService.updateRepo(repoId, { stage, step, total, message })
+        }
         this.broadcast(taskId, 'progress', {
           status: 'running',
           stage,
