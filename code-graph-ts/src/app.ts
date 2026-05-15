@@ -8,6 +8,8 @@ import { GraphStore } from './stores/graph-store.js'
 import { RepoService } from './services/repo.service.js'
 import { AnalysisService } from './services/analysis.service.js'
 import { GraphService } from './services/graph.service.js'
+import { GitService } from './services/git.service.js'
+import { GraphifyService } from './services/graphify.service.js'
 import { createSSEBroadcaster } from './utils/sse.js'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -20,7 +22,10 @@ const analysisStore = new AnalysisStore()
 const graphStore = new GraphStore(DATA_DIR)
 
 const repoService = new RepoService(repoStore)
-const analysisService = new AnalysisService(analysisStore)
+const gitService = new GitService(join(DATA_DIR, 'repo-cache'))
+const graphifyService = new GraphifyService()
+const analysisService = new AnalysisService(analysisStore, gitService, graphifyService, graphStore)
+analysisService.setRepoService(repoService)
 const graphService = new GraphService(graphStore)
 
 const broadcaster = createSSEBroadcaster()

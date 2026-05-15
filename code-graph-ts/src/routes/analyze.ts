@@ -14,6 +14,8 @@ export function createAnalyzeRoutes(analysisService: AnalysisService, broadcaste
     const task = analysisService.submitAnalysis(
       body.repo_id ?? 'unknown',
       body.repo_name ?? 'unknown',
+      body.repo_path,
+      body.branch,
     )
     return c.json({ task_id: task.id, status: task.status })
   })
