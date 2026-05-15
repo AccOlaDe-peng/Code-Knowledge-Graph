@@ -117,4 +117,32 @@ describe('importToGraphStore', () => {
     expect(graph.nodes).toHaveLength(0)
     expect(graph.edges).toHaveLength(0)
   })
+
+  it('支持 graphify node-link 格式（links 替代 edges，relation 替代 type）', () => {
+    const graphJsonPath = join(TMP_DIR, 'graph.json')
+    writeFileSync(graphJsonPath, JSON.stringify({
+      directed: false,
+      nodes: [
+        { id: 'src_app', label: 'app.ts', file_type: 'code', source_file: '/src/app.ts', community: 0, norm_label: 'app.ts' },
+        { id: 'src_index', label: 'index.ts', file_type: 'code', source_file: '/src/index.ts', community: 0, norm_label: 'index.ts' },
+      ],
+      links: [
+        { source: 'src_app', target: 'src_index', relation: 'imports', confidence: 'EXTRACTED', weight: 1.0, source_file: '/src/app.ts' },
+      ],
+    }))
+
+    const result: GraphifyResult = {
+      graphJsonPath, reportPath: '', htmlPath: '', nodeCount: 2, edgeCount: 1,
+    }
+
+    importToGraphStore(result, 'repo-6', graphStore)
+    const graph = graphStore.getGraph('repo-6')
+    expect(graph.nodes).toHaveLength(2)
+    expect(graph.edges).toHaveLength(1)
+    expect(graph.edges[0].type).toBe('imports')
+    expect(graph.edges[0].id).toBe('src_app-imports-src_index')
+    expect(graph.edges[0].confidence).toBe(1.0)
+    // file_type=code nodes should get type 'file' via inference
+    expect(graph.nodes[0].type).toBe('file')
+  })
 })

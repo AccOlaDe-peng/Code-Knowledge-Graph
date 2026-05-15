@@ -1,6 +1,7 @@
-import { spawn, type ChildProcess } from 'node:child_process'
+import { spawn, execFileSync, type ChildProcess } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 export interface GraphifyOptions {
   mode: 'normal' | 'deep'
@@ -21,9 +22,28 @@ export type ProgressCallback = (stage: string, step: number, total: number, mess
 const STAGE_MAP: Record<string, string> = {
   detect: 'scanning',
   extract: 'static_analysis',
-  semantic: 'semantic_analysis',
   build: 'graph_building',
+  cluster: 'semantic_analysis',
   report: 'reporting',
+}
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
+const PIPELINE_SCRIPT = process.env.GRAPHIFY_PIPELINE_SCRIPT || join(__dirname, '..', 'scripts', 'graphify_pipeline.py')
+
+function findPython(): string {
+  if (process.env.GRAPHIFY_PYTHON) return process.env.GRAPHIFY_PYTHON
+
+  const candidates = ['python3', 'python3.12', 'python3.11', 'python3.10', 'python']
+  for (const cmd of candidates) {
+    try {
+      execFileSync(cmd, ['-c', 'import graphify'], { stdio: 'pipe', timeout: 5000 })
+      return cmd
+    } catch {
+      continue
+    }
+  }
+  return 'python3'
 }
 
 export class GraphifyService {
@@ -40,13 +60,14 @@ export class GraphifyService {
     onProgress?: ProgressCallback,
     abortSignal?: AbortSignal,
   ): Promise<GraphifyResult> {
+    const pythonBin = findPython()
     const args = this.buildArgs(localPath, options)
     const taskId = `${localPath}-${Date.now()}`
 
     return new Promise<GraphifyResult>((resolve, reject) => {
       let stderr = ''
 
-      const proc = spawn('graphify', args, {
+      const proc = spawn(pythonBin, args, {
         cwd: localPath,
         env: { ...process.env },
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -93,8 +114,10 @@ export class GraphifyService {
 
         try {
           const graphData = JSON.parse(readFileSync(graphJsonPath, 'utf-8'))
-          const nodeCount = Array.isArray(graphData.nodes) ? graphData.nodes.length : 0
-          const edgeCount = Array.isArray(graphData.edges) ? graphData.edges.length : 0
+          const nodes = graphData.nodes ?? []
+          const edges = graphData.edges ?? graphData.links ?? []
+          const nodeCount = nodes.length
+          const edgeCount = edges.length
 
           resolve({ graphJsonPath, reportPath, htmlPath, nodeCount, edgeCount })
         } catch (e) {
@@ -105,7 +128,7 @@ export class GraphifyService {
       proc.on('error', (err) => {
         cleanup()
         if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-          reject(new Error('graphify not found. Install with: pip install graphifyy'))
+          reject(new Error('python3 not found. Install Python 3 to run graphify'))
         } else {
           reject(err)
         }
@@ -127,8 +150,7 @@ export class GraphifyService {
   }
 
   buildArgs(localPath: string, options: GraphifyOptions): string[] {
-    const args = [localPath]
-    args.push('--mode', options.mode)
+    const args = [PIPELINE_SCRIPT, localPath]
     if (options.update) args.push('--update')
     if (options.directed) args.push('--directed')
     return args
@@ -148,15 +170,16 @@ export class GraphifyService {
 
   private parseProgress(text: string, onProgress?: ProgressCallback): void {
     if (!onProgress) return
-    const lines = text.split('\n')
-    for (const line of lines) {
-      const match = line.match(/step[:\s]+(\d+)\/(\d+).*stage[:\s]+(\w+)/i)
-        ?? line.match(/\[(\d+)\/(\d+)\]\s*(\w+)/)
-      if (match) {
-        const step = parseInt(match[1], 10)
-        const total = parseInt(match[2], 10)
-        const stage = this.mapStage(match[3])
-        onProgress(stage, step, total, line.trim())
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue
+      try {
+        const obj = JSON.parse(line)
+        if (obj.step !== undefined && obj.total !== undefined && obj.stage !== undefined) {
+          const stage = this.mapStage(obj.stage)
+          onProgress(stage, obj.step, obj.total, obj.message ?? '')
+        }
+      } catch {
+        // Not JSON progress line, skip
       }
     }
   }
