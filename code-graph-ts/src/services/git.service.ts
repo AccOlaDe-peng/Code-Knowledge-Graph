@@ -88,7 +88,9 @@ export class GitService {
 
   private git(cwd: string, ...args: string[]): Promise<{ stdout: string; stderr: string }> {
     const opts = cwd ? { cwd } : {}
-    return execFileAsync('git', args, opts)
+    return execFileAsync('git', args, opts).catch((err: Error & { stderr?: string }) => {
+      throw new GitError(`git ${args.join(' ')} failed: ${err.message}`, err.stderr ?? '')
+    })
   }
 
   private extractRepoName(url: string): string {
