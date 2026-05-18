@@ -111,6 +111,11 @@ export class AnalysisService {
     return this.deps.analysisStore.listByRepo(repoId)
   }
 
+  getActiveTask(repoId: string): AnalysisTask | undefined {
+    const tasks = this.deps.analysisStore.listByRepo(repoId)
+    return tasks.find(t => t.status === 'running' || t.status === 'pending')
+  }
+
   private async executePipeline(taskId: string, repoPath: string, branch?: string): Promise<void> {
     const { gitService, graphifyService, graphStore, analysisStore, repoService } = this.deps
 

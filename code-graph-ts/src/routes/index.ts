@@ -21,7 +21,7 @@ export function registerRoutes(
 ) {
   app.route('/health', health)
   app.route('/meta', meta)
-  app.route('/repos', createReposRoutes(services.repoService))
+  app.route('/repos', createReposRoutes(services.repoService, services.analysisService))
   app.route('/analyze', createAnalyzeRoutes(services.analysisService, services.broadcaster))
   app.route('/graph', createGraphRoutes(services.graphService))
   app.get('/services', (c) => {

@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import type { RepoService } from '../services/repo.service.js'
+import type { AnalysisService } from '../services/analysis.service.js'
 import type { RepoInfo } from '../types/repo.js'
 
 function repoToWire(repo: RepoInfo) {
@@ -42,12 +43,28 @@ function repoToWire(repo: RepoInfo) {
   }
 }
 
-export function createReposRoutes(repoService: RepoService) {
+export function createReposRoutes(repoService: RepoService, analysisService: AnalysisService) {
   const router = new Hono()
 
   router.get('/', (c) => {
     const repos = repoService.listRepos()
-    return c.json({ repos: repos.map(repoToWire) })
+    const enriched = repos.map((repo) => {
+      // 交叉引用 AnalysisStore 中的活跃任务，确保状态同步
+      const activeTask = analysisService.getActiveTask(repo.id)
+      if (activeTask && (activeTask.status === 'running' || activeTask.status === 'pending')) {
+        return {
+          ...repo,
+          status: 'analyzing',
+          taskId: activeTask.id,
+          stage: activeTask.stage ?? repo.stage,
+          step: activeTask.step ?? repo.step,
+          total: activeTask.total ?? repo.total,
+          message: activeTask.message ?? repo.message,
+        }
+      }
+      return repo
+    })
+    return c.json({ repos: enriched.map(repoToWire) })
   })
 
   router.post('/', async (c) => {

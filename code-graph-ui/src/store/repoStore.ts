@@ -39,12 +39,27 @@ export const useRepoStore = create<RepoState>()((set) => ({
   setRepos: (repos) =>
     set((state) => {
       const nextRepos = dedupeRepos(repos);
+      // 保留正在分析中的仓库的实时 SSE 进度，避免被后端快照覆盖
+      const analyzingMap = new Map<string, RepoInfo>();
+      for (const r of state.repos) {
+        if (r.status === "analyzing") {
+          analyzingMap.set(r.repoId, r);
+        }
+      }
+      const merged = nextRepos.map((r) => {
+        const live = analyzingMap.get(r.repoId);
+        if (live && r.status !== "analyzing") {
+          // 后端快照状态滞后，保留前端的实时状态
+          return { ...r, ...live };
+        }
+        return r;
+      });
       const nextActiveRepo = state.activeRepo
-        ? (nextRepos.find((r) => r.repoId === state.activeRepo?.repoId) ??
+        ? (merged.find((r) => r.repoId === state.activeRepo?.repoId) ??
           null)
         : null;
       return {
-        repos: nextRepos,
+        repos: merged,
         activeRepo: nextActiveRepo,
       };
     }),

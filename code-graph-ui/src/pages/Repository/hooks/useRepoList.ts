@@ -34,7 +34,7 @@ export function useRepoList() {
         | "local"
         | "git"
         | "zip",
-      language: (r.language ?? []) as string[],
+      language: (r.languages ?? r.language ?? []) as string[],
       createdAt: (r.created_at ?? r.createdAt ?? new Date().toISOString()) as string,
       updatedAt: (r.updated_at ?? r.updatedAt ?? new Date().toISOString()) as string,
       nodeCount: (latest?.node_count ?? r.node_count ?? r.nodeCount ?? 0) as number,
@@ -42,7 +42,7 @@ export function useRepoList() {
       status: mapBackendStatus(
 	        (latest?.status ?? r.status) as string | undefined,
 	      ) as RepoInfo["status"],
-      taskId: (latest?.task_id ?? r.task_id) as string | undefined,
+      taskId: (latest?.task_id ?? latest?.id ?? r.task_id) as string | undefined,
       analysisStage: (latest?.stage ?? r.stage) as string | undefined,
       analysisStep: (latest?.step ?? r.step) as number | undefined,
       analysisTotal: (latest?.total ?? r.total) as number | undefined,
