@@ -55,9 +55,19 @@ def analyze_graphify(req: GraphifyRequest):
     # 在后台线程执行（不阻塞请求）
     import threading
 
+    def _update_status(stage: str, step: int, total: int, message: str) -> None:
+        """更新仓库状态（供 GraphifyRunner 回调）。"""
+        status_store.update_progress(
+            legacy_repo_id,
+            stage=stage,
+            step=step,
+            total=total,
+            message=message,
+        )
+
     def _run_graphify():
         try:
-            runner = GraphifyRunner()
+            runner = GraphifyRunner(on_progress=_update_status)
             result = runner.run(req.repo_path, repo_name=req.repo_name)
 
             if result.success:
