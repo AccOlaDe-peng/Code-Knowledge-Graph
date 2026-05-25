@@ -363,6 +363,27 @@ async def analyze_stream(task_id: str):
 @router.get("/analyze/status/{task_id}", response_model=AnalysisStatusResponse, tags=["分析"])
 def analyze_status(task_id: str):
     """查询分析任务的最新状态（轮询 / 断线重连恢复用）。"""
+    # 先检查 repo_status_store（graphify 任务）
+    from backend.store.repo_status_store import get_repo_status_store
+    status_store = get_repo_status_store()
+    repo_status = status_store.get_by_task_id(task_id)
+
+    if repo_status:
+        # graphify 任务：从 repo_status_store 返回状态
+        return AnalysisStatusResponse(
+            task_id=task_id,
+            status=repo_status.get("status", "pending"),
+            step=repo_status.get("step"),
+            total=repo_status.get("total"),
+            stage=repo_status.get("stage"),
+            message=repo_status.get("message"),
+            graph_id=repo_status.get("graph_id"),
+            node_count=repo_status.get("node_count"),
+            edge_count=repo_status.get("edge_count"),
+            error=repo_status.get("error"),
+        )
+
+    # Celery 任务：从 Redis 返回状态
     result = AsyncResult(task_id, app=celery_app)
     if result.info is None and result.state == "PENDING" and not _is_registered_task_id(task_id):
         raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
