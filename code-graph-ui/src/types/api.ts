@@ -62,6 +62,7 @@ export type RepoInfo = Repo & {
   lastAnalyzedAt?: string;
   depth?: AnalysisDepth;
   gitCommit?: string;
+  pipelineMode?: PipelineMode; // 当前分析任务的流水线模式
   latestAnalysis?: LatestAnalysis;
 };
 

@@ -41,31 +41,62 @@ STAGE_REGISTRY: list[dict] = [
         "key": "file_index",
         "label": "扫描文件",
         "description": "扫描代码仓库文件，Git 增量检测",
+        "mode": "pipeline",
     },
     {
         "key": "deep_static_analysis",
         "label": "静态分析",
         "description": "AST 解析 + 框架模式识别",
+        "mode": "pipeline",
     },
     {
         "key": "parallel_stage",
         "label": "模块聚类 + DI解析",
         "description": "目录聚类与 Spring DI/Event 静态解析（并行，零 LLM）",
+        "mode": "pipeline",
     },
     {
         "key": "ai_semantic_enhance",
         "label": "AI 语义增强",
         "description": "AI 增强模块描述与边界验证",
+        "mode": "pipeline",
     },
     {
         "key": "spring_di_event_ai",
         "label": "AI 歧义解析",
         "description": "AI 解析 DI/Event 歧义（无歧义时跳过）",
+        "mode": "pipeline",
     },
     {
         "key": "repository",
         "label": "持久化存储",
         "description": "保存图谱到存储",
+        "mode": "pipeline",
+    },
+    # Graphify stages
+    {
+        "key": "detect",
+        "label": "项目探测",
+        "description": "读取 pom.xml/build.gradle，识别技术栈",
+        "mode": "graphify",
+    },
+    {
+        "key": "analyze",
+        "label": "AI 分析",
+        "description": "执行 Claude Code 分析代码仓库",
+        "mode": "graphify",
+    },
+    {
+        "key": "merge",
+        "label": "合并图谱",
+        "description": "合并架构图/调用图/血缘图",
+        "mode": "graphify",
+    },
+    {
+        "key": "validate",
+        "label": "验证输出",
+        "description": "验证 4 个 JSON 文件",
+        "mode": "graphify",
     },
 ]
 
@@ -246,9 +277,15 @@ def list_repo_analyses(repo_id: str, task_id: Optional[str] = None):
 
 
 @router.get("/api/pipeline/stages", tags=["流水线"])
-def get_pipeline_stages():
-    """返回当前流水线 Stage 定义（前端进度条依赖此数据）。"""
+def get_pipeline_stages(mode: str = "pipeline"):
+    """返回当前流水线 Stage 定义（前端进度条依赖此数据）。
+
+    Args:
+        mode: "pipeline"（传统流水线）或 "graphify"（Claude Code 分析）
+    """
+    stages = [s for s in STAGE_REGISTRY if s.get("mode", "pipeline") == mode]
     return {
-        "stages": STAGE_REGISTRY,
-        "total": len(STAGE_REGISTRY),
+        "stages": stages,
+        "total": len(stages),
+        "mode": mode,
     }

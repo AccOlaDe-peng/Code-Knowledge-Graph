@@ -13,7 +13,11 @@ interface AnalysisProgressPanelProps {
 }
 
 export const AnalysisProgressPanel: React.FC<AnalysisProgressPanelProps> = ({ repo }) => {
-  const stages = usePipelineStore((s) => s.stages);
+  // 根据 repo.pipelineMode 选择正确的阶段列表
+  const pipelineMode = repo.pipelineMode ?? "pipeline";
+  const stages = usePipelineStore((s) =>
+    pipelineMode === "graphify" ? s.graphifyStages : s.stages
+  );
   const total = repo.analysisTotal ?? stages.length;
   const currentStage = repo.analysisStage ?? "";
 

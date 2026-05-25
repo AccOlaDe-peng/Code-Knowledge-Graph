@@ -8,14 +8,23 @@ export type PipelineStage = {
 
 interface PipelineState {
   stages: PipelineStage[];
+  graphifyStages: PipelineStage[];
   total: number;
   loaded: boolean;
-  setStages: (stages: PipelineStage[], total: number) => void;
+  mode: "pipeline" | "graphify";
+  setStages: (stages: PipelineStage[], total: number, mode: "pipeline" | "graphify") => void;
 }
 
 export const usePipelineStore = create<PipelineState>()((set) => ({
   stages: [],
+  graphifyStages: [],
   total: 0,
   loaded: false,
-  setStages: (stages, total) => set({ stages, total, loaded: true }),
+  mode: "pipeline",
+  setStages: (stages, total, mode) =>
+    set((state) => ({
+      ...(mode === "pipeline"
+        ? { stages, total, loaded: true, mode }
+        : { graphifyStages: stages, total, loaded: true, mode }),
+    })),
 }));

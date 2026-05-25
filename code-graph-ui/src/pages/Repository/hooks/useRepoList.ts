@@ -78,14 +78,15 @@ export function useRepoList() {
     [fetchRepos, setRepos],
   );
 
-  // 初始加载 Pipeline Stages
+  // 初始加载 Pipeline Stages（两种模式）
   useEffect(() => {
     if (stagesLoaded) return;
+
+    // 加载 pipeline 模式阶段
     repoEndpoints
-      .getPipelineStages()
-      .then(({ stages, total }) => setStages(stages, total))
+      .getPipelineStages("pipeline")
+      .then(({ stages, total }) => setStages(stages, total, "pipeline"))
       .catch(() => {
-        // 降级：使用硬编码的默认 stages
         setStages(
           [
             { key: "file_index", label: "扫描文件", description: "" },
@@ -96,6 +97,24 @@ export function useRepoList() {
             { key: "repository", label: "持久化存储", description: "" },
           ],
           6,
+          "pipeline"
+        );
+      });
+
+    // 加载 graphify 模式阶段
+    repoEndpoints
+      .getPipelineStages("graphify")
+      .then(({ stages, total }) => setStages(stages, total, "graphify"))
+      .catch(() => {
+        setStages(
+          [
+            { key: "detect", label: "项目探测", description: "" },
+            { key: "analyze", label: "AI 分析", description: "" },
+            { key: "merge", label: "合并图谱", description: "" },
+            { key: "validate", label: "验证输出", description: "" },
+          ],
+          4,
+          "graphify"
         );
       });
   }, [stagesLoaded, setStages]);

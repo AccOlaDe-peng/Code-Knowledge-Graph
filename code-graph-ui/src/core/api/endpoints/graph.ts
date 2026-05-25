@@ -251,7 +251,9 @@ export const repoEndpoints = {
    * GET /api/pipeline/stages
    * Get pipeline stage definitions
    */
-  async getPipelineStages(): Promise<{ stages: { key: string; label: string; description: string }[]; total: number }> {
-    return apiClient.get("/api/pipeline/stages");
+  async getPipelineStages(
+    mode: "pipeline" | "graphify" = "pipeline"
+  ): Promise<{ stages: { key: string; label: string; description: string }[]; total: number; mode: string }> {
+    return apiClient.get("/api/pipeline/stages", { params: { mode } });
   },
 };

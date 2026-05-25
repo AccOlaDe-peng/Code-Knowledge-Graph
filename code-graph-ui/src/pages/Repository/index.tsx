@@ -133,6 +133,9 @@ const Repository: React.FC = () => {
         return;
       }
 
+      // graphify 4 阶段，pipeline 6 阶段
+      const analysisTotal = mode === "graphify" ? 4 : stages.length;
+
       try {
         let response: { task_id: string };
         if (mode === "graphify") {
@@ -156,9 +159,10 @@ const Repository: React.FC = () => {
         updateRepo(repo.repoId, {
           status: "analyzing",
           taskId: response.task_id,
+          pipelineMode: mode,
           error: undefined,
           analysisStep: 0,
-          analysisTotal: stages.length,
+          analysisTotal,
           analysisStage: "pending",
           analysisMessage: "等待调度执行",
         });
