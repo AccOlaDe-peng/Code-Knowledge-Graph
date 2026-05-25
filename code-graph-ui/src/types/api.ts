@@ -6,7 +6,7 @@ import type { Graph, GraphMetrics, GraphNode, GraphEdge } from "./graph";
 export type AnalysisDepth = "quick" | "standard" | "deep";
 
 /** 流水线模式 */
-export type PipelineMode = "static_first" | "ai_first";
+export type PipelineMode = "static_first" | "ai_first" | "graphify";
 
 /** 分析状态 */
 export type AnalysisStatus =
