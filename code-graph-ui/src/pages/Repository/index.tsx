@@ -60,7 +60,7 @@ const Repository: React.FC = () => {
   const [detailRepoId, setDetailRepoId] = useState<string | null>(null);
   const [analysisConfirmRepo, setAnalysisConfirmRepo] = useState<RepoInfo | null>(null);
   const [analysisDepth, setAnalysisDepth] = useState<AnalysisDepth>("standard");
-  const [pipelineMode, setPipelineMode] = useState<PipelineMode>("static_first");
+  const [pipelineMode, setPipelineMode] = useState<PipelineMode>("graphify");
 
   // UI state
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
@@ -123,7 +123,7 @@ const Repository: React.FC = () => {
   );
 
   const startAnalysis = useCallback(
-    async (repo: RepoInfo, depth: AnalysisDepth = "standard", mode: PipelineMode = "static_first") => {
+    async (repo: RepoInfo, depth: AnalysisDepth = "standard", mode: PipelineMode = "graphify") => {
       if (!repo.repoPath) {
         message.error("缺少仓库路径，无法分析");
         return;
@@ -134,15 +134,24 @@ const Repository: React.FC = () => {
       }
 
       try {
-        const response = await graphEndpoints.analyzeRepository({
-          repo_path: repo.repoPath,
-          repo_name: repo.repoName,
-          repo_id: repo.repoId,
-          branch: repo.branch,
-          languages: repo.language.length > 0 ? repo.language : undefined,
-          depth,
-          pipeline_mode: mode,
-        });
+        let response: { task_id: string };
+        if (mode === "graphify") {
+          response = await graphEndpoints.analyzeGraphify({
+            repo_path: repo.repoPath,
+            repo_name: repo.repoName,
+            repo_id: repo.repoId,
+          });
+        } else {
+          response = await graphEndpoints.analyzeRepository({
+            repo_path: repo.repoPath,
+            repo_name: repo.repoName,
+            repo_id: repo.repoId,
+            branch: repo.branch,
+            languages: repo.language.length > 0 ? repo.language : undefined,
+            depth,
+            pipeline_mode: mode,
+          });
+        }
 
         updateRepo(repo.repoId, {
           status: "analyzing",

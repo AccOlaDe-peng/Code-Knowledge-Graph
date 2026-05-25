@@ -138,6 +138,22 @@ export const graphEndpoints = {
   },
 
   /**
+   * POST /analyze/graphify
+   * Submit graphify analysis via Claude Code skill
+   */
+  async analyzeGraphify(params: {
+    repo_path: string;
+    repo_name?: string;
+    repo_id?: string;
+  }): Promise<{ task_id: string; status: string }> {
+    return apiClient.post("/analyze/graphify", {
+      repo_path: params.repo_path,
+      repo_name: params.repo_name ?? "",
+      repo_id: params.repo_id,
+    });
+  },
+
+  /**
    * GET /analyze/status/{task_id}
    * Get current analysis task status
    */

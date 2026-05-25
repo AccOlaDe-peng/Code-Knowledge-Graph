@@ -64,11 +64,17 @@ const PIPELINE_MODE_OPTIONS: Array<{
   tag?: string;
 }> = [
   {
+    value: "graphify",
+    label: "Claude Code 智能分析",
+    icon: <RobotOutlined />,
+    description: "深度理解，生成架构图+调用图+血缘图",
+    tag: "推荐",
+  },
+  {
     value: "static_first",
     label: "静态分析 + AI 增强",
     icon: <ToolOutlined />,
     description: "高效率，成本低",
-    tag: "推荐",
   },
   {
     value: "ai_first",
