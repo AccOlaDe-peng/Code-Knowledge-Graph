@@ -265,10 +265,62 @@ async def analyze_stream(task_id: str):
               data: {status: "failed", error}
     心跳:     : heartbeat  （每 15 秒）
     """
-    # 若任务未登记且 Celery 中也无任何状态信息，认为 task_id 不存在
-    _check = AsyncResult(task_id, app=celery_app)
-    if _check.state == "PENDING" and _check.info is None and not _is_registered_task_id(task_id):
-        raise HTTPException(status_code=404, detail=f"任务不存在或尚未启动: {task_id}")
+    # 先检查 repo_status_store（graphify 任务不依赖 Redis）
+    from backend.store.repo_status_store import get_repo_status_store
+    status_store = get_repo_status_store()
+    repo_status = status_store.get_by_task_id(task_id)
+
+    if repo_status:
+        # graphify 任务：通过轮询 repo_status_store 推送进度（无需 Redis）
+        async def event_generator():
+            last_status = None
+            last_hb = _time.monotonic()
+            while True:
+                current = status_store.get_by_task_id(task_id)
+                if not current:
+                    yield f'data: {json.dumps({"status": "failed", "error": "任务状态丢失"})}\n\n'
+                    break
+
+                cur_status = current.get("status", "pending")
+                event = {
+                    "status": cur_status,
+                    "step": current.get("step", 0),
+                    "total": current.get("total", 4),
+                    "stage": current.get("stage", ""),
+                    "message": current.get("message", ""),
+                    "graph_id": current.get("graph_id"),
+                    "node_count": current.get("node_count", 0),
+                    "edge_count": current.get("edge_count", 0),
+                }
+
+                if current != last_status:
+                    yield f"data: {json.dumps(event)}\n\n"
+                    last_status = current
+
+                if cur_status in ("completed", "failed", "canceled"):
+                    break
+
+                # 心跳
+                now = _time.monotonic()
+                if now - last_hb >= 15:
+                    yield ": heartbeat\n\n"
+                    last_hb = now
+
+                await asyncio.sleep(1.0)
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    # Celery 任务：需要 Redis
+    try:
+        _check = AsyncResult(task_id, app=celery_app)
+        if _check.state == "PENDING" and _check.info is None and not _is_registered_task_id(task_id):
+            raise HTTPException(status_code=404, detail=f"任务不存在或尚未启动: {task_id}")
+    except sync_redis.exceptions.ConnectionError:
+        raise HTTPException(status_code=503, detail="Redis 未运行，无法查询 Celery 任务状态。请启动 Redis 或使用 graphify 模式。")
 
     async def event_generator():
         # 先发送当前持久化状态（断线重连恢复用）
@@ -384,9 +436,15 @@ def analyze_status(task_id: str):
         )
 
     # Celery 任务：从 Redis 返回状态
-    result = AsyncResult(task_id, app=celery_app)
-    if result.info is None and result.state == "PENDING" and not _is_registered_task_id(task_id):
-        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+    try:
+        result = AsyncResult(task_id, app=celery_app)
+        if result.info is None and result.state == "PENDING" and not _is_registered_task_id(task_id):
+            raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+    except sync_redis.exceptions.ConnectionError:
+        raise HTTPException(
+            status_code=503,
+            detail="Redis 未运行，无法查询 Celery 任务状态。请启动 Redis 或使用 graphify 模式。",
+        )
 
     info = result.info or {}
     if isinstance(info, Exception):

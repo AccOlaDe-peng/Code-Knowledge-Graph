@@ -2,88 +2,77 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import type { AnalysisProgressEvent } from '../../types/api'
 import { graphEndpoints } from '../api/endpoints/graph'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
+const POLL_INTERVAL_MS = 2000 // 2秒轮询间隔
 
 export interface AnalysisStreamResult {
   /** 当前正在执行或最近完成的步骤事件 */
   currentStep: AnalysisProgressEvent | null
-  /** 已完成的步骤列表（status === 'step_done' 的事件） */
+  /** 已完成的步骤列表 */
   completedSteps: AnalysisProgressEvent[]
   /** 最终结果（status === 'completed' 或 'failed'） */
   finalResult: AnalysisProgressEvent | null
-  /** SSE 是否已连接 */
+  /** 是否正在轮询 */
   isConnected: boolean
 }
 
 /**
- * 订阅分析任务进度 SSE 流。
- * taskId 为 null 时不建立连接。
- * taskId 变更时自动关闭旧连接并建立新连接。
+ * 轮询分析任务进度（替代 SSE）。
+ * taskId 为 null 时停止轮询。
+ * taskId 变更时自动重新开始轮询。
  */
 export function useAnalysisStream(taskId: string | null): AnalysisStreamResult {
-  const [currentStep,    setCurrentStep]    = useState<AnalysisProgressEvent | null>(null)
+  const [currentStep, setCurrentStep] = useState<AnalysisProgressEvent | null>(null)
   const [completedSteps, setCompletedSteps] = useState<AnalysisProgressEvent[]>([])
-  const [finalResult,    setFinalResult]    = useState<AnalysisProgressEvent | null>(null)
-  const [isConnected,    setIsConnected]    = useState(false)
+  const [finalResult, setFinalResult] = useState<AnalysisProgressEvent | null>(null)
+  const [isConnected, setIsConnected] = useState(false)
 
-  const esRef       = useRef<EventSource | null>(null)
-  const taskIdRef   = useRef<string | null>(null)
+  const taskIdRef = useRef<string | null>(null)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const handleEvent = useCallback((event: AnalysisProgressEvent) => {
     const { status } = event
 
-    if (status === 'running') {
+    if (status === 'running' || status === 'pending') {
       setCurrentStep(event)
       return
     }
 
-    // Handle step_done if it exists in the status union
     if ('step' in event && event.step !== undefined) {
       setCurrentStep(event)
       setCompletedSteps(prev => {
-        // 避免重复（断线重连可能重发）
         const exists = prev.some(e => e.step === event.step && e.stage === event.stage)
         return exists ? prev : [...prev, event]
       })
       return
     }
 
-    if (status === 'completed' || status === 'failed') {
+    if (status === 'completed' || status === 'failed' || status === 'canceled') {
       setFinalResult(event)
-      // 关闭连接
-      esRef.current?.close()
-      esRef.current = null
+      // 停止轮询
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
       setIsConnected(false)
-      return
-    }
-
-    if (status === 'pending') {
-      setCurrentStep(event)
     }
   }, [])
 
-  // 断线重连时，调 REST 接口恢复最新状态
-  const recoverState = useCallback(async (tid: string) => {
+  const pollStatus = useCallback(async (tid: string) => {
     try {
       const state = await graphEndpoints.getAnalysisStatus(tid)
-      if (state.status === 'completed' || state.status === 'failed') {
-        setFinalResult(state as AnalysisProgressEvent)
-        esRef.current?.close()
-        esRef.current = null
-        setIsConnected(false)
-      } else {
-        handleEvent(state as AnalysisProgressEvent)
-      }
+      handleEvent(state as AnalysisProgressEvent)
     } catch {
-      // 恢复失败时不处理，等待 EventSource 重连
+      // 轮询失败时忽略，继续下次轮询
     }
   }, [handleEvent])
 
   useEffect(() => {
     if (!taskId) {
-      // taskId 清空时重置所有状态
-      esRef.current?.close()
-      esRef.current = null
+      // taskId 清空时停止轮询并重置状态
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
       taskIdRef.current = null
       setCurrentStep(null)
       setCompletedSteps([])
@@ -92,47 +81,36 @@ export function useAnalysisStream(taskId: string | null): AnalysisStreamResult {
       return
     }
 
-    if (taskId === taskIdRef.current) return  // 同一个 taskId 不重复连接
+    if (taskId === taskIdRef.current) return // 同一个 taskId 不重复启动
 
-    // 关闭旧连接
-    esRef.current?.close()
+    // 停止旧轮询
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current)
+    }
     taskIdRef.current = taskId
 
     // 重置状态
     setCurrentStep(null)
     setCompletedSteps([])
     setFinalResult(null)
+    setIsConnected(true)
 
-    // 建立新 SSE 连接
-    const url = `${API_BASE}/analyze/stream/${taskId}`
-    const es = new EventSource(url)
-    esRef.current = es
+    // 立即发起第一次请求
+    pollStatus(taskId)
 
-    es.onopen = () => setIsConnected(true)
-
-    es.onmessage = (e) => {
-      try {
-        const event: AnalysisProgressEvent = JSON.parse(e.data)
-        handleEvent(event)
-      } catch {
-        // 忽略非 JSON 消息（如 heartbeat 注释行不会触发 onmessage）
-      }
-    }
-
-    es.onerror = () => {
-      setIsConnected(false)
-      // EventSource 会自动重连；重连时恢复最新状态
-      if (taskIdRef.current) {
-        recoverState(taskIdRef.current)
-      }
-    }
+    // 开始轮询
+    intervalRef.current = setInterval(() => {
+      pollStatus(taskId)
+    }, POLL_INTERVAL_MS)
 
     return () => {
-      es.close()
-      esRef.current = null
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
       setIsConnected(false)
     }
-  }, [taskId, handleEvent, recoverState])
+  }, [taskId, pollStatus])
 
   return { currentStep, completedSteps, finalResult, isConnected }
 }

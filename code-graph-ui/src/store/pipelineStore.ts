@@ -22,7 +22,7 @@ export const usePipelineStore = create<PipelineState>()((set) => ({
   loaded: false,
   mode: "pipeline",
   setStages: (stages, total, mode) =>
-    set((state) => ({
+    set(() => ({
       ...(mode === "pipeline"
         ? { stages, total, loaded: true, mode }
         : { graphifyStages: stages, total, loaded: true, mode }),
